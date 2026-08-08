@@ -39,12 +39,12 @@ const COR = {
 };
 
 const UNIDADES = [
-  { id: 'textil', nome: 'ARA Têxtil', cor: '#0069B4' },
-  { id: 'agricola', nome: 'ARA Agrícola', cor: '#009640' },
-  { id: 'resorts', nome: 'ARA Resorts', cor: '#79834F' },
-  { id: 'ei', nome: 'ARA EI', cor: '#F07D00' },
-  { id: 'energia', nome: 'ARA Energia', cor: '#FECC00' },
-  { id: 'corporativo', nome: 'Corporativo', cor: '#0C4391' },
+  { id: 'textil', nome: 'ARA Têxtil', cor: '#0069B4', logo: '/logos/ara-textil.jpg' },
+  { id: 'agricola', nome: 'ARA Agrícola', cor: '#009640', logo: '/logos/ara-agricola.png' },
+  { id: 'resorts', nome: 'ARA Resorts', cor: '#79834F', logo: null }, // pendente: só temos a versão branca do arquivo (ilegível em fundo claro)
+  { id: 'ei', nome: 'ARA EI', cor: '#F07D00', logo: null }, // pendente: arquivo não recebido ainda
+  { id: 'energia', nome: 'ARA Energia', cor: '#FECC00', logo: null }, // pendente: arquivo não recebido ainda
+  { id: 'corporativo', nome: 'Corporativo', cor: '#0C4391', logo: '/logos/grupo-ara.jpg' },
 ];
 
 const FONT = "'Aptos Narrow','Aptos','Segoe UI',system-ui,sans-serif";
@@ -2472,9 +2472,12 @@ export default function OrcamentoARA({ usuario }) {
     <div style={{ fontFamily: FONT, color: COR.texto, background: COR.branco, minHeight: '100%', padding: 0 }}>
       <div style={{ background: COR.azul, padding: '16px 22px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: COR.laranja, letterSpacing: 1.2 }}>GRUPO ARA · FP&amp;A</div>
-            <div style={{ fontSize: 19, fontWeight: 700, color: COR.branco }}>Orçamento 2027 — Grupo ARA</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <img src="/logos/grupo-ara.jpg" alt="Grupo ARA" style={{ height: 32, borderRadius: 3, background: '#fff', padding: '3px 6px' }} />
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: COR.laranja, letterSpacing: 1.2 }}>GRUPO ARA · FP&amp;A</div>
+              <div style={{ fontSize: 19, fontWeight: 700, color: COR.branco }}>Orçamento 2027 — Grupo ARA</div>
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {/* Antes, qualquer um clicava aqui e virava "FP&A" — agora o
@@ -2726,8 +2729,17 @@ function VisaoGerente(props) {
                 border: `1.5px solid ${u.id === unidadeAtual ? u.cor : COR.borda}`,
                 background: u.id === unidadeAtual ? u.cor : COR.branco,
                 color: u.id === unidadeAtual ? COR.branco : COR.texto,
+                display: 'flex', alignItems: 'center', gap: 7,
               }}
-            >{u.nome}</button>
+            >
+              {u.logo && (
+                <img
+                  src={u.logo} alt=""
+                  style={{ height: 16, borderRadius: 2, background: '#fff', padding: u.id === unidadeAtual ? '1px 3px' : 0 }}
+                />
+              )}
+              {u.nome}
+            </button>
           ))}
         </div>
         <StatusBadge status={dados.meta?.status} />
