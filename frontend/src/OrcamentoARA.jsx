@@ -2473,7 +2473,7 @@ export default function OrcamentoARA({ usuario }) {
       <div style={{ background: COR.azul, padding: '16px 22px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <img src="/logos/grupo-ara.jpg" alt="Grupo ARA" style={{ height: 32, borderRadius: 3, background: '#fff', padding: '3px 6px' }} />
+            <img src="/logos/grupo-ara.jpg" alt="Grupo ARA" style={{ height: 52, borderRadius: 4, background: '#fff', padding: '4px 8px' }} />
             <div>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: COR.laranja, letterSpacing: 1.2 }}>GRUPO ARA · FP&amp;A</div>
               <div style={{ fontSize: 19, fontWeight: 700, color: COR.branco }}>Orçamento 2027 — Grupo ARA</div>
@@ -2725,17 +2725,17 @@ function VisaoGerente(props) {
             <button
               key={u.id} onClick={() => setUnidadeAtual(u.id)}
               style={{
-                fontFamily: FONT, fontSize: 12, fontWeight: 700, padding: '7px 12px', borderRadius: 20, cursor: 'pointer',
+                fontFamily: FONT, fontSize: 12, fontWeight: 700, padding: '8px 14px', borderRadius: 22, cursor: 'pointer',
                 border: `1.5px solid ${u.id === unidadeAtual ? u.cor : COR.borda}`,
                 background: u.id === unidadeAtual ? u.cor : COR.branco,
                 color: u.id === unidadeAtual ? COR.branco : COR.texto,
-                display: 'flex', alignItems: 'center', gap: 7,
+                display: 'flex', alignItems: 'center', gap: 8,
               }}
             >
               {u.logo && (
                 <img
                   src={u.logo} alt=""
-                  style={{ height: 16, borderRadius: 2, background: '#fff', padding: u.id === unidadeAtual ? '1px 3px' : 0 }}
+                  style={{ height: 24, borderRadius: 3, background: '#fff', padding: u.id === unidadeAtual ? '2px 5px' : '1px 3px' }}
                 />
               )}
               {u.nome}
