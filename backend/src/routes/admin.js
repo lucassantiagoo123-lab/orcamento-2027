@@ -8,6 +8,8 @@ import {
   vincularUnidade, desvincularUnidade, vincularCc, desvincularCc,
   listarConcessoes, criarConcessao, revogarConcessao,
 } from '../db/admin.js';
+import { definirSenha } from '../db/usuarios.js';
+import { validarSenha, gerarHashSenha } from '../auth/senha.js';
 
 export const adminRouter = Router();
 adminRouter.use(exigirPerfil('admin_fpa'));
@@ -46,6 +48,21 @@ adminRouter.patch('/usuarios/:id', async (req, res, next) => {
     const usuario = await atualizarUsuario(req.params.id, { perfil, ativo });
     if (!usuario) return res.status(404).json({ erro: 'usuario_nao_encontrado' });
     res.json({ usuario });
+  } catch (err) { next(err); }
+});
+
+/** Admin define/reseta a senha de qualquer usuário — não há autocadastro
+ * nem "esqueci minha senha" por e-mail ainda (pendência, ver
+ * auth/senha.js). O usuário troca essa senha inicial pela própria depois,
+ * via POST /auth/alterar-senha. */
+adminRouter.post('/usuarios/:id/senha', async (req, res, next) => {
+  try {
+    const { senha } = req.body || {};
+    const erroValidacao = validarSenha(senha);
+    if (erroValidacao) return res.status(400).json({ erro: 'senha_invalida', mensagem: erroValidacao });
+
+    await definirSenha(req.params.id, await gerarHashSenha(senha));
+    res.status(204).end();
   } catch (err) { next(err); }
 });
 

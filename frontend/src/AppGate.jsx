@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getMe, irParaLogin } from './api/auth.js';
 import { verificarStatusBackend, devLogin } from './api/devLogin.js';
+import { loginSenha } from './api/senha.js';
 import { ApiError } from './api/client.js';
 import OrcamentoARA from './OrcamentoARA.jsx';
 import AdminPanel from './AdminPanel.jsx';
@@ -58,6 +59,8 @@ export default function AppGate() {
           </p>
         )}
 
+        <LoginSenha onEntrou={() => window.location.reload()} />
+
         {statusBackend?.loginDevDisponivel && <LoginDev onEntrou={() => window.location.reload()} />}
       </TelaCentral>
     );
@@ -80,6 +83,57 @@ export default function AppGate() {
         </div>
       )}
       <OrcamentoARA usuario={usuario} />
+    </div>
+  );
+}
+
+/** Login por e-mail e senha (Opção A, em paralelo ao SSO) — só funciona
+ * para usuários que já têm uma senha definida por um admin_fpa no painel de
+ * administração. Não tem "esqueci minha senha" ainda (pendência registrada
+ * em backend/src/auth/senha.js). */
+function LoginSenha({ onEntrou }) {
+  const [email, setEmail] = useState('');
+  const [senha, setSenha] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setEnviando(true);
+    setErro(null);
+    try {
+      await loginSenha(email.trim(), senha);
+      onEntrou();
+    } catch (err) {
+      setErro(err instanceof ApiError ? err.message : 'Falha ao entrar.');
+    }
+    setEnviando(false);
+  }
+
+  return (
+    <div style={{ marginTop: 20, maxWidth: 300 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#7A8088', letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
+        ou entre com e-mail e senha
+      </div>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <input
+          required type="email" placeholder="seu.nome@grupoara.com.br"
+          value={email} onChange={(e) => setEmail(e.target.value)}
+          style={{ fontSize: 12, padding: '8px 10px', borderRadius: 6, border: '1px solid #D9D9D9' }}
+        />
+        <input
+          required type="password" placeholder="senha"
+          value={senha} onChange={(e) => setSenha(e.target.value)}
+          style={{ fontSize: 12, padding: '8px 10px', borderRadius: 6, border: '1px solid #D9D9D9' }}
+        />
+        <button type="submit" disabled={enviando} style={{ fontSize: 12.5, fontWeight: 700, padding: '8px 12px', borderRadius: 6, border: 'none', background: COR_AZUL, color: '#fff', cursor: 'pointer' }}>
+          {enviando ? 'Entrando…' : 'Entrar'}
+        </button>
+      </form>
+      {erro && <p style={{ fontSize: 11, color: '#C00000', marginTop: 6 }}>{erro}</p>}
+      <p style={{ fontSize: 10.5, color: '#B5BAC0', marginTop: 8 }}>
+        Sem senha ainda? Peça a um Admin FP&amp;A para definir uma no painel de administração.
+      </p>
     </div>
   );
 }

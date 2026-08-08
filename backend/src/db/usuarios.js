@@ -36,6 +36,21 @@ export async function buscarUsuarioPorEmail(email) {
   return rows[0] || null;
 }
 
+/** Igual a buscarUsuarioPorEmail, mas inclui senha_hash — só para o fluxo de
+ * login por senha (auth/routes.js /login-senha). Mantido separado da versão
+ * acima pra não vazar senha_hash em nenhum outro lugar sem querer. */
+export async function buscarUsuarioComSenhaPorEmail(email) {
+  const { rows } = await pool.query(
+    `SELECT id, ativo, senha_hash FROM usuarios WHERE email = $1`,
+    [email.toLowerCase()]
+  );
+  return rows[0] || null;
+}
+
+export async function definirSenha(usuarioId, senhaHash) {
+  await pool.query(`UPDATE usuarios SET senha_hash = $2 WHERE id = $1`, [usuarioId, senhaHash]);
+}
+
 export async function registrarLogin(usuarioId) {
   await pool.query(`UPDATE usuarios SET ultimo_login = now() WHERE id = $1`, [usuarioId]);
 }

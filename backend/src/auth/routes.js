@@ -10,7 +10,10 @@ import { Router } from 'express';
 import { config, ssoConfigurado } from '../config.js';
 import { getOidcClient, generators } from './oidc.js';
 import { emitirSessao, limparSessao } from './session.js';
-import { buscarUsuarioPorEmail, registrarLogin } from '../db/usuarios.js';
+import { buscarUsuarioPorEmail, buscarUsuarioComSenhaPorEmail, definirSenha, registrarLogin } from '../db/usuarios.js';
+import { validarSenha, gerarHashSenha, verificarSenha } from './senha.js';
+import { verificarBloqueio, registrarFalha, limparTentativas } from './loginThrottle.js';
+import { authenticate } from '../middleware/authenticate.js';
 
 export const authRouter = Router();
 
@@ -101,6 +104,72 @@ authRouter.get('/callback', exigirSsoConfigurado, async (req, res, next) => {
 authRouter.post('/logout', (req, res) => {
   limparSessao(res);
   res.status(204).end();
+});
+
+// ---------------------------------------------------------------------------
+// Login por e-mail e senha (Opção A da especificação, seção 5) — em paralelo
+// ao SSO, não no lugar dele (decisão de 2026-08-08). Um usuário só consegue
+// entrar por aqui se um admin_fpa já tiver definido uma senha para ele (ver
+// POST /api/admin/usuarios/:id/senha) — não há autocadastro.
+// ---------------------------------------------------------------------------
+authRouter.post('/login-senha', async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').toLowerCase();
+    const senha = String(req.body?.senha || '');
+    if (!email || !senha) return res.status(400).json({ erro: 'campos_obrigatorios' });
+
+    const bloqueadoAte = verificarBloqueio(email);
+    if (bloqueadoAte) {
+      return res.status(429).json({
+        erro: 'muitas_tentativas',
+        mensagem: `Muitas tentativas com esta senha. Tente de novo depois de ${new Date(bloqueadoAte).toLocaleTimeString('pt-BR')}.`,
+      });
+    }
+
+    const usuario = await buscarUsuarioComSenhaPorEmail(email);
+    const senhaOk = usuario ? await verificarSenha(senha, usuario.senha_hash) : await verificarSenha(senha, null);
+    // ↑ mesmo se o usuário não existir, roda verificarSenha (que retorna
+    // false rápido pra hash nulo) — evita que o tempo de resposta denuncie
+    // se um e-mail existe ou não (timing attack simples).
+
+    if (!usuario || !senhaOk) {
+      registrarFalha(email);
+      return res.status(401).json({ erro: 'credenciais_invalidas' });
+    }
+    if (!usuario.ativo) {
+      return res.status(403).json({ erro: 'usuario_inativo' });
+    }
+
+    limparTentativas(email);
+    emitirSessao(res, usuario.id);
+    await registrarLogin(usuario.id);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Troca a própria senha — exige estar logado (com qualquer método: SSO,
+ * senha ou login-dev) e informar a senha atual, exceto quando o usuário
+ * ainda não tem nenhuma (primeira definição, ex.: depois de um admin criar
+ * a conta ou resetar a senha). */
+authRouter.post('/alterar-senha', authenticate, async (req, res, next) => {
+  try {
+    const { senhaAtual, senhaNova } = req.body || {};
+    const erroValidacao = validarSenha(senhaNova);
+    if (erroValidacao) return res.status(400).json({ erro: 'senha_invalida', mensagem: erroValidacao });
+
+    const usuarioComSenha = await buscarUsuarioComSenhaPorEmail(req.usuario.email);
+    if (usuarioComSenha.senha_hash) {
+      const ok = await verificarSenha(senhaAtual || '', usuarioComSenha.senha_hash);
+      if (!ok) return res.status(401).json({ erro: 'senha_atual_incorreta' });
+    }
+
+    await definirSenha(req.usuario.id, await gerarHashSenha(senhaNova));
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ---------------------------------------------------------------------------

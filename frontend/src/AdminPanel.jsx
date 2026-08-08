@@ -7,6 +7,7 @@ import {
   listarUsuarios, criarUsuario, atualizarUsuario, vincularUnidade, desvincularUnidade,
   vincularCc, desvincularCc, listarConcessoes, criarConcessao, revogarConcessao,
 } from './api/admin.js';
+import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
 
 const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9D9D9', claro: '#F7F7F7' };
@@ -104,7 +105,7 @@ function SecaoUsuarios({ usuarios, onMudou }) {
         <thead>
           <tr>
             <th style={th}>Nome</th><th style={th}>E-mail</th><th style={th}>Perfil</th>
-            <th style={th}>Unidades</th><th style={th}>CCs (Corporativo)</th><th style={th}>Ativo</th>
+            <th style={th}>Unidades</th><th style={th}>CCs (Corporativo)</th><th style={th}>Senha</th><th style={th}>Ativo</th>
           </tr>
         </thead>
         <tbody>
@@ -119,6 +120,24 @@ const campo = { fontSize: 12.5, padding: '6px 8px', borderRadius: 6, border: `1p
 
 function LinhaUsuario({ usuario, onMudou }) {
   const [ccNovo, setCcNovo] = useState('');
+  const [editandoSenha, setEditandoSenha] = useState(false);
+  const [senhaNova, setSenhaNova] = useState('');
+  const [erroSenha, setErroSenha] = useState(null);
+  const [salvandoSenha, setSalvandoSenha] = useState(false);
+
+  async function handleDefinirSenha(e) {
+    e.preventDefault();
+    setSalvandoSenha(true);
+    setErroSenha(null);
+    try {
+      await definirSenhaUsuario(usuario.id, senhaNova);
+      setSenhaNova('');
+      setEditandoSenha(false);
+    } catch (err) {
+      setErroSenha(err instanceof ApiError ? err.message : 'Falha ao definir senha.');
+    }
+    setSalvandoSenha(false);
+  }
 
   async function mudarPerfil(perfil) {
     await atualizarUsuario(usuario.id, { perfil });
@@ -183,6 +202,22 @@ function LinhaUsuario({ usuario, onMudou }) {
             </form>
           </>
         ) : <span style={{ color: '#B5BAC0' }}>—</span>}
+      </td>
+      <td style={td}>
+        {editandoSenha ? (
+          <form onSubmit={handleDefinirSenha} style={{ display: 'flex', gap: 4 }}>
+            <input
+              required type="password" minLength={8} placeholder="mín. 8 caracteres"
+              value={senhaNova} onChange={(e) => setSenhaNova(e.target.value)}
+              style={{ ...campo, width: 110 }}
+            />
+            <button type="submit" disabled={salvandoSenha} style={{ ...botaoSecundario, padding: '4px 8px' }}>✓</button>
+            <button type="button" onClick={() => { setEditandoSenha(false); setErroSenha(null); }} style={{ ...botaoSecundario, padding: '4px 8px' }}>×</button>
+            {erroSenha && <div style={{ color: '#C00000', fontSize: 10.5, width: '100%' }}>{erroSenha}</div>}
+          </form>
+        ) : (
+          <button onClick={() => setEditandoSenha(true)} style={botaoSecundario}>Definir senha</button>
+        )}
       </td>
       <td style={td}>
         <button onClick={alternarAtivo} style={{ ...botaoSecundario, color: usuario.ativo ? '#C00000' : '#008000' }}>
