@@ -968,15 +968,18 @@ const LINHAS_RECEITA_RESORTS = [
 ];
 // baseLinhaIds: quais linhas de receita somadas formam a base do percentual
 // ("A&B" na planilha = Alimentação e Bebidas + Café e Pensão somados).
+// Bases conferidas direto nas fórmulas da planilha (não aproximação — ver
+// nota completa no arquivo espelho backend/src/calc/receitaAgricolaResorts.js).
+// Café e Pensão não entra em nenhuma base de dedução.
 const DEDUCOES_REF_RESORTS = [
-  { id: 'pis_hospedagem', nome: 'PIS — % Receita Hospedagem', pctRef: 0.65, baseLinhaIds: ['hospedagem'] },
-  { id: 'cofins_hospedagem', nome: 'Cofins — % Receita Hospedagem', pctRef: 3, baseLinhaIds: ['hospedagem'] },
-  { id: 'iss_hospedagem', nome: 'ISS — % Receita Hospedagem', pctRef: 5, baseLinhaIds: ['hospedagem'] },
-  { id: 'pis_aeb', nome: 'PIS — % Receita A&B', pctRef: 1.65, baseLinhaIds: ['aeb', 'cafePensao'] },
-  { id: 'cofins_aeb', nome: 'Cofins — % Receita A&B', pctRef: 7.6, baseLinhaIds: ['aeb', 'cafePensao'] },
-  { id: 'icms_aeb', nome: 'ICMS — % A&B', pctRef: 2.12, baseLinhaIds: ['aeb', 'cafePensao'] },
-  { id: 'descontos_servicos', nome: 'Descontos sobre serviços — % Receita A&B', pctRef: 0, baseLinhaIds: ['aeb', 'cafePensao'] },
-  { id: 'descontos_aeb', nome: 'Descontos A&B — % A&B', pctRef: 0, baseLinhaIds: ['aeb', 'cafePensao'] },
+  { id: 'pis_hospedagem', nome: 'PIS — % Receita Hospedagem', pctRef: 0.65, baseLinhaIds: ['hospedagem', 'outrasIss'] },
+  { id: 'cofins_hospedagem', nome: 'Cofins — % Receita Hospedagem', pctRef: 3, baseLinhaIds: ['hospedagem', 'outrasIss'] },
+  { id: 'iss_hospedagem', nome: 'ISS — % Receita Hospedagem', pctRef: 5, baseLinhaIds: ['hospedagem', 'arrumacao'] },
+  { id: 'pis_aeb', nome: 'PIS — % Receita A&B', pctRef: 1.65, baseLinhaIds: ['aeb', 'alugueis', 'arrumacao'] },
+  { id: 'cofins_aeb', nome: 'Cofins — % Receita A&B', pctRef: 7.6, baseLinhaIds: ['aeb', 'alugueis', 'arrumacao'] },
+  { id: 'icms_aeb', nome: 'ICMS — % A&B', pctRef: 2.12, baseLinhaIds: ['aeb'] },
+  { id: 'descontos_servicos', nome: 'Descontos sobre serviços — % Receita A&B', pctRef: 0, baseLinhaIds: ['hospedagem', 'moorea', 'alugueis', 'outrasIss', 'arrumacao'] },
+  { id: 'descontos_aeb', nome: 'Descontos A&B — % A&B', pctRef: 0, baseLinhaIds: ['aeb'] },
 ];
 
 const REF_VAZIA = { ccs: [], todasContas: {} };

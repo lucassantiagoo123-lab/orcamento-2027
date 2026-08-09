@@ -78,16 +78,25 @@ export const REFERENCIA_2026_RESORTS = {
 };
 
 // baseLinhaIds: quais linhas de receita somadas formam a base do percentual
-// (em vez de sempre a receita bruta total, como Têxtil/Agrícola). "A&B" na
-// planilha = Alimentação e Bebidas + Café e Pensão somados (conferido:
-// R$2.880.272,72 em jan = R$1.508.080,72 + R$1.372.192,00).
+// (em vez de sempre a receita bruta total, como Têxtil/Agrícola). Conferido
+// direto nas fórmulas da planilha (não é aproximação — os valores batem
+// numericamente, inclusive Cofins, cuja célula não trazia fórmula visível
+// mas cujo resultado só fecha com a mesma base do PIS correspondente):
+//   PIS/Cofins Hospedagem = Hospedagem + Outras Receitas (ISS)
+//   ISS Hospedagem        = Hospedagem + Arrumação (LFCVH)
+//   PIS/Cofins A&B        = Alimentação e Bebidas + Aluguéis + Arrumação
+//   ICMS A&B               = Alimentação e Bebidas (só)
+//   Descontos s/ serviços  = Hospedagem + Moorea + Aluguéis + Outras(ISS) + Arrumação
+//   Descontos A&B          = Alimentação e Bebidas (só)
+// Café e Pensão NÃO entra em nenhuma base de dedução — nenhuma das 8
+// fórmulas da planilha a referencia.
 export const DEDUCOES_REF_RESORTS = [
-  { id: 'pis_hospedagem', nome: 'PIS — % Receita Hospedagem', pctRef: 0.65, baseLinhaIds: ['hospedagem'] },
-  { id: 'cofins_hospedagem', nome: 'Cofins — % Receita Hospedagem', pctRef: 3, baseLinhaIds: ['hospedagem'] },
-  { id: 'iss_hospedagem', nome: 'ISS — % Receita Hospedagem', pctRef: 5, baseLinhaIds: ['hospedagem'] },
-  { id: 'pis_aeb', nome: 'PIS — % Receita A&B', pctRef: 1.65, baseLinhaIds: ['aeb', 'cafePensao'] },
-  { id: 'cofins_aeb', nome: 'Cofins — % Receita A&B', pctRef: 7.6, baseLinhaIds: ['aeb', 'cafePensao'] },
-  { id: 'icms_aeb', nome: 'ICMS — % A&B', pctRef: 2.12, baseLinhaIds: ['aeb', 'cafePensao'] },
-  { id: 'descontos_servicos', nome: 'Descontos sobre serviços — % Receita A&B', pctRef: 0, baseLinhaIds: ['aeb', 'cafePensao'] },
-  { id: 'descontos_aeb', nome: 'Descontos A&B — % A&B', pctRef: 0, baseLinhaIds: ['aeb', 'cafePensao'] },
+  { id: 'pis_hospedagem', nome: 'PIS — % Receita Hospedagem', pctRef: 0.65, baseLinhaIds: ['hospedagem', 'outrasIss'] },
+  { id: 'cofins_hospedagem', nome: 'Cofins — % Receita Hospedagem', pctRef: 3, baseLinhaIds: ['hospedagem', 'outrasIss'] },
+  { id: 'iss_hospedagem', nome: 'ISS — % Receita Hospedagem', pctRef: 5, baseLinhaIds: ['hospedagem', 'arrumacao'] },
+  { id: 'pis_aeb', nome: 'PIS — % Receita A&B', pctRef: 1.65, baseLinhaIds: ['aeb', 'alugueis', 'arrumacao'] },
+  { id: 'cofins_aeb', nome: 'Cofins — % Receita A&B', pctRef: 7.6, baseLinhaIds: ['aeb', 'alugueis', 'arrumacao'] },
+  { id: 'icms_aeb', nome: 'ICMS — % A&B', pctRef: 2.12, baseLinhaIds: ['aeb'] },
+  { id: 'descontos_servicos', nome: 'Descontos sobre serviços — % Receita A&B', pctRef: 0, baseLinhaIds: ['hospedagem', 'moorea', 'alugueis', 'outrasIss', 'arrumacao'] },
+  { id: 'descontos_aeb', nome: 'Descontos A&B — % A&B', pctRef: 0, baseLinhaIds: ['aeb'] },
 ];
