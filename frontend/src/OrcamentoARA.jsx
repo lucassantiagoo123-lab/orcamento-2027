@@ -39,12 +39,12 @@ const COR = {
 };
 
 const UNIDADES = [
-  { id: 'textil', nome: 'ARA Têxtil', cor: '#0069B4', logo: '/logos/ara-textil.jpg' },
-  { id: 'agricola', nome: 'ARA Agrícola', cor: '#009640', logo: '/logos/ara-agricola.png' },
-  { id: 'resorts', nome: 'ARA Resorts', cor: '#79834F', logo: null }, // pendente: só temos a versão branca do arquivo (ilegível em fundo claro)
+  { id: 'textil', nome: 'ARA Têxtil', cor: '#0069B4', logo: '/logos/ara-textil.jpg', logoAltura: 24 },
+  { id: 'agricola', nome: 'ARA Agrícola', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
+  { id: 'resorts', nome: 'ARA Resorts', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
   { id: 'ei', nome: 'ARA EI', cor: '#F07D00', logo: null }, // pendente: arquivo não recebido ainda
   { id: 'energia', nome: 'ARA Energia', cor: '#FECC00', logo: null }, // pendente: arquivo não recebido ainda
-  { id: 'corporativo', nome: 'Corporativo', cor: '#0C4391', logo: '/logos/grupo-ara.jpg' },
+  { id: 'corporativo', nome: 'Corporativo', cor: '#0C4391', logo: '/logos/grupo-ara.jpg', logoAltura: 24 },
 ];
 
 const FONT = "'Aptos Narrow','Aptos','Segoe UI',system-ui,sans-serif";
@@ -2062,8 +2062,7 @@ export default function OrcamentoARA({ usuario }) {
   const [backlog, setBacklog] = useState([]);
   const [unidadeDrill, setUnidadeDrill] = useState(null);
   const [versoesDrill, setVersoesDrill] = useState([]);
-  const [resumoParaCopiar, setResumoParaCopiar] = useState('');
-  const [resumoCopiado, setResumoCopiado] = useState(false);
+  const [statusPptx, setStatusPptx] = useState(null); // { mensagem, erro? }
   const [etapasProcesso, setEtapasProcesso] = useState(ETAPAS_PROCESSO_PADRAO);
   const [premissasMacro, setPremissasMacro] = useState(PREMISSAS_MACRO_REF.map(p => ({ id: p.id, nome: p.nome, unidade: p.unidade, valor: '', fonte: null, atualizadoEm: null })));
   const [buscandoFocus, setBuscandoFocus] = useState(false);
@@ -2186,6 +2185,7 @@ export default function OrcamentoARA({ usuario }) {
       try {
         const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
         await putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } });
+        setUltimoSalvoEm(new Date());
       } catch (e) {
         setErro('Não foi possível salvar o rascunho automaticamente. Verifique a conexão.');
       }
@@ -2193,6 +2193,24 @@ export default function OrcamentoARA({ usuario }) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dados, unidadeAtual, role, carregando]);
+
+  // Botão explícito de "Salvar rascunho" — o autosave acima já salva sozinho
+  // (debounced, 900ms depois da última mudança), mas alguns usuários querem
+  // a confirmação visual de "salvei agora" em vez de confiar no automático.
+  const [salvandoRascunho, setSalvandoRascunho] = useState(false);
+  const [ultimoSalvoEm, setUltimoSalvoEm] = useState(null);
+  async function salvarRascunhoAgora() {
+    setSalvandoRascunho(true);
+    setErro(null);
+    try {
+      const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
+      await putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } });
+      setUltimoSalvoEm(new Date());
+    } catch (e) {
+      setErro('Não foi possível salvar o rascunho. Verifique a conexão.');
+    }
+    setSalvandoRascunho(false);
+  }
 
   const dre = useMemo(() => computeDRE(dados), [dados]);
   const checks = useMemo(() => runAuditoria(dados, dre), [dados, dre]);
@@ -2450,21 +2468,136 @@ export default function OrcamentoARA({ usuario }) {
     XLSX.writeFile(wb, `Orcamento_2027_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}.xlsx`);
   }
 
-  function solicitarResumoExecutivo() {
-    let resumo;
-    if (role === 'fpa') {
-      resumo = UNIDADES.map(u => {
-        const d = statusUnidades[u.id];
-        const t = d ? computeDRE(d) : computeDRE(emptyFormData());
-        return `${u.nome}: receita líquida ${formatBRL(t.receitaLiquida)}, EBITDA ${formatBRL(t.ebitda)} (${formatPct(t.margemEbitda)}), lucro líquido ${formatBRL(t.lucroLiquido)} (${formatPct(t.margemLiquida)}), status ${d?.meta?.status || 'nao_iniciado'}`;
-      }).join('\n');
-    } else {
-      resumo = `${unidadeObj.nome}: receita líquida ${formatBRL(dre.receitaLiquida)}, lucro bruto ${formatBRL(dre.lucroBruto)} (${formatPct(dre.margemBruta)}), EBITDA ${formatBRL(dre.ebitda)} (${formatPct(dre.margemEbitda)}), lucro líquido ${formatBRL(dre.lucroLiquido)} (${formatPct(dre.margemLiquida)})`;
-    }
-    const texto = `Gere um PPT executivo do Orçamento 2027 do Grupo ARA com esta cascata de DRE, seguindo o padrão visual do deck de implantação:\n${resumo}`;
-    setResumoParaCopiar(texto);
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(texto).then(() => setResumoCopiado(true)).catch(() => setResumoCopiado(false));
+  // Resumo Executivo em PPT de verdade (3 slides, para apresentação ao
+  // Conselho de Administração — CAD), gerado no navegador com pptxgenjs.
+  // Antes disto, a função só copiava um texto pra área de transferência
+  // pedindo pra colar numa conversa com o Claude — fazia sentido dentro do
+  // protótipo (Caminho A), mas não faz mais sentido numa aplicação real.
+  async function solicitarResumoExecutivo() {
+    setStatusPptx({ mensagem: 'Gerando o PPT…' });
+    try {
+      const PptxGenJS = (await import('pptxgenjs')).default;
+      const pptx = new PptxGenJS();
+      pptx.layout = 'LAYOUT_16x9';
+      const AZUL = '0C4391', LARANJA = 'FFA707', TEXTO = '494949', CLARO = 'F7F7F7';
+
+      const tituloUnidade = role === 'fpa' ? 'Grupo ARA — Consolidado' : unidadeObj.nome;
+      const dataGeracao = new Date().toLocaleDateString('pt-BR');
+
+      // -------------------- Slide 1 — Capa e resumo executivo --------------------
+      const s1 = pptx.addSlide();
+      s1.background = { color: AZUL };
+      s1.addText('ORÇAMENTO 2027', { x: 0.6, y: 0.5, w: 9, h: 0.5, fontSize: 13, bold: true, color: LARANJA, charSpacing: 2 });
+      s1.addText(tituloUnidade, { x: 0.6, y: 0.9, w: 9, h: 0.8, fontSize: 30, bold: true, color: 'FFFFFF' });
+      s1.addText(`Resumo Executivo — Apresentação ao Conselho de Administração · ${dataGeracao}`, { x: 0.6, y: 1.55, w: 9, h: 0.4, fontSize: 12, color: 'D9E4F5' });
+
+      const kpis = role === 'fpa'
+        ? (() => {
+            const totais = UNIDADES.reduce((acc, u) => {
+              const d = statusUnidades[u.id];
+              const t = d ? computeDRE(d) : computeDRE(emptyFormData());
+              acc.receitaLiquida += t.receitaLiquida; acc.ebitda += t.ebitda; acc.lucroLiquido += t.lucroLiquido;
+              return acc;
+            }, { receitaLiquida: 0, ebitda: 0, lucroLiquido: 0 });
+            return [
+              { label: 'Receita Líquida', valor: formatBRL(totais.receitaLiquida) },
+              { label: 'EBITDA', valor: `${formatBRL(totais.ebitda)}  (${formatPct(totais.receitaLiquida ? totais.ebitda / totais.receitaLiquida * 100 : 0)})` },
+              { label: 'Lucro Líquido', valor: `${formatBRL(totais.lucroLiquido)}  (${formatPct(totais.receitaLiquida ? totais.lucroLiquido / totais.receitaLiquida * 100 : 0)})` },
+            ];
+          })()
+        : [
+            { label: 'Receita Líquida', valor: formatBRL(dre.receitaLiquida) },
+            { label: 'EBITDA', valor: `${formatBRL(dre.ebitda)}  (${formatPct(dre.margemEbitda)})` },
+            { label: 'Lucro Líquido', valor: `${formatBRL(dre.lucroLiquido)}  (${formatPct(dre.margemLiquida)})` },
+          ];
+
+      kpis.forEach((k, i) => {
+        const x = 0.6 + i * 3.13;
+        s1.addShape('roundRect', { x, y: 2.4, w: 2.9, h: 1.7, fill: { color: 'FFFFFF' }, rectRadius: 0.08, line: { color: 'FFFFFF' } });
+        s1.addText(k.label.toUpperCase(), { x: x + 0.15, y: 2.55, w: 2.6, h: 0.4, fontSize: 10.5, bold: true, color: '7A8088', charSpacing: 1 });
+        s1.addText(k.valor, { x: x + 0.15, y: 2.9, w: 2.6, h: 1.0, fontSize: 17, bold: true, color: AZUL, valign: 'top' });
+      });
+
+      // -------------------- Slide 2 — Cascata de DRE / comparativo por unidade --------------------
+      const s2 = pptx.addSlide();
+      s2.addText('Cascata de DRE', { x: 0.5, y: 0.35, w: 9, h: 0.5, fontSize: 20, bold: true, color: AZUL });
+
+      if (role === 'fpa') {
+        const linhas = [[
+          { text: 'Unidade', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+          { text: 'Receita Líquida', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+          { text: 'EBITDA', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+          { text: 'Margem EBITDA', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+          { text: 'Lucro Líquido', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+          { text: 'Status', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+        ]];
+        UNIDADES.forEach((u) => {
+          const d = statusUnidades[u.id];
+          const t = d ? computeDRE(d) : computeDRE(emptyFormData());
+          linhas.push([u.nome, formatBRL(t.receitaLiquida), formatBRL(t.ebitda), formatPct(t.margemEbitda), formatBRL(t.lucroLiquido), d?.meta?.status || 'nao_iniciado']);
+        });
+        s2.addTable(linhas, { x: 0.5, y: 1.0, w: 9, fontSize: 10.5, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
+      } else {
+        const linha = (label, valor, destaque) => ([
+          { text: label, options: { bold: !!destaque, fill: destaque ? { color: CLARO } : undefined } },
+          { text: valor, options: { align: 'right', bold: !!destaque, fill: destaque ? { color: CLARO } : undefined } },
+        ]);
+        const linhas = [
+          linha('Receita Bruta', formatBRL(dre.receitaBruta)),
+          linha('(–) Deduções', formatBRL(-dre.deducoes)),
+          linha('Receita Líquida', formatBRL(dre.receitaLiquida), true),
+          linha('(–) CPV', formatBRL(-dre.cpv)),
+          linha(`Lucro Bruto (${formatPct(dre.margemBruta)})`, formatBRL(dre.lucroBruto), true),
+          linha('(–) Despesas Operacionais', formatBRL(-dre.despesasSemDA)),
+          linha(`EBITDA (${formatPct(dre.margemEbitda)})`, formatBRL(dre.ebitda), true),
+          linha('(–) Depreciação e Amortização', formatBRL(-dre.depreciacao)),
+          linha('(+/–) Resultado Financeiro', formatBRL(dre.resultadoFinanceiro)),
+          linha('(+/–) Outras Receitas/Despesas', formatBRL(dre.outras)),
+          linha('EBT', formatBRL(dre.ebt), true),
+          linha('(–) IRCSL', formatBRL(-dre.ircsl)),
+          linha(`Lucro Líquido (${formatPct(dre.margemLiquida)})`, formatBRL(dre.lucroLiquido), true),
+        ];
+        s2.addTable(linhas, { x: 1.3, y: 1.0, w: 7.4, fontSize: 12, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
+      }
+
+      // -------------------- Slide 3 — Status do processo e auditoria --------------------
+      const s3 = pptx.addSlide();
+      s3.addText('Status do Processo Orçamentário', { x: 0.5, y: 0.35, w: 9, h: 0.5, fontSize: 20, bold: true, color: AZUL });
+
+      if (role === 'fpa') {
+        const linhas = [[
+          { text: 'Unidade', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+          { text: 'Status', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+          { text: 'Última atualização', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+        ]];
+        UNIDADES.forEach((u) => {
+          const d = statusUnidades[u.id];
+          linhas.push([u.nome, d?.meta?.status || 'nao_iniciado', d?.meta?.atualizadoEm ? formatData(d.meta.atualizadoEm) : '—']);
+        });
+        s3.addTable(linhas, { x: 0.5, y: 1.0, w: 9, fontSize: 11, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
+      } else {
+        const pendentes = checks.filter(c => !c.ok);
+        s3.addText(
+          `Status: ${dados.meta?.status || 'nao_iniciado'}   ·   Autor: ${autorNome || '—'}   ·   Auditoria: ${checks.length - pendentes.length}/${checks.length} itens OK`,
+          { x: 0.5, y: 1.0, w: 9, h: 0.4, fontSize: 12, color: TEXTO }
+        );
+        if (comentarioEnvio) {
+          s3.addText(`Comentário: ${comentarioEnvio}`, { x: 0.5, y: 1.4, w: 9, h: 0.4, fontSize: 11, italic: true, color: '7A8088' });
+        }
+        if (pendentes.length > 0) {
+          s3.addText('Pendências da auditoria:', { x: 0.5, y: 1.95, w: 9, h: 0.35, fontSize: 12, bold: true, color: 'C00000' });
+          const linhasPend = pendentes.slice(0, 8).map(c => ([{ text: `•  ${c.label}`, options: { fontSize: 10.5, color: TEXTO } }]));
+          s3.addTable(linhasPend, { x: 0.5, y: 2.3, w: 9, fontSize: 10.5, border: { type: 'none' } });
+        } else {
+          s3.addText('✓ Nenhuma pendência de auditoria — orçamento pronto para envio.', { x: 0.5, y: 1.95, w: 9, h: 0.4, fontSize: 12, bold: true, color: '008000' });
+        }
+      }
+
+      const nomeArquivo = `Orcamento_2027_ResumoExecutivo_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}.pptx`;
+      pptx.writeFile({ fileName: nomeArquivo });
+      setStatusPptx({ mensagem: `PPT gerado: ${nomeArquivo}` });
+    } catch (e) {
+      setStatusPptx({ mensagem: 'Não foi possível gerar o PPT. Tente novamente.', erro: true });
     }
   }
 
@@ -2492,7 +2625,7 @@ export default function OrcamentoARA({ usuario }) {
                     background: role === 'gerente' ? COR.laranja : 'transparent', color: COR.branco,
                     display: 'flex', alignItems: 'center', gap: 6,
                   }}
-                ><Building2 size={14} /> Gerente da unidade</button>
+                ><Building2 size={14} /> Orçamento Unidades</button>
                 <button
                   onClick={() => setRole('fpa')}
                   style={{
@@ -2516,20 +2649,11 @@ export default function OrcamentoARA({ usuario }) {
         </div>
       </div>
 
-      <div style={{ background: COR.total, borderBottom: `1px solid ${COR.laranja}`, padding: '8px 22px', fontSize: 11, color: COR.texto }}>
-        Estrutura de Receita, Custos/Despesas e CC baseada nos arquivos da ARA Têxtil (1.1 DRE, Orçamento Custos New, Orçamento Despesas, Consulta CTT010). Pacotes e granularidade de CC são propostas — ver Pendências.
-      </div>
 
-      {resumoParaCopiar && (
-        <div style={{ background: '#E8F0FA', borderBottom: `1px solid ${COR.azul}`, padding: '10px 22px', fontSize: 11.5, color: COR.texto, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span>
-            {resumoCopiado ? 'Resumo copiado para a área de transferência. ' : 'Não foi possível copiar automaticamente — selecione o texto abaixo. '}
-            Cole na conversa com o Claude para gerar o PPT executivo.
-          </span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <code style={{ background: COR.branco, border: `1px solid ${COR.borda}`, borderRadius: 4, padding: '3px 8px', fontSize: 10.5, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resumoParaCopiar}</code>
-            <button onClick={() => setResumoParaCopiar('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.azul, fontSize: 11, fontWeight: 700 }}>Fechar</button>
-          </div>
+      {statusPptx && (
+        <div style={{ background: statusPptx.erro ? '#FDECEC' : '#E8F0FA', borderBottom: `1px solid ${statusPptx.erro ? '#C00000' : COR.azul}`, padding: '10px 22px', fontSize: 11.5, color: COR.texto, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span>{statusPptx.mensagem}</span>
+          <button onClick={() => setStatusPptx(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.azul, fontSize: 11, fontWeight: 700 }}>Fechar</button>
         </div>
       )}
 
@@ -2540,6 +2664,7 @@ export default function OrcamentoARA({ usuario }) {
       ) : role === 'gerente' ? (
         <VisaoGerente
           unidadesVisiveis={unidadesVisiveis}
+          salvarRascunhoAgora={salvarRascunhoAgora} salvandoRascunho={salvandoRascunho} ultimoSalvoEm={ultimoSalvoEm}
           unidadeAtual={unidadeAtual} setUnidadeAtual={setUnidadeAtual} unidadeObj={unidadeObj}
           aba={aba} setAba={setAba} dados={dados} dre={dre} checks={checks} tudoOk={tudoOk}
           updateProduto={updateProduto} updateDeducao={updateDeducao}
@@ -2700,7 +2825,8 @@ function PainelGovernancaCorporativo() {
 
 function VisaoGerente(props) {
   const {
-    unidadesVisiveis, unidadeAtual, setUnidadeAtual, unidadeObj, aba, setAba, dados, dre, checks, tudoOk,
+    unidadesVisiveis, salvarRascunhoAgora, salvandoRascunho, ultimoSalvoEm,
+    unidadeAtual, setUnidadeAtual, unidadeObj, aba, setAba, dados, dre, checks, tudoOk,
     updateProduto, updateDeducao, premissasMacro,
     addObjetivo, updateObjetivo, removeObjetivo, addIniciativa, updateIniciativa, removeIniciativa,
     updateLinha, addDetalhe, updateDetalhe, removeDetalhe,
@@ -2735,14 +2861,35 @@ function VisaoGerente(props) {
               {u.logo && (
                 <img
                   src={u.logo} alt=""
-                  style={{ height: 24, borderRadius: 3, background: '#fff', padding: u.id === unidadeAtual ? '2px 5px' : '1px 3px' }}
+                  style={{ height: u.logoAltura || 24, borderRadius: 3, background: '#fff', padding: u.id === unidadeAtual ? '2px 5px' : '1px 3px' }}
                 />
               )}
               {u.nome}
             </button>
           ))}
         </div>
-        <StatusBadge status={dados.meta?.status} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual) && (
+            <>
+              {ultimoSalvoEm && (
+                <span style={{ fontSize: 10.5, color: '#7A8088' }}>
+                  Salvo às {ultimoSalvoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              <button
+                onClick={salvarRascunhoAgora} disabled={salvandoRascunho}
+                style={{
+                  fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 7,
+                  border: `1px solid ${COR.azul}`, background: '#fff', color: COR.azul, cursor: salvandoRascunho ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {salvandoRascunho ? 'Salvando…' : '💾 Salvar rascunho'}
+              </button>
+            </>
+          )}
+          <StatusBadge status={dados.meta?.status} />
+        </div>
       </div>
 
       {(unidadeAtual === 'agricola' || unidadeAtual === 'resorts') ? (
@@ -4539,12 +4686,6 @@ function AbaRevisao({ dados, dre, autorNome, setAutorNome, comentarioEnvio, setC
             <GraficoBridge etapas={bridgeEbitdaFco} />
           </div>
         </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', flex: '0 0 auto', marginBottom: 20 }}>
-        <Gauge pct={dre.margemBruta} label="Margem Bruta" cor={COR.azul} />
-        <Gauge pct={dre.margemEbitda} label="Margem EBITDA" cor={COR.laranja} />
-        <Gauge pct={dre.margemLiquida} label="Margem Líquida" cor={COR.verde} />
       </div>
 
       <AnaliseSensibilidades dados={dados} dre={dre} sensibilidades={sensibilidades} updateCenarioSensibilidade={updateCenarioSensibilidade} />

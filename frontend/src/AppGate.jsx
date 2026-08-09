@@ -37,7 +37,8 @@ export default function AppGate() {
   if (estado === 'deslogado') {
     return (
       <TelaCentral>
-        <img src="/logos/grupo-ara.jpg" alt="Grupo ARA" style={{ height: 110, marginBottom: 20 }} />
+        <img src="/logos/grupo-ara.jpg" alt="Grupo ARA" style={{ height: 110, marginBottom: 14 }} />
+        <img src="/logos/familia-marcas.png" alt="Unidades do Grupo ARA" style={{ height: 48, marginBottom: 20 }} />
         <h1 style={{ fontSize: 20, color: COR_AZUL, marginBottom: 8 }}>Orçamento 2027 — Grupo ARA</h1>
         <p style={{ fontSize: 13, color: '#494949', marginBottom: 20 }}>
           Entre com sua conta Microsoft do Grupo ARA para continuar.
