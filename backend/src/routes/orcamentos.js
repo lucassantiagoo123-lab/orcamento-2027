@@ -7,15 +7,18 @@ import { exigirUnidade, exigirPerfil } from '../middleware/authorize.js';
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, aprovar, listarVersoes } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
 import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria } from '../calc/orcamento.js';
+import { buscarReferencia } from '../calc/registroUnidades.js';
 
 export const orcamentosRouter = Router();
 
-// ARA Agrícola, ARA Resorts e Corporativo ainda são painel de referência, sem
-// formulário de lançamento (ver CLAUDE.md — pendência de dado-fonte: falta CC
-// pareado para Agrícola/Resorts, falta De/Para de conta×CC para Corporativo).
+// ARA Agrícola e ARA Resorts habilitadas em 2026-08-09, usando um CC
+// placeholder (ver calc/constantesAgricolaResorts.js) até a planilha real. O
+// Corporativo continua painel de referência (falta De/Para de conta×CC —
+// pendência diferente, sem solução de placeholder por enquanto); ARA EI
+// segue de fora também (nem plano de contas ela tem ainda).
 // Isto é reforçado aqui, no servidor, e não só escondido na UI — mesma regra
 // da seção 4 aplicada a uma pendência de dado, não só a escopo de usuário.
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil'];
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'resorts'];
 
 function exigirLancamentoHabilitado(req, res, next) {
   const { unidadeId } = req.params;
@@ -30,17 +33,26 @@ function exigirLancamentoHabilitado(req, res, next) {
 
 const ANO_ATUAL = 2027;
 
+// Unidades sem registro (Corporativo, ARA EI, ARA Energia) caem num ref
+// vazio — cpv/despesas/depreciação dão 0 (nenhum CC bate), em vez de
+// quebrar a rota. Essas unidades só mostram painel de referência no
+// frontend mesmo, então esse cálculo nunca é exibido de verdade — é só
+// pra rota não explodir se algo tentar carregar os dados de qualquer forma.
+const REF_VAZIA = { ccs: [], todasContas: {} };
+
 orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res, next) => {
   try {
-    const orcamento = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
-    const dre = computeDRE(orcamento.dados);
+    const { unidadeId } = req.params;
+    const ref = buscarReferencia(unidadeId) || REF_VAZIA;
+    const orcamento = await buscarOuCriarOrcamento(unidadeId, ANO_ATUAL);
+    const dre = computeDRE(orcamento.dados, ref);
     res.json({
       orcamento,
       dre,
       dfc: computeDFC(orcamento.dados, dre),
-      fluxoIndiretoMensal: computeFluxoIndiretoMensal(orcamento.dados, dre),
-      fluxoDiretoMensal: computeFluxoCaixaDiretoMensal(orcamento.dados, dre),
-      auditoria: runAuditoria(orcamento.dados, dre),
+      fluxoIndiretoMensal: computeFluxoIndiretoMensal(orcamento.dados, dre, ref),
+      fluxoDiretoMensal: computeFluxoCaixaDiretoMensal(orcamento.dados, dre, ref),
+      auditoria: runAuditoria(orcamento.dados, dre, ref),
     });
   } catch (err) { next(err); }
 });
@@ -79,7 +91,8 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirLancamento
 orcamentosRouter.post('/:unidadeId/enviar', exigirUnidade('unidadeId'), exigirLancamentoHabilitado, async (req, res, next) => {
   try {
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
-    const dre = computeDRE(atual.dados);
+    const ref = buscarReferencia(req.params.unidadeId) || REF_VAZIA;
+    const dre = computeDRE(atual.dados, ref);
     const totais = { receitaLiquida: dre.receitaLiquida, ebitda: dre.ebitda, lucroLiquido: dre.lucroLiquido };
     const { orcamento, versao } = await registrarEnvio(atual.id, atual.dados, req.usuario.id, req.body.comentario, totais);
     res.json({ orcamento, versao });

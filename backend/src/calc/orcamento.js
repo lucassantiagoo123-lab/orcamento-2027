@@ -6,7 +6,7 @@
 // Regra do CLAUDE.md: "Essa lógica deve ser reaproveitada, não reescrita".
 // Não alterar a lógica de negócio aqui sem replicar a mudança no .jsx (ou,
 // depois que a Fase 6 aposentar o protótipo, aqui passa a ser a única fonte).
-import { MESES, mesesVazios, PRODUTOS_REF, DEDUCOES_REF, CCS_TEXTIL, TODAS_CONTAS } from './constantesTextil.js';
+import { MESES, mesesVazios, PRODUTOS_REF, DEDUCOES_REF } from './constantesTextil.js';
 
 export function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -93,7 +93,12 @@ export function linhaTemNegativo(linha) {
   return campos.some(arr => (arr || []).some(v => parseNum(v) < 0));
 }
 
-export function emptyFormData() {
+// unidadeId só muda uma coisa: PRODUTOS_REF (produtos têxteis de referência,
+// tipo "ALGODAO PENTEADO") só faz sentido pré-preenchido para a Têxtil.
+// Agrícola/Resorts começam com a lista de produtos vazia — o gerente cadastra
+// os produtos/serviços da própria unidade (ainda sem uma lista de referência
+// oficial para essas duas, é uma pendência separada da estrutura de CC).
+export function emptyFormData(unidadeId = 'textil') {
   return {
     estrategicas: {
       contexto: '',
@@ -102,7 +107,9 @@ export function emptyFormData() {
       swot: { forcas: '', fraquezas: '', oportunidades: '', ameacas: '' },
     },
     receita: {
-      produtos: PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      produtos: unidadeId === 'textil'
+        ? PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() }))
+        : [],
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
       deducoesJustificativa: '',
       justificativaGeral: '',
@@ -196,7 +203,7 @@ export function folhaAnualPorCC(data, ccCodigo) {
   return computeFolhaPessoalAnual(funcs, data.custos.premissasPessoal);
 }
 
-export function computeDRE(data) {
+export function computeDRE(data, ref) {
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const receitaBrutaMes = MESES.map((_, m) =>
     (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]), 0)
@@ -214,28 +221,28 @@ export function computeDRE(data) {
 
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
-    const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
-    if (TODAS_CONTAS[contaCodigo]?.pacoteId === 'pessoal') return acc;
+    if (ref.todasContas[contaCodigo]?.pacoteId === 'pessoal') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
-  }, 0) + CCS_TEXTIL.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
 
   const despesasSemDA = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
-    const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-    const pacoteId = TODAS_CONTAS[contaCodigo]?.pacoteId;
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+    const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao' || pacoteId === 'pessoal') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
-  }, 0) + CCS_TEXTIL.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const ebitda = lucroBruto - despesasSemDA;
   const margemEbitda = receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0;
 
   const depreciacao = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
-    const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-    const pacoteId = TODAS_CONTAS[contaCodigo]?.pacoteId;
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+    const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
   }, 0);
@@ -307,7 +314,7 @@ export function computeDFC(data, dre) {
 // ---------------------------------------------------------------------------
 // Fluxo de Caixa Indireto mensal, partindo do EBITDA — para a Revisão, Análise e Envio.
 // ---------------------------------------------------------------------------
-export function computeFluxoIndiretoMensal(data, dre) {
+export function computeFluxoIndiretoMensal(data, dre, ref) {
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -315,22 +322,22 @@ export function computeFluxoIndiretoMensal(data, dre) {
   function totalLinhasMes(tipoAlvo, excluirPacotes, m) {
     return linhasCustos.reduce((acc, [chave, linha]) => {
       const [ccCodigo, contaCodigo] = chave.split('|');
-      const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-      const pacoteId = TODAS_CONTAS[contaCodigo]?.pacoteId;
+      const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+      const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
     }, 0);
   }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
-    + CCS_TEXTIL.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao', 'pessoal'], m)
-    + CCS_TEXTIL.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const ebitdaMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m] - despesasSemDAmes[m]);
 
   const ircslMes = MESES.map(() => dre.ircsl / 12);
 
-  const decimoTerceiroMes = MESES.map((_, m) => CCS_TEXTIL.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
+  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
   const ajuste13Mes = MESES.map((_, m) => decimoTerceiroMes[m] - pagamento13Mes[m]);
@@ -371,8 +378,8 @@ export function computeFluxoIndiretoMensal(data, dre) {
   const deducoesMes = MESES.map((_, m) => receitaBrutaMes[m] - receitaLiquidaMes[m]);
   const depreciacaoMes = MESES.map((_, m) => linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
-    const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-    const pacoteId = TODAS_CONTAS[contaCodigo]?.pacoteId;
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+    const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
     return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
   }, 0));
@@ -402,7 +409,7 @@ export function computeFluxoIndiretoMensal(data, dre) {
 // folha, capital de giro, 13º), então reconcilia matematicamente com o
 // FC Operacional do método indireto — são duas leituras do mesmo número.
 // ---------------------------------------------------------------------------
-export function computeFluxoCaixaDiretoMensal(data, dre) {
+export function computeFluxoCaixaDiretoMensal(data, dre, ref) {
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -410,16 +417,16 @@ export function computeFluxoCaixaDiretoMensal(data, dre) {
   function totalLinhasMes(tipoAlvo, excluirPacotes, m) {
     return linhasCustos.reduce((acc, [chave, linha]) => {
       const [ccCodigo, contaCodigo] = chave.split('|');
-      const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-      const pacoteId = TODAS_CONTAS[contaCodigo]?.pacoteId;
+      const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+      const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
     }, 0);
   }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
   const despesasSemPessoalMes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao', 'pessoal'], m));
-  const folhaTotalMes = MESES.map((_, m) => CCS_TEXTIL.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
-  const decimoTerceiroMes = MESES.map((_, m) => CCS_TEXTIL.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
+  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
   const pessoalEmCaixaMes = MESES.map((_, m) => folhaTotalMes[m] - decimoTerceiroMes[m] + pagamento13Mes[m]);
@@ -553,7 +560,7 @@ export function computePlano5Y(dre, anos) {
   return resultado;
 }
 
-export function runAuditoria(data, dre) {
+export function runAuditoria(data, dre, ref) {
   const checks = [];
   const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
   checks.push({
@@ -586,7 +593,7 @@ export function runAuditoria(data, dre) {
   const linhasCustos = Object.entries(data.custos.linhas || {});
 
   const linhasProducao = linhasCustos.filter(([chave]) => {
-    const cc = CCS_TEXTIL.find(c => c.codigo === chave.split('|')[0]);
+    const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
     return cc?.tipo === 'producao';
   }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
   checks.push({
@@ -596,7 +603,7 @@ export function runAuditoria(data, dre) {
   });
 
   const linhasDespesa = linhasCustos.filter(([chave]) => {
-    const cc = CCS_TEXTIL.find(c => c.codigo === chave.split('|')[0]);
+    const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
     return cc?.tipo === 'despesa';
   }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
   checks.push({

@@ -22,9 +22,11 @@ const PERFIL_LABEL = {
 
 // Únicas unidades com lançamento de orçamento habilitado no backend hoje —
 // espelha UNIDADES_COM_LANCAMENTO_HABILITADO em backend/src/routes/orcamentos.js.
-// Agrícola/Resorts/Corporativo continuam painel de referência (pendência de
-// dado-fonte documentada no CLAUDE.md), então nem tentamos autosave nelas.
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil'];
+// Agrícola e Resorts habilitadas em 2026-08-09 (CC placeholder, ver
+// REFERENCIA_POR_UNIDADE). Corporativo continua painel de referência
+// (pendência diferente — falta De/Para conta×CC); ARA EI segue de fora,
+// sem plano de contas nenhum ainda.
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'resorts'];
 
 const COR = {
   azul: '#0C4391',
@@ -915,6 +917,32 @@ Object.entries(PLANO_CONTAS).forEach(([pacoteId, contas]) => {
   contas.forEach(c => { TODAS_CONTAS[c.codigo] = { ...c, pacoteId }; });
 });
 
+const TODAS_CONTAS_AGRICOLA = {};
+Object.entries(PLANO_CONTAS_AGRICOLA).forEach(([pacoteId, contas]) => {
+  contas.forEach(c => { TODAS_CONTAS_AGRICOLA[c.codigo] = { ...c, pacoteId }; });
+});
+
+const TODAS_CONTAS_RESORTS = {};
+Object.entries(PLANO_CONTAS_RESORTS).forEach(([pacoteId, contas]) => {
+  contas.forEach(c => { TODAS_CONTAS_RESORTS[c.codigo] = { ...c, pacoteId }; });
+});
+
+// Decisão de 2026-08-09: Agrícola e Resorts habilitadas com lançamento
+// completo, usando os mesmos 8 CCs genéricos da Têxtil como PLACEHOLDER —
+// a matriz de governança não traz CC oficial pra essas duas ainda. Trocar
+// por CCS_TEXTIL.slice() próprio de cada unidade quando a planilha real
+// chegar (por enquanto compartilham a mesma referência, então editar uma
+// mudaria as duas — cuidado se for editar isto à mão antes de separar).
+const REFERENCIA_POR_UNIDADE = {
+  textil: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS, todasContas: TODAS_CONTAS, pacotes: PACOTES_TEXTIL },
+  agricola: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
+  resorts: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
+};
+const REF_VAZIA = { ccs: [], todasContas: {} };
+function referenciaDaUnidade(unidadeId) {
+  return REFERENCIA_POR_UNIDADE[unidadeId] || REF_VAZIA;
+}
+
 const TIPOS_PREMISSA = [
   { id: 'direto', nome: 'Valor direto' },
   { id: 'qtd_valor', nome: 'Quantidade × Valor unit.' },
@@ -1033,7 +1061,10 @@ function parseNum(v) {
   return isNaN(n) ? 0 : n;
 }
 
-function emptyFormData() {
+// unidadeId só muda os produtos de referência: PRODUTOS_REF (têxteis) só faz
+// sentido para a Têxtil. Agrícola/Resorts começam com lista vazia — sem uma
+// lista de referência oficial de produtos/serviços pra essas duas ainda.
+function emptyFormData(unidadeId = 'textil') {
   return {
     estrategicas: {
       contexto: '',
@@ -1042,7 +1073,9 @@ function emptyFormData() {
       swot: { forcas: '', fraquezas: '', oportunidades: '', ameacas: '' },
     },
     receita: {
-      produtos: PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      produtos: unidadeId === 'textil'
+        ? PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() }))
+        : [],
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
       deducoesJustificativa: '',
       justificativaGeral: '',
@@ -1142,7 +1175,7 @@ function folhaAnualPorCC(data, ccCodigo) {
   return computeFolhaPessoalAnual(funcs, data.custos.premissasPessoal);
 }
 
-function computeDRE(data) {
+function computeDRE(data, ref) {
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const receitaBrutaMes = MESES.map((_, m) =>
     (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]), 0)
@@ -1160,28 +1193,28 @@ function computeDRE(data) {
 
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
-    const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
-    if (TODAS_CONTAS[contaCodigo]?.pacoteId === 'pessoal') return acc;
+    if (ref.todasContas[contaCodigo]?.pacoteId === 'pessoal') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
-  }, 0) + CCS_TEXTIL.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
 
   const despesasSemDA = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
-    const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-    const pacoteId = TODAS_CONTAS[contaCodigo]?.pacoteId;
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+    const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao' || pacoteId === 'pessoal') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
-  }, 0) + CCS_TEXTIL.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const ebitda = lucroBruto - despesasSemDA;
   const margemEbitda = receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0;
 
   const depreciacao = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
-    const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-    const pacoteId = TODAS_CONTAS[contaCodigo]?.pacoteId;
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+    const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
   }, 0);
@@ -1260,7 +1293,7 @@ function computeDFC(data, dre) {
 // FC Financiamentos: atrelado às linhas por banco e às movimentações de
 //   acionistas da aba 7.
 // ---------------------------------------------------------------------------
-function computeFluxoIndiretoMensal(data, dre) {
+function computeFluxoIndiretoMensal(data, dre, ref) {
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -1268,22 +1301,22 @@ function computeFluxoIndiretoMensal(data, dre) {
   function totalLinhasMes(tipoAlvo, excluirPacotes, m) {
     return linhasCustos.reduce((acc, [chave, linha]) => {
       const [ccCodigo, contaCodigo] = chave.split('|');
-      const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-      const pacoteId = TODAS_CONTAS[contaCodigo]?.pacoteId;
+      const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+      const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
     }, 0);
   }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
-    + CCS_TEXTIL.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao', 'pessoal'], m)
-    + CCS_TEXTIL.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const ebitdaMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m] - despesasSemDAmes[m]);
 
   const ircslMes = MESES.map(() => dre.ircsl / 12);
 
-  const decimoTerceiroMes = MESES.map((_, m) => CCS_TEXTIL.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
+  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
   const ajuste13Mes = MESES.map((_, m) => decimoTerceiroMes[m] - pagamento13Mes[m]);
@@ -1324,8 +1357,8 @@ function computeFluxoIndiretoMensal(data, dre) {
   const deducoesMes = MESES.map((_, m) => receitaBrutaMes[m] - receitaLiquidaMes[m]);
   const depreciacaoMes = MESES.map((_, m) => linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
-    const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-    const pacoteId = TODAS_CONTAS[contaCodigo]?.pacoteId;
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+    const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
     return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
   }, 0));
@@ -1362,7 +1395,7 @@ function computeFluxoIndiretoMensal(data, dre) {
 // folha, capital de giro, 13º), então reconcilia matematicamente com o
 // FC Operacional do método indireto — são duas leituras do mesmo número.
 // ---------------------------------------------------------------------------
-function computeFluxoCaixaDiretoMensal(data, dre) {
+function computeFluxoCaixaDiretoMensal(data, dre, ref) {
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -1370,16 +1403,16 @@ function computeFluxoCaixaDiretoMensal(data, dre) {
   function totalLinhasMes(tipoAlvo, excluirPacotes, m) {
     return linhasCustos.reduce((acc, [chave, linha]) => {
       const [ccCodigo, contaCodigo] = chave.split('|');
-      const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-      const pacoteId = TODAS_CONTAS[contaCodigo]?.pacoteId;
+      const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+      const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
     }, 0);
   }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
   const despesasSemPessoalMes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao', 'pessoal'], m));
-  const folhaTotalMes = MESES.map((_, m) => CCS_TEXTIL.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
-  const decimoTerceiroMes = MESES.map((_, m) => CCS_TEXTIL.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
+  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
   const pessoalEmCaixaMes = MESES.map((_, m) => folhaTotalMes[m] - decimoTerceiroMes[m] + pagamento13Mes[m]);
@@ -1519,7 +1552,7 @@ function computePlano5Y(dre, anos) {
   return resultado;
 }
 
-function runAuditoria(data, dre) {
+function runAuditoria(data, dre, ref) {
   const checks = [];
   const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
   checks.push({
@@ -1552,7 +1585,7 @@ function runAuditoria(data, dre) {
   const linhasCustos = Object.entries(data.custos.linhas || {});
 
   const linhasProducao = linhasCustos.filter(([chave]) => {
-    const cc = CCS_TEXTIL.find(c => c.codigo === chave.split('|')[0]);
+    const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
     return cc?.tipo === 'producao';
   }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
   checks.push({
@@ -1562,7 +1595,7 @@ function runAuditoria(data, dre) {
   });
 
   const linhasDespesa = linhasCustos.filter(([chave]) => {
-    const cc = CCS_TEXTIL.find(c => c.codigo === chave.split('|')[0]);
+    const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
     return cc?.tipo === 'despesa';
   }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
   checks.push({
@@ -1963,9 +1996,9 @@ function PainelPendencias() {
 // Plano de Contas — de-para conta contábil × pacote (referência, somente leitura)
 // ---------------------------------------------------------------------------
 
-function PainelPlanoContas() {
+function PainelPlanoContas({ refUnidade }) {
   const [aberto, setAberto] = useState(false);
-  const totalContas = Object.values(PLANO_CONTAS).reduce((a, l) => a + l.length, 0);
+  const totalContas = Object.values(refUnidade.planoContas).reduce((a, l) => a + l.length, 0);
 
   return (
     <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginTop: 22 }}>
@@ -1983,11 +2016,11 @@ function PainelPlanoContas() {
       {aberto && (
         <div style={{ padding: 14, maxHeight: 480, overflowY: 'auto' }}>
           <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 12 }}>
-            Fonte oficial: Matriz_Governanca_OBZ_2027_4.xlsx (aba Têxtil_Contas_x_Pacote) — 167 contas, 100% classificadas em 11 pacotes.
+            Fonte: Matriz_Governanca_OBZ_2027_4.xlsx — {totalContas} contas classificadas em {refUnidade.pacotes.length} pacotes.
             Este painel é somente leitura — o lançamento acontece por conta, dentro do CC selecionado na aba acima.
           </p>
-          {PACOTES_TEXTIL.map(p => {
-            const contas = PLANO_CONTAS[p.id] || [];
+          {refUnidade.pacotes.map(p => {
+            const contas = refUnidade.planoContas[p.id] || [];
             if (contas.length === 0) return null;
             return (
               <div key={p.id} style={{ marginBottom: 14 }}>
@@ -2212,8 +2245,9 @@ export default function OrcamentoARA({ usuario }) {
     setSalvandoRascunho(false);
   }
 
-  const dre = useMemo(() => computeDRE(dados), [dados]);
-  const checks = useMemo(() => runAuditoria(dados, dre), [dados, dre]);
+  const refUnidadeAtual = referenciaDaUnidade(unidadeAtual);
+  const dre = useMemo(() => computeDRE(dados, refUnidadeAtual), [dados, refUnidadeAtual]);
+  const checks = useMemo(() => runAuditoria(dados, dre, refUnidadeAtual), [dados, dre, refUnidadeAtual]);
   const tudoOk = checks.every(c => c.ok);
 
   function atualizar(caminho, valor) {
@@ -2381,12 +2415,13 @@ export default function OrcamentoARA({ usuario }) {
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
       if (!d) return;
-      const dreU = computeDRE(d);
+      const refU = referenciaDaUnidade(u.id);
+      const dreU = computeDRE(d, refU);
       Object.entries(d.custos.linhas || {}).forEach(([chave, linha]) => {
         const [ccCodigo, contaCodigo] = chave.split('|');
-        const cc = CCS_TEXTIL.find(c => c.codigo === ccCodigo);
-        const conta = TODAS_CONTAS[contaCodigo];
-        const pacote = PACOTES_TEXTIL.find(p => p.id === conta?.pacoteId);
+        const cc = refU.ccs.find(c => c.codigo === ccCodigo);
+        const conta = refU.todasContas[contaCodigo];
+        const pacote = (refU.pacotes || []).find(p => p.id === conta?.pacoteId);
         const premissa = TIPOS_PREMISSA.find(t => t.id === linha.premissaTipo);
         MESES.forEach((m, mi) => {
           const valor = valorLinhaMes(linha, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes);
@@ -2459,7 +2494,7 @@ export default function OrcamentoARA({ usuario }) {
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
       if (!d) return;
-      const t = computeDRE(d);
+      const t = computeDRE(d, referenciaDaUnidade(u.id));
       linhasDRE.push([u.nome, t.receitaBruta, -t.deducoes, t.receitaLiquida, -t.cpv, t.lucroBruto, t.margemBruta, -t.despesasSemDA, t.ebitda, t.margemEbitda, -t.depreciacao, t.resultadoFinanceiro, t.outras, -t.ircsl, t.lucroLiquido, t.margemLiquida]);
     });
     const wsD = XLSX.utils.aoa_to_sheet(linhasDRE);
@@ -2495,7 +2530,7 @@ export default function OrcamentoARA({ usuario }) {
         ? (() => {
             const totais = UNIDADES.reduce((acc, u) => {
               const d = statusUnidades[u.id];
-              const t = d ? computeDRE(d) : computeDRE(emptyFormData());
+              const t = d ? computeDRE(d, referenciaDaUnidade(u.id)) : computeDRE(emptyFormData(u.id), referenciaDaUnidade(u.id));
               acc.receitaLiquida += t.receitaLiquida; acc.ebitda += t.ebitda; acc.lucroLiquido += t.lucroLiquido;
               return acc;
             }, { receitaLiquida: 0, ebitda: 0, lucroLiquido: 0 });
@@ -2533,7 +2568,7 @@ export default function OrcamentoARA({ usuario }) {
         ]];
         UNIDADES.forEach((u) => {
           const d = statusUnidades[u.id];
-          const t = d ? computeDRE(d) : computeDRE(emptyFormData());
+          const t = d ? computeDRE(d, referenciaDaUnidade(u.id)) : computeDRE(emptyFormData(u.id), referenciaDaUnidade(u.id));
           linhas.push([u.nome, formatBRL(t.receitaLiquida), formatBRL(t.ebitda), formatPct(t.margemEbitda), formatBRL(t.lucroLiquido), d?.meta?.status || 'nao_iniciado']);
         });
         s2.addTable(linhas, { x: 0.5, y: 1.0, w: 9, fontSize: 10.5, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
@@ -2892,10 +2927,26 @@ function VisaoGerente(props) {
         </div>
       </div>
 
-      {(unidadeAtual === 'agricola' || unidadeAtual === 'resorts') ? (
-        <PainelGovernancaReferencia unidadeId={unidadeAtual} unidadeNome={unidadeObj.nome} />
-      ) : unidadeAtual === 'corporativo' ? (
+      {/* Decisão de 2026-08-09: Agrícola e Resorts saíram do painel de
+          referência e ganharam o formulário completo, com CC placeholder
+          (ver REFERENCIA_POR_UNIDADE). Corporativo continua só referência —
+          pendência diferente (falta De/Para conta×CC, sem solução de
+          placeholder ainda). ARA EI nem aparece aqui — sem plano de contas
+          nenhum, não está em UNIDADES_COM_LANCAMENTO_HABILITADO no backend. */}
+      {unidadeAtual === 'corporativo' ? (
         <PainelGovernancaCorporativo />
+      ) : unidadeAtual === 'ei' ? (
+        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 16, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <AlertTriangle size={18} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>ARA EI ainda sem dado-fonte</div>
+            <div style={{ fontSize: 11.5, color: COR.texto }}>
+              Diferente de Agrícola e Resorts, a ARA EI não tem nem plano de contas nem pacotes classificados ainda —
+              não há de onde derivar a estrutura de lançamento sem inventar contas que não existem de fato.
+              Assim que houver uma matriz de governança (ou equivalente) para esta unidade, o formulário completo é habilitado.
+            </div>
+          </div>
+        </div>
       ) : (
         <>
       <div style={{ display: 'flex', gap: 2, borderBottom: `2px solid ${COR.borda}`, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -2929,6 +2980,7 @@ function VisaoGerente(props) {
         )}
         {aba === 'custos' && (
           <AbaCustos
+            refUnidade={referenciaDaUnidade(unidadeAtual)}
             linhas={dados.custos.linhas} updateLinha={updateLinha} dre={dre}
             detalhes={dados.custos.detalhes} addDetalhe={addDetalhe} updateDetalhe={updateDetalhe} removeDetalhe={removeDetalhe}
             funcionarios={dados.custos.funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
@@ -2952,6 +3004,7 @@ function VisaoGerente(props) {
         {aba === 'plano5y' && <AbaPlano5Y dre={dre} plano5y={dados.plano5y} updatePremissa5Y={updatePremissa5Y} atualizar={atualizar} />}
         {aba === 'revisao' && (
           <AbaRevisao
+            refUnidade={referenciaDaUnidade(unidadeAtual)}
             dados={dados} dre={dre} autorNome={autorNome} setAutorNome={setAutorNome}
             comentarioEnvio={comentarioEnvio} setComentarioEnvio={setComentarioEnvio}
             enviarVersao={enviarVersao} enviando={enviando} tudoOk={tudoOk} erro={erro}
@@ -3629,14 +3682,14 @@ function QuadroPessoal({ ccCodigo, funcionarios, addFuncionario, updateFuncionar
   );
 }
 
-function AbaCustos({ linhas, updateLinha, dre, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote }) {
-  const [ccSel, setCcSel] = useState(CCS_TEXTIL[0].codigo);
+function AbaCustos({ refUnidade, linhas, updateLinha, dre, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote }) {
+  const [ccSel, setCcSel] = useState(refUnidade.ccs[0].codigo);
   const [pacotesAbertos, setPacotesAbertos] = useState({});
   const [contaAberta, setContaAberta] = useState(null);
   const [filtroConta, setFiltroConta] = useState('');
   const [filtroPacoteId, setFiltroPacoteId] = useState('todos');
 
-  const ccAtual = CCS_TEXTIL.find(c => c.codigo === ccSel);
+  const ccAtual = refUnidade.ccs.find(c => c.codigo === ccSel);
   const origemAlvo = ccAtual.tipo === 'producao' ? 'Custo' : 'Despesa';
 
   function chaveLinha(contaCodigo) { return `${ccSel}|${contaCodigo}`; }
@@ -3661,8 +3714,8 @@ function AbaCustos({ linhas, updateLinha, dre, detalhes, addDetalhe, updateDetal
     setContaAberta(prev => (prev === chave ? null : chave));
   }
 
-  const gruposPacote = PACOTES_TEXTIL
-    .map(p => ({ ...p, contas: (PLANO_CONTAS[p.id] || []).filter(c => c.origem === origemAlvo) }))
+  const gruposPacote = refUnidade.pacotes
+    .map(p => ({ ...p, contas: (refUnidade.planoContas[p.id] || []).filter(c => c.origem === origemAlvo) }))
     .filter(g => g.contas.length > 0);
   const contasSemPacote = []; // Matriz_Governanca_OBZ_2027_4: 100% das contas Têxtil classificadas
   const todasContasCC = [...gruposPacote.flatMap(g => g.contas), ...contasSemPacote];
@@ -3688,7 +3741,7 @@ function AbaCustos({ linhas, updateLinha, dre, detalhes, addDetalhe, updateDetal
       </p>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {CCS_TEXTIL.map(cc => (
+        {refUnidade.ccs.map(cc => (
           <button key={cc.codigo} onClick={() => { setCcSel(cc.codigo); setContaAberta(null); }}
             style={{
               fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 16, cursor: 'pointer',
@@ -3854,8 +3907,8 @@ function AbaCustos({ linhas, updateLinha, dre, detalhes, addDetalhe, updateDetal
       {detalhes.map(d => (
         <div key={d.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 10, marginBottom: 10, background: COR.claro }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr 1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-            <Selecao value={d.cc} onChange={v => updateDetalhe(d.id, 'cc', v)} opcoes={CCS_TEXTIL.map(c => ({ id: c.codigo, nome: c.nome }))} />
-            <Selecao value={d.pacote} onChange={v => updateDetalhe(d.id, 'pacote', v)} opcoes={PACOTES_TEXTIL} />
+            <Selecao value={d.cc} onChange={v => updateDetalhe(d.id, 'cc', v)} opcoes={refUnidade.ccs.map(c => ({ id: c.codigo, nome: c.nome }))} />
+            <Selecao value={d.pacote} onChange={v => updateDetalhe(d.id, 'pacote', v)} opcoes={refUnidade.pacotes} />
             <CampoTexto value={d.dono} onChange={v => updateDetalhe(d.id, 'dono', v)} placeholder="Dono do pacote" />
             <Selecao value={d.nivelServico} onChange={v => updateDetalhe(d.id, 'nivelServico', v)} opcoes={NIVEIS_SERVICO} />
             <Selecao value={d.prioridade} onChange={v => updateDetalhe(d.id, 'prioridade', v)} opcoes={PRIORIDADES} />
@@ -3866,7 +3919,7 @@ function AbaCustos({ linhas, updateLinha, dre, detalhes, addDetalhe, updateDetal
       ))}
       <Botao variante="fantasma" icone={Plus} onClick={addDetalhe}>Adicionar pacote de decisão</Botao>
 
-      <PainelPlanoContas />
+      <PainelPlanoContas refUnidade={refUnidade} />
     </div>
   );
 }
@@ -4623,10 +4676,10 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
   );
 }
 
-function AbaRevisao({ dados, dre, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, sensibilidades, updateCenarioSensibilidade }) {
+function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, sensibilidades, updateCenarioSensibilidade }) {
   const [ifrs18, setIfrs18] = useState(false);
-  const fd = computeFluxoIndiretoMensal(dados, dre);
-  const fcd = computeFluxoCaixaDiretoMensal(dados, dre);
+  const fd = computeFluxoIndiretoMensal(dados, dre, refUnidade);
+  const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade);
   const totalFcOperacional = fd.fcOperacionalMes.reduce((a, v) => a + v, 0);
   const totalFcInvestimento = fd.fcInvestimentoMes.reduce((a, v) => a + v, 0);
   const totalFcFinanciamento = fd.fcFinanciamentoMes.reduce((a, v) => a + v, 0);
@@ -4801,7 +4854,7 @@ function VisaoFPA({ statusUnidades, backlog, unidadeDrill, abrirDrill, versoesDr
   const totalGrupo = UNIDADES.reduce((acc, u) => {
     const d = statusUnidades[u.id];
     if (!d) return acc;
-    const t = computeDRE(d);
+    const t = computeDRE(d, referenciaDaUnidade(u.id));
     return {
       receitaLiquida: acc.receitaLiquida + t.receitaLiquida,
       ebitda: acc.ebitda + t.ebitda,
@@ -4899,7 +4952,7 @@ function VisaoFPA({ statusUnidades, backlog, unidadeDrill, abrirDrill, versoesDr
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 26 }}>
             {UNIDADES.filter(u => filtroStatus === 'todos' || (statusUnidades[u.id]?.meta?.status || 'nao_iniciado') === filtroStatus).map(u => {
               const d = statusUnidades[u.id];
-              const t = d ? computeDRE(d) : computeDRE(emptyFormData());
+              const t = d ? computeDRE(d, referenciaDaUnidade(u.id)) : computeDRE(emptyFormData(u.id), referenciaDaUnidade(u.id));
               const aberto = unidadeDrill === u.id;
               return (
                 <div key={u.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
@@ -4977,8 +5030,8 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo }) {
   const porUnidadeDRE = {};
   const porUnidadeDFC = {};
   UNIDADES.forEach(u => {
-    const d = statusUnidades[u.id] || emptyFormData();
-    const t = computeDRE(d);
+    const d = statusUnidades[u.id] || emptyFormData(u.id);
+    const t = computeDRE(d, referenciaDaUnidade(u.id));
     porUnidadeDRE[u.id] = t;
     porUnidadeDFC[u.id] = computeDFC(d, t);
   });

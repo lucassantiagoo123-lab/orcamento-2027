@@ -11,7 +11,7 @@ export async function buscarOuCriarOrcamento(unidadeId, ano) {
 
   const criado = await pool.query(
     `INSERT INTO orcamentos (unidade_id, ano, dados) VALUES ($1, $2, $3) RETURNING *`,
-    [unidadeId, ano, JSON.stringify(emptyFormData())]
+    [unidadeId, ano, JSON.stringify(emptyFormData(unidadeId))]
   );
   return criado.rows[0];
 }
