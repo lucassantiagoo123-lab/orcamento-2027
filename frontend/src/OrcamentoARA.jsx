@@ -938,6 +938,47 @@ const REFERENCIA_POR_UNIDADE = {
   agricola: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
   resorts: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
 };
+// ---------------------------------------------------------------------------
+// Estrutura de Receita de Agrícola e Resorts — extraída de
+// "Premissas por Empresa.xlsx" (abas Premissas_Agrícola/Premissas_Resorts),
+// fornecida pelo usuário em 2026-08-09. Ver nota extensa no arquivo espelho
+// backend/src/calc/receitaAgricolaResorts.js — mesma lógica, duplicada aqui
+// porque o frontend ainda não importa do backend (protótipo de arquivo único).
+// ---------------------------------------------------------------------------
+const PRODUTOS_REF_AGRICOLA = [
+  { nome: 'Vendas Internas', volumeRef: 7570, precoRef: 11.01 },
+  { nome: 'Vendas Externas', volumeRef: 3930, precoRef: 12.13 },
+];
+const DEDUCOES_REF_AGRICOLA = [
+  { id: 'pis', nome: 'PIS', pctRef: 0 },
+  { id: 'cofins', nome: 'Cofins', pctRef: 0 },
+  { id: 'iss', nome: 'ISS', pctRef: 0 },
+  { id: 'devolucoes', nome: 'Devoluções', pctRef: 1.6 },
+  { id: 'inss', nome: 'INSS', pctRef: 2.05 },
+];
+
+const LINHAS_RECEITA_RESORTS = [
+  { id: 'hospedagem', nome: '1.1 Hospedagem', tipo: 'qtd_valor', rotuloQtd: 'Acomodações ocupadas (#)', rotuloValor: 'Tarifa média (R$/acomodação)' },
+  { id: 'aeb', nome: '1.2.1 Alimentação e Bebidas', tipo: 'qtd_valor', rotuloQtd: 'Nº de adultos', rotuloValor: 'Consumo médio de A&B (R$)' },
+  { id: 'cafePensao', nome: '1.2.2 Café e Pensão', tipo: 'qtd_valor', rotuloQtd: 'Nº de adultos', rotuloValor: 'Consumo médio (R$)' },
+  { id: 'moorea', nome: '1.3 Receita Moorea', tipo: 'direto' },
+  { id: 'alugueis', nome: '1.4 Outras Receitas — Aluguéis', tipo: 'direto' },
+  { id: 'outrasIss', nome: '1.4 Outras Receitas — ISS', tipo: 'direto' },
+  { id: 'arrumacao', nome: '1.4 Outras Receitas — Arrumação (LFCVH)', tipo: 'direto' },
+];
+// baseLinhaIds: quais linhas de receita somadas formam a base do percentual
+// ("A&B" na planilha = Alimentação e Bebidas + Café e Pensão somados).
+const DEDUCOES_REF_RESORTS = [
+  { id: 'pis_hospedagem', nome: 'PIS — % Receita Hospedagem', pctRef: 0.65, baseLinhaIds: ['hospedagem'] },
+  { id: 'cofins_hospedagem', nome: 'Cofins — % Receita Hospedagem', pctRef: 3, baseLinhaIds: ['hospedagem'] },
+  { id: 'iss_hospedagem', nome: 'ISS — % Receita Hospedagem', pctRef: 5, baseLinhaIds: ['hospedagem'] },
+  { id: 'pis_aeb', nome: 'PIS — % Receita A&B', pctRef: 1.65, baseLinhaIds: ['aeb', 'cafePensao'] },
+  { id: 'cofins_aeb', nome: 'Cofins — % Receita A&B', pctRef: 7.6, baseLinhaIds: ['aeb', 'cafePensao'] },
+  { id: 'icms_aeb', nome: 'ICMS — % A&B', pctRef: 2.12, baseLinhaIds: ['aeb', 'cafePensao'] },
+  { id: 'descontos_servicos', nome: 'Descontos sobre serviços — % Receita A&B', pctRef: 0, baseLinhaIds: ['aeb', 'cafePensao'] },
+  { id: 'descontos_aeb', nome: 'Descontos A&B — % A&B', pctRef: 0, baseLinhaIds: ['aeb', 'cafePensao'] },
+];
+
 const REF_VAZIA = { ccs: [], todasContas: {} };
 function referenciaDaUnidade(unidadeId) {
   return REFERENCIA_POR_UNIDADE[unidadeId] || REF_VAZIA;
@@ -1064,6 +1105,34 @@ function parseNum(v) {
 // unidadeId só muda os produtos de referência: PRODUTOS_REF (têxteis) só faz
 // sentido para a Têxtil. Agrícola/Resorts começam com lista vazia — sem uma
 // lista de referência oficial de produtos/serviços pra essas duas ainda.
+// Monta o objeto `receita` certo por unidade — três modelos diferentes (ver
+// nota no topo do arquivo, junto de PRODUTOS_REF_AGRICOLA): produtos com
+// referência pré-carregada (Têxtil), produtos genéricos (Agrícola), ou
+// linhas de hotelaria (Resorts).
+function receitaVazia(unidadeId) {
+  if (unidadeId === 'textil') {
+    return {
+      produtos: PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
+    };
+  }
+  if (unidadeId === 'agricola') {
+    return {
+      produtos: PRODUTOS_REF_AGRICOLA.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
+    };
+  }
+  if (unidadeId === 'resorts') {
+    const linhas = {};
+    LINHAS_RECEITA_RESORTS.forEach((l) => { linhas[l.id] = novaLinhaVazia(); });
+    return {
+      linhas,
+      deducoes: DEDUCOES_REF_RESORTS.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
+    };
+  }
+  return { produtos: [], deducoes: [] };
+}
+
 function emptyFormData(unidadeId = 'textil') {
   return {
     estrategicas: {
@@ -1073,10 +1142,7 @@ function emptyFormData(unidadeId = 'textil') {
       swot: { forcas: '', fraquezas: '', oportunidades: '', ameacas: '' },
     },
     receita: {
-      produtos: unidadeId === 'textil'
-        ? PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() }))
-        : [],
-      deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
+      ...receitaVazia(unidadeId),
       deducoesJustificativa: '',
       justificativaGeral: '',
     },
@@ -1175,15 +1241,40 @@ function folhaAnualPorCC(data, ccCodigo) {
   return computeFolhaPessoalAnual(funcs, data.custos.premissasPessoal);
 }
 
-function computeDRE(data, ref) {
-  // Receita bruta por mês, para aplicar deduções percentuais mês a mês
-  const receitaBrutaMes = MESES.map((_, m) =>
+// Duas formas de modelar receita, conforme a unidade: `receita.produtos`
+// (Volume × Preço por produto — Têxtil e Agrícola) ou `receita.linhas`
+// (quantidade × valor unitário ou valor direto por linha — Resorts, modelo
+// de hotelaria). Uma exclui a outra.
+function receitaBrutaPorMes(data) {
+  if (data.receita.linhas) {
+    const linhasMes = {};
+    Object.entries(data.receita.linhas).forEach(([id, linha]) => {
+      linhasMes[id] = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
+    });
+    const totalMes = MESES.map((_, m) => Object.values(linhasMes).reduce((acc, arr) => acc + arr[m], 0));
+    return { receitaBrutaMes: totalMes, linhasReceitaMes: linhasMes };
+  }
+  const totalMes = MESES.map((_, m) =>
     (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]), 0)
   );
+  return { receitaBrutaMes: totalMes, linhasReceitaMes: null };
+}
+
+function computeDRE(data, ref) {
+  // Receita bruta por mês, para aplicar deduções percentuais mês a mês
+  const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data);
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
 
+  // Base do percentual de dedução: normalmente a receita bruta total
+  // (Têxtil/Agrícola), mas uma linha pode apontar `baseLinhaIds` — soma só
+  // das linhas referenciadas (Resorts).
   const deducoesMes = MESES.map((_, m) =>
-    (data.receita.deducoes || []).reduce((a, d) => a + receitaBrutaMes[m] * (parseNum(d.pcts?.[m]) / 100), 0)
+    (data.receita.deducoes || []).reduce((a, d) => {
+      const base = (d.baseLinhaIds && linhasReceitaMes)
+        ? d.baseLinhaIds.reduce((s, id) => s + (linhasReceitaMes[id]?.[m] || 0), 0)
+        : receitaBrutaMes[m];
+      return a + base * (parseNum(d.pcts?.[m]) / 100);
+    }, 0)
   );
   const deducoes = deducoesMes.reduce((a, v) => a + v, 0);
   const receitaLiquidaMes = MESES.map((_, m) => receitaBrutaMes[m] - deducoesMes[m]);
@@ -1554,12 +1645,21 @@ function computePlano5Y(dre, anos) {
 
 function runAuditoria(data, dre, ref) {
   const checks = [];
-  const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
-  checks.push({
-    label: 'Receita: ao menos um produto com volume e preço em algum mês',
-    ok: produtosValidos.length > 0,
-    detalhe: `${produtosValidos.length} de ${(data.receita.produtos || []).length} produto(s) preenchido(s)`,
-  });
+  if (data.receita.linhas) {
+    const linhasReceitaValidas = Object.values(data.receita.linhas).filter(l => valorLinhaAnual(l, null, null) > 0);
+    checks.push({
+      label: 'Receita: ao menos uma linha (Hospedagem, A&B, etc.) com valor lançado',
+      ok: linhasReceitaValidas.length > 0,
+      detalhe: `${linhasReceitaValidas.length} de ${Object.keys(data.receita.linhas).length} linha(s) preenchida(s)`,
+    });
+  } else {
+    const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
+    checks.push({
+      label: 'Receita: ao menos um produto com volume e preço em algum mês',
+      ok: produtosValidos.length > 0,
+      detalhe: `${produtosValidos.length} de ${(data.receita.produtos || []).length} produto(s) preenchido(s)`,
+    });
+  }
 
   const justContextoOk = !!(data.estrategicas?.contexto || '').trim();
   checks.push({
@@ -2972,11 +3072,20 @@ function VisaoGerente(props) {
           />
         )}
         {aba === 'receita' && (
-          <AbaReceita
-            produtos={dados.receita.produtos} deducoes={dados.receita.deducoes}
-            deducoesJustificativa={dados.receita.deducoesJustificativa} justificativaGeral={dados.receita.justificativaGeral}
-            updateProduto={updateProduto} updateDeducao={updateDeducao} atualizar={atualizar} dre={dre}
-          />
+          dados.receita.linhas ? (
+            <AbaReceitaResorts
+              linhas={dados.receita.linhas} deducoes={dados.receita.deducoes}
+              deducoesJustificativa={dados.receita.deducoesJustificativa} justificativaGeral={dados.receita.justificativaGeral}
+              atualizar={atualizar} dre={dre}
+            />
+          ) : (
+            <AbaReceita
+              unidadeId={unidadeAtual}
+              produtos={dados.receita.produtos} deducoes={dados.receita.deducoes}
+              deducoesJustificativa={dados.receita.deducoesJustificativa} justificativaGeral={dados.receita.justificativaGeral}
+              updateProduto={updateProduto} updateDeducao={updateDeducao} atualizar={atualizar} dre={dre}
+            />
+          )
         )}
         {aba === 'custos' && (
           <AbaCustos
@@ -3193,7 +3302,8 @@ function AbaEstrategicas({ estrategicas, atualizar, premissasMacro, addObjetivo,
   );
 }
 
-function AbaReceita({ produtos, deducoes, deducoesJustificativa, justificativaGeral, updateProduto, updateDeducao, atualizar, dre }) {
+function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, justificativaGeral, updateProduto, updateDeducao, atualizar, dre }) {
+  const mostrarReferenciaTextil = unidadeId === 'textil';
   const volumeTotalMes = MESES.map((_, m) => produtos.reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0));
   const volumeTotalAnual = volumeTotalMes.reduce((a, v) => a + v, 0);
   const precoPonderadoMes = MESES.map((_, m) => (volumeTotalMes[m] > 0 ? dre.receitaBrutaMes[m] / volumeTotalMes[m] : 0));
@@ -3283,7 +3393,7 @@ function AbaReceita({ produtos, deducoes, deducoesJustificativa, justificativaGe
             totalValor: dre.deducoes,
             cor: COR.azul,
           },
-          ...deducoes.filter(d => REFERENCIA_2026_TEXTIL.deducoes[d.nome]).map(d => {
+          ...deducoes.filter(d => mostrarReferenciaTextil && REFERENCIA_2026_TEXTIL.deducoes[d.nome]).map(d => {
             const valoresMensal = REFERENCIA_2026_TEXTIL.deducoes[d.nome].map(v => Math.abs(v));
             return { key: `${d.id}_2026`, label: `${d.nome} 2026 (referência, R$)`, valoresMensal, totalValor: valoresMensal.reduce((a, v) => a + v, 0), cor: '#8A8F96' };
           }),
@@ -3304,9 +3414,124 @@ function AbaReceita({ produtos, deducoes, deducoesJustificativa, justificativaGe
         onChangeCelula={() => {}}
         linhasCalculadas={[
           { key: 'receitaLiquida', label: 'Receita Operacional Líquida (R$)', valoresMensal: dre.receitaLiquidaMes, totalValor: dre.receitaLiquida, cor: COR.verde },
-          { key: 'receitaLiquida2026', label: 'Receita Líquida 2026 (referência, R$)', valoresMensal: REFERENCIA_2026_TEXTIL.receitaLiquida, totalValor: REFERENCIA_2026_TEXTIL.receitaLiquida.reduce((a, v) => a + v, 0), cor: '#8A8F96' },
+          ...(mostrarReferenciaTextil ? [
+            { key: 'receitaLiquida2026', label: 'Receita Líquida 2026 (referência, R$)', valoresMensal: REFERENCIA_2026_TEXTIL.receitaLiquida, totalValor: REFERENCIA_2026_TEXTIL.receitaLiquida.reduce((a, v) => a + v, 0), cor: '#8A8F96' },
+          ] : []),
         ]}
       />
+
+      <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
+        <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
+        <CardTotal label="Deduções" valor={-dre.deducoes} cor={COR.vermelho} />
+        <CardTotal label="Receita líquida" valor={dre.receitaLiquida} cor={COR.verde} />
+      </div>
+    </div>
+  );
+}
+
+// Modelo de receita de hotelaria (ARA Resorts) — estruturalmente diferente
+// de Volume × Preço por produto (Têxtil/Agrícola): cada linha é
+// quantidade × valor unitário (Hospedagem, A&B, Café e Pensão) ou valor
+// direto por mês (Moorea, Outras Receitas). Estrutura e valores de
+// referência vêm de "Premissas por Empresa.xlsx" (fornecida em 2026-08-09).
+// Reaproveita valorLinhaMes/valorLinhaAnual — a mesma mecânica já usada em
+// Custos — em vez de inventar um cálculo novo.
+function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificativaGeral, atualizar, dre }) {
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>2. Premissas de receita — ARA Resorts</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Modelo de hotelaria: Hospedagem, Alimentação &amp; Bebidas e Café e Pensão são calculados por
+        quantidade × valor unitário (acomodações ocupadas × tarifa, adultos × consumo médio); as demais
+        linhas são valor direto por mês. Estrutura vinda de Premissas_por_Empresa.xlsx (aba Premissas_Resorts).
+      </p>
+
+      {LINHAS_RECEITA_RESORTS.map((def, i) => {
+        const linha = linhas[def.id] || novaLinhaVazia();
+        const receitaMensal = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
+        const totalLinha = receitaMensal.reduce((a, v) => a + v, 0);
+        const camposEditaveis = def.tipo === 'qtd_valor'
+          ? [
+              { key: 'quantidade', label: def.rotuloQtd, valores: linha.quantidades },
+              { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit },
+            ]
+          : [
+              { key: 'valor', label: 'Valor (R$)', valores: linha.valores },
+            ];
+        return (
+          <div key={def.id} style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: i % 2 ? COR.claro : COR.branco }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>{def.nome}</div>
+            <TabelaMensal
+              linhas={camposEditaveis}
+              onChangeCelula={(campoKey, mesIdx, valor) => {
+                const campo = campoKey === 'quantidade' ? 'quantidades' : campoKey === 'valorUnit' ? 'valoresUnit' : 'valores';
+                const base = campo === 'quantidades' ? linha.quantidades : campo === 'valoresUnit' ? linha.valoresUnit : linha.valores;
+                const novoArray = (base || mesesVazios()).map((v, idx) => idx === mesIdx ? valor : v);
+                atualizar(['receita', 'linhas', def.id], { ...linha, [campo]: novoArray });
+              }}
+              corTotal={COR.azul}
+              linhasCalculadas={[
+                { key: 'receita', label: 'Receita (R$)', valoresMensal: receitaMensal, totalValor: totalLinha, cor: COR.verde },
+              ]}
+            />
+            <div style={{ marginTop: 8 }}>
+              <CampoJustificativa
+                value={linha.justificativa}
+                onChange={v => atualizar(['receita', 'linhas', def.id], { ...linha, justificativa: v })}
+                placeholder={`Justificativa da premissa de ${def.nome}`}
+              />
+            </div>
+          </div>
+        );
+      })}
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Receita Operacional Bruta — consolidado</h4>
+      <TabelaMensal
+        linhas={[]}
+        onChangeCelula={() => {}}
+        linhasCalculadas={[
+          { key: 'receitaBruta', label: 'Receita Operacional Bruta (R$)', valoresMensal: dre.receitaBrutaMes, totalValor: dre.receitaBruta, cor: COR.verde },
+        ]}
+      />
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Justificativas sobre a projeção de receita</h4>
+      <CampoJustificativa
+        value={justificativaGeral}
+        onChange={v => atualizar(['receita', 'justificativaGeral'], v)}
+        placeholder="Justificativa geral da premissa de receita (ex.: taxa de ocupação esperada, tarifa média, sazonalidade)"
+        obrigatorio
+      />
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Deduções sobre a receita</h4>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Cada dedução incide sobre a receita da linha específica que ela referencia (ex.: PIS sobre Hospedagem
+        incide só sobre a receita de Hospedagem, não sobre o total) — não sobre a receita bruta total.
+      </p>
+      <TabelaMensal
+        linhas={deducoes.map(d => ({ key: d.id, label: d.nome, valores: d.pcts }))}
+        onChangeCelula={(dedId, mesIdx, valor) => {
+          const d = deducoes.find(x => x.id === dedId);
+          const novoArray = d.pcts.map((v, idx) => idx === mesIdx ? valor : v);
+          atualizar(['receita', 'deducoes'], deducoes.map(x => x.id === dedId ? { ...x, pcts: novoArray } : x));
+        }}
+        corTotal={COR.vermelho}
+        sufixo="%"
+        linhasCalculadas={deducoes.map(d => {
+          const baseMes = MESES.map((_, m) =>
+            (d.baseLinhaIds || []).reduce((s, id) => s + valorLinhaMes(linhas[id] || novaLinhaVazia(), m, null, null), 0)
+          );
+          const valoresMensal = MESES.map((_, m) => baseMes[m] * (parseNum(d.pcts?.[m]) / 100));
+          return { key: `${d.id}_abs`, label: `${d.nome} (R$)`, valoresMensal, totalValor: valoresMensal.reduce((a, v) => a + v, 0), cor: COR.vermelho };
+        })}
+      />
+      <div style={{ marginTop: 8 }}>
+        <CampoJustificativa
+          value={deducoesJustificativa}
+          onChange={v => atualizar(['receita', 'deducoesJustificativa'], v)}
+          placeholder="Justificativa geral das deduções"
+          obrigatorio
+        />
+      </div>
 
       <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
         <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />

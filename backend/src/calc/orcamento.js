@@ -7,6 +7,7 @@
 // Não alterar a lógica de negócio aqui sem replicar a mudança no .jsx (ou,
 // depois que a Fase 6 aposentar o protótipo, aqui passa a ser a única fonte).
 import { MESES, mesesVazios, PRODUTOS_REF, DEDUCOES_REF } from './constantesTextil.js';
+import { PRODUTOS_REF_AGRICOLA, DEDUCOES_REF_AGRICOLA, LINHAS_RECEITA_RESORTS, DEDUCOES_REF_RESORTS } from './receitaAgricolaResorts.js';
 
 export function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -98,6 +99,35 @@ export function linhaTemNegativo(linha) {
 // Agrícola/Resorts começam com a lista de produtos vazia — o gerente cadastra
 // os produtos/serviços da própria unidade (ainda sem uma lista de referência
 // oficial para essas duas, é uma pendência separada da estrutura de CC).
+// Monta o objeto `receita` certo por unidade — três modelos diferentes (ver
+// calc/receitaAgricolaResorts.js): produtos com referência pré-carregada
+// (Têxtil), produtos genéricos vazios com deduções próprias (Agrícola), ou
+// linhas de hotelaria (Resorts). unidades sem modelo definido (Corporativo,
+// EI, Energia) caem no genérico vazio — não têm lançamento habilitado mesmo.
+function receitaVazia(unidadeId) {
+  if (unidadeId === 'textil') {
+    return {
+      produtos: PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
+    };
+  }
+  if (unidadeId === 'agricola') {
+    return {
+      produtos: PRODUTOS_REF_AGRICOLA.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
+    };
+  }
+  if (unidadeId === 'resorts') {
+    const linhas = {};
+    LINHAS_RECEITA_RESORTS.forEach((l) => { linhas[l.id] = novaLinhaVazia(); });
+    return {
+      linhas,
+      deducoes: DEDUCOES_REF_RESORTS.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
+    };
+  }
+  return { produtos: [], deducoes: [] };
+}
+
 export function emptyFormData(unidadeId = 'textil') {
   return {
     estrategicas: {
@@ -107,10 +137,7 @@ export function emptyFormData(unidadeId = 'textil') {
       swot: { forcas: '', fraquezas: '', oportunidades: '', ameacas: '' },
     },
     receita: {
-      produtos: unidadeId === 'textil'
-        ? PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() }))
-        : [],
-      deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
+      ...receitaVazia(unidadeId),
       deducoesJustificativa: '',
       justificativaGeral: '',
     },
@@ -203,15 +230,42 @@ export function folhaAnualPorCC(data, ccCodigo) {
   return computeFolhaPessoalAnual(funcs, data.custos.premissasPessoal);
 }
 
-export function computeDRE(data, ref) {
-  // Receita bruta por mês, para aplicar deduções percentuais mês a mês
-  const receitaBrutaMes = MESES.map((_, m) =>
+// Duas formas de modelar receita, conforme a unidade (ver
+// calc/receitaAgricolaResorts.js): `receita.produtos` (Volume × Preço por
+// produto — Têxtil e Agrícola) ou `receita.linhas` (quantidade × valor
+// unitário ou valor direto por linha — Resorts, modelo de hotelaria). Uma
+// exclui a outra; nunca as duas ao mesmo tempo num mesmo documento.
+function receitaBrutaPorMes(data) {
+  if (data.receita.linhas) {
+    const linhasMes = {};
+    Object.entries(data.receita.linhas).forEach(([id, linha]) => {
+      linhasMes[id] = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
+    });
+    const totalMes = MESES.map((_, m) => Object.values(linhasMes).reduce((acc, arr) => acc + arr[m], 0));
+    return { receitaBrutaMes: totalMes, linhasReceitaMes: linhasMes };
+  }
+  const totalMes = MESES.map((_, m) =>
     (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]), 0)
   );
+  return { receitaBrutaMes: totalMes, linhasReceitaMes: null };
+}
+
+export function computeDRE(data, ref) {
+  // Receita bruta por mês, para aplicar deduções percentuais mês a mês
+  const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data);
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
 
+  // Base do percentual de dedução: normalmente a receita bruta total
+  // (Têxtil/Agrícola), mas uma linha pode apontar `baseLinhaIds` — soma só
+  // das linhas referenciadas (Resorts: PIS/Cofins de Hospedagem incidem só
+  // sobre a receita de Hospedagem, não sobre A&B, por exemplo).
   const deducoesMes = MESES.map((_, m) =>
-    (data.receita.deducoes || []).reduce((a, d) => a + receitaBrutaMes[m] * (parseNum(d.pcts?.[m]) / 100), 0)
+    (data.receita.deducoes || []).reduce((a, d) => {
+      const base = (d.baseLinhaIds && linhasReceitaMes)
+        ? d.baseLinhaIds.reduce((s, id) => s + (linhasReceitaMes[id]?.[m] || 0), 0)
+        : receitaBrutaMes[m];
+      return a + base * (parseNum(d.pcts?.[m]) / 100);
+    }, 0)
   );
   const deducoes = deducoesMes.reduce((a, v) => a + v, 0);
   const receitaLiquidaMes = MESES.map((_, m) => receitaBrutaMes[m] - deducoesMes[m]);
@@ -562,12 +616,23 @@ export function computePlano5Y(dre, anos) {
 
 export function runAuditoria(data, dre, ref) {
   const checks = [];
-  const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
-  checks.push({
-    label: 'Receita: ao menos um produto com volume e preço em algum mês',
-    ok: produtosValidos.length > 0,
-    detalhe: `${produtosValidos.length} de ${(data.receita.produtos || []).length} produto(s) preenchido(s)`,
-  });
+  // Modelo por produto (Têxtil/Agrícola) ou por linha (Resorts) — ver
+  // receitaBrutaPorMes() em computeDRE. Auditoria checa o que existir.
+  if (data.receita.linhas) {
+    const linhasReceitaValidas = Object.values(data.receita.linhas).filter(l => valorLinhaAnual(l, null, null) > 0);
+    checks.push({
+      label: 'Receita: ao menos uma linha (Hospedagem, A&B, etc.) com valor lançado',
+      ok: linhasReceitaValidas.length > 0,
+      detalhe: `${linhasReceitaValidas.length} de ${Object.keys(data.receita.linhas).length} linha(s) preenchida(s)`,
+    });
+  } else {
+    const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
+    checks.push({
+      label: 'Receita: ao menos um produto com volume e preço em algum mês',
+      ok: produtosValidos.length > 0,
+      detalhe: `${produtosValidos.length} de ${(data.receita.produtos || []).length} produto(s) preenchido(s)`,
+    });
+  }
 
   const justContextoOk = !!(data.estrategicas?.contexto || '').trim();
   checks.push({
