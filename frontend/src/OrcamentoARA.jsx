@@ -1118,13 +1118,25 @@ function receitaVazia(unidadeId) {
   }
   if (unidadeId === 'agricola') {
     return {
-      produtos: PRODUTOS_REF_AGRICOLA.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      // "Vendas Externas" ganha o racional Volume × Preço(USD) × Câmbio —
+      // pedido explícito de 2026-08-09: a planilha 2026 só trazia o preço
+      // já consolidado em R$/t, mas o formulário 2027 expõe a composição
+      // real (preço em USD, que o mercado externo referencia, × câmbio).
+      produtos: PRODUTOS_REF_AGRICOLA.map(p => ({
+        id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(),
+        ...(p.nome === 'Vendas Externas' ? { precoUsd: mesesVazios(), cambio: mesesVazios() } : {}),
+      })),
       deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
     };
   }
   if (unidadeId === 'resorts') {
     const linhas = {};
     LINHAS_RECEITA_RESORTS.forEach((l) => { linhas[l.id] = novaLinhaVazia(); });
+    // Hospedagem ganha o racional Total de Acomodações × Taxa de Ocupação =
+    // Acomodações Ocupadas — pedido explícito de 2026-08-09: a "quantidade"
+    // não é um número solto, é derivada da taxa de ocupação sobre a
+    // capacidade total (mesma relação da planilha: linha 16 = 17 × 18).
+    linhas.hospedagem = { ...linhas.hospedagem, taxaOcupacao: mesesVazios(), totalAcomodacoes: mesesVazios() };
     return {
       linhas,
       deducoes: DEDUCOES_REF_RESORTS.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
@@ -3318,6 +3330,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
         const ref = PRODUTOS_REF.find(r => r.nome === p.nome);
         const receitaMensal = MESES.map((_, m) => parseNum(p.volumes[m]) * parseNum(p.precos[m]));
         const totalProduto = receitaMensal.reduce((a, v) => a + v, 0);
+        const temCambio = p.precoUsd !== undefined; // "Vendas Externas" da Agrícola — ver receitaVazia()
         return (
           <div key={p.id} style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: i % 2 ? COR.claro : COR.branco }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
@@ -3326,18 +3339,46 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
                 {ref ? `Referência 2026: ${ref.volumeRef} t · R$ ${ref.precoRef.toFixed(2)}/t` : '—'}
               </span>
             </div>
+            {temCambio && (
+              <p style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 8 }}>
+                Racional: Volume × Preço (USD/t) × Câmbio (R$/USD) — preço em reais é derivado, não digitado direto.
+              </p>
+            )}
             <TabelaMensal
-              linhas={[
+              linhas={temCambio ? [
+                { key: 'volume', label: 'Volume (t)', valores: p.volumes },
+                { key: 'precoUsd', label: 'Preço (USD/t)', valores: p.precoUsd },
+                { key: 'cambio', label: 'Câmbio (R$/USD)', valores: p.cambio },
+              ] : [
                 { key: 'volume', label: 'Volume (t)', valores: p.volumes },
                 { key: 'preco', label: 'Preço (R$/t)', valores: p.precos },
               ]}
               onChangeCelula={(linhaKey, mesIdx, valor) => {
-                const campo = linhaKey === 'volume' ? 'volumes' : 'precos';
+                if (!temCambio) {
+                  const campo = linhaKey === 'volume' ? 'volumes' : 'precos';
+                  const novoArray = p[campo].map((v, idx) => idx === mesIdx ? valor : v);
+                  updateProduto(p.id, campo, novoArray);
+                  return;
+                }
+                if (linhaKey === 'volume') {
+                  updateProduto(p.id, 'volumes', p.volumes.map((v, idx) => idx === mesIdx ? valor : v));
+                  return;
+                }
+                const campo = linhaKey === 'precoUsd' ? 'precoUsd' : 'cambio';
                 const novoArray = p[campo].map((v, idx) => idx === mesIdx ? valor : v);
-                updateProduto(p.id, campo, novoArray);
+                const precoUsdAtual = campo === 'precoUsd' ? novoArray : p.precoUsd;
+                const cambioAtual = campo === 'cambio' ? novoArray : p.cambio;
+                const novosPrecos = precoUsdAtual.map((v, idx) => parseNum(v) * parseNum(cambioAtual[idx]));
+                atualizar(['receita', 'produtos'], produtos.map(x => x.id === p.id
+                  ? { ...x, [campo]: novoArray, precos: novosPrecos }
+                  : x
+                ));
               }}
               corTotal={COR.azul}
               linhasCalculadas={[
+                ...(temCambio ? [
+                  { key: 'precoRs', label: 'Preço derivado (R$/t)', valoresMensal: p.precos.map(parseNum), totalValor: somaMes(p.precos) / 12, cor: COR.texto, formatarCelula: v => formatBRL(v), formatarTotal: v => formatBRL(v) },
+                ] : []),
                 { key: 'receita', label: 'Receita (R$)', valoresMensal: receitaMensal, totalValor: totalProduto, cor: COR.verde },
                 ...(REFERENCIA_2026_TEXTIL.volume[p.nome] ? [
                   { key: 'volume2026', label: 'Volume 2026 (referência, t)', valoresMensal: REFERENCIA_2026_TEXTIL.volume[p.nome], totalValor: REFERENCIA_2026_TEXTIL.volume[p.nome].reduce((a, v) => a + v, 0), cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) },
@@ -3450,7 +3491,18 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
         const linha = linhas[def.id] || novaLinhaVazia();
         const receitaMensal = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
         const totalLinha = receitaMensal.reduce((a, v) => a + v, 0);
-        const camposEditaveis = def.tipo === 'qtd_valor'
+        // Hospedagem: a "quantidade" (acomodações ocupadas) não é digitada
+        // direto — é derivada de Total de Acomodações × Taxa de Ocupação
+        // (mesmo racional da planilha: linha 16 = linha 17 × linha 18).
+        // Pedido explícito de 2026-08-09.
+        const ehHospedagem = def.id === 'hospedagem';
+        const camposEditaveis = ehHospedagem
+          ? [
+              { key: 'totalAcomodacoes', label: 'Total de Acomodações (#) — UH × dias do mês', valores: linha.totalAcomodacoes || mesesVazios() },
+              { key: 'taxaOcupacao', label: 'Taxa de Ocupação (%)', valores: linha.taxaOcupacao || mesesVazios() },
+              { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit },
+            ]
+          : def.tipo === 'qtd_valor'
           ? [
               { key: 'quantidade', label: def.rotuloQtd, valores: linha.quantidades },
               { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit },
@@ -3461,9 +3513,23 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
         return (
           <div key={def.id} style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: i % 2 ? COR.claro : COR.branco }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>{def.nome}</div>
+            {ehHospedagem && (
+              <p style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 8 }}>
+                Racional: Total de Acomodações × Taxa de Ocupação = Acomodações Ocupadas; × Tarifa Média = Receita.
+              </p>
+            )}
             <TabelaMensal
               linhas={camposEditaveis}
               onChangeCelula={(campoKey, mesIdx, valor) => {
+                if (ehHospedagem && (campoKey === 'totalAcomodacoes' || campoKey === 'taxaOcupacao')) {
+                  const totalAtual = (linha.totalAcomodacoes || mesesVazios()).map((v, idx) => (campoKey === 'totalAcomodacoes' && idx === mesIdx) ? valor : v);
+                  const taxaAtual = (linha.taxaOcupacao || mesesVazios()).map((v, idx) => (campoKey === 'taxaOcupacao' && idx === mesIdx) ? valor : v);
+                  const novasQuantidades = totalAtual.map((v, idx) => parseNum(v) * (parseNum(taxaAtual[idx]) / 100));
+                  atualizar(['receita', 'linhas', def.id], {
+                    ...linha, totalAcomodacoes: totalAtual, taxaOcupacao: taxaAtual, quantidades: novasQuantidades,
+                  });
+                  return;
+                }
                 const campo = campoKey === 'quantidade' ? 'quantidades' : campoKey === 'valorUnit' ? 'valoresUnit' : 'valores';
                 const base = campo === 'quantidades' ? linha.quantidades : campo === 'valoresUnit' ? linha.valoresUnit : linha.valores;
                 const novoArray = (base || mesesVazios()).map((v, idx) => idx === mesIdx ? valor : v);
@@ -3471,6 +3537,9 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
               }}
               corTotal={COR.azul}
               linhasCalculadas={[
+                ...(ehHospedagem ? [
+                  { key: 'ocupadas', label: 'Acomodações Ocupadas (#, derivado)', valoresMensal: (linha.quantidades || mesesVazios()).map(parseNum), totalValor: somaMes(linha.quantidades) / 12, cor: COR.texto, formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) },
+                ] : []),
                 { key: 'receita', label: 'Receita (R$)', valoresMensal: receitaMensal, totalValor: totalLinha, cor: COR.verde },
               ]}
             />
