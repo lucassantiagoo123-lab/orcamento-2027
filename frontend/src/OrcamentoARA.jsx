@@ -3487,7 +3487,7 @@ function VisaoGerente(props) {
         {aba === 'capex' && (
           <AbaCapex projetos={dados.capex.projetos} addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} />
         )}
-        {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={refUnidadeAtual} />}
+        {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={referenciaDaUnidade(unidadeAtual)} />}
         {aba === 'provisoes' && <AbaProvisoes provisoes={dados.provisoes} resultado={dados.resultado} atualizar={atualizar} />}
         {aba === 'fcfinanciamentos' && (
           <AbaFcFinanciamentos
