@@ -726,11 +726,15 @@ export function runAuditoria(data, dre, ref) {
   });
 
   const bal = data.balanco;
+  // Pedido de 2026-08-09: Balanço Patrimonial é responsabilidade do FP&A,
+  // não bloqueia envio do gestor da unidade — obrigatorio:false (espelha o
+  // mesmo campo no .jsx, que é quem realmente decide o botão de Enviar).
   const balancoBaseOk = bal.caixaInicial !== '' && bal.imobilizadoInicial !== '';
   checks.push({
     label: 'Balanço Patrimonial: caixa e imobilizado iniciais informados',
     ok: balancoBaseOk,
-    detalhe: balancoBaseOk ? 'Saldos de abertura informados' : 'Faltam saldos de abertura (caixa e/ou imobilizado)',
+    detalhe: balancoBaseOk ? 'Saldos de abertura informados' : 'Faltam saldos de abertura (caixa e/ou imobilizado) — responsabilidade do FP&A, não bloqueia envio',
+    obrigatorio: false,
   });
 
   return checks;

@@ -14,7 +14,7 @@ const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9
 const UNIDADES_IDS = ['textil', 'agricola', 'resorts', 'ei', 'energia'];
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
-  gerente_unidade: 'Gerente de Unidade',
+  gerente_unidade: 'Gestor da Unidade',
   gerente_cc_corporativo: 'Gerente de CC — Corporativo',
 };
 

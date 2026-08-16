@@ -16,7 +16,7 @@ import { legacyStorage } from './legacyStorage.js';
 
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
-  gerente_unidade: 'Gerente de Unidade',
+  gerente_unidade: 'Gestor da Unidade',
   gerente_cc_corporativo: 'Gerente de CC — Corporativo',
 };
 
@@ -45,7 +45,12 @@ const UNIDADES = [
   { id: 'agricola', nome: 'ARA Agrícola', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
   { id: 'resorts', nome: 'ARA Resorts', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
   { id: 'ei', nome: 'ARA EI', cor: '#F07D00', logo: null }, // pendente: arquivo não recebido ainda
-  { id: 'energia', nome: 'ARA Energia', cor: '#FECC00', logo: null }, // pendente: arquivo não recebido ainda
+  // Renomeado de "ARA Energia" em 2026-08-09 — id interno continua 'energia'
+  // (evita mexer em schema/seed/perfis), mas essa unidade não segue a mesma
+  // estrutura de abas das demais: é uma Visão de Portfólio de Investimentos
+  // (UFVs, PCH, Novo Cais, MCMV) e Aporte/Distribuição no Grupo, não um DRE
+  // por CC — estrutura de verdade ainda não definida, ver aviso na tela.
+  { id: 'energia', nome: 'Escritório de Investimentos', cor: '#FECC00', logo: null },
   { id: 'corporativo', nome: 'Corporativo', cor: '#0C4391', logo: '/logos/grupo-ara.jpg', logoAltura: 24 },
 ];
 
@@ -1069,16 +1074,20 @@ function linhaTemNegativo(linha) {
   return campos.some(arr => (arr || []).some(v => parseNum(v) < 0));
 }
 
+// Pedido de 2026-08-09: a entrega do gestor da unidade se restringe ao DRE
+// (Receita, Custos e Despesas, Provisões, Kgiro e FC Operacional, CAPEX) —
+// as 3 marcadas "(opcional)" são responsabilidade do FP&A, não bloqueiam
+// o envio (ver runAuditoria: obrigatorio:false no check de Balanço).
 const ABAS = [
   { id: 'estrategicas', label: '1. Premissas Estratégicas' },
   { id: 'receita', label: '2. Receita' },
   { id: 'custos', label: '3. Custos e Despesas' },
   { id: 'provisoes', label: '4. Provisões' },
-  { id: 'giro', label: '5. Capital de Giro' },
+  { id: 'giro', label: '5. Kgiro e FC Operacional' },
   { id: 'capex', label: '6. CAPEX' },
-  { id: 'fcfinanciamentos', label: '7. FC Financiamentos' },
-  { id: 'balanco', label: '8. Balanço Patrimonial' },
-  { id: 'plano5y', label: '9. Plano 5Y' },
+  { id: 'fcfinanciamentos', label: '7. FC Financiamentos (opcional — FP&A)' },
+  { id: 'balanco', label: '8. Balanço Patrimonial (opcional — FP&A)' },
+  { id: 'plano5y', label: '9. Plano 5Y (opcional)' },
   { id: 'revisao', label: 'Revisão, Análise e Envio' },
 ];
 
@@ -1767,12 +1776,19 @@ function runAuditoria(data, dre, ref) {
     detalhe: valoresNegativos ? 'Há valor negativo lançado — revisar' : 'Sem valores negativos',
   });
 
+  // Pedido de 2026-08-09: a entrega de cada unidade se restringe ao DRE
+  // (Receita, Custos e Despesas, Provisões, Kgiro e FC Operacional, CAPEX).
+  // Balanço Patrimonial e FC Financiamentos são responsabilidade do FP&A,
+  // não do gestor da unidade — por isso obrigatorio:false aqui: aparece como
+  // pendência informativa na Auditoria, mas NÃO bloqueia o botão de Enviar
+  // (ver tudoOk no componente principal, que filtra por obrigatorio !== false).
   const bal = data.balanco;
   const balancoBaseOk = bal.caixaInicial !== '' && bal.imobilizadoInicial !== '';
   checks.push({
     label: 'Balanço Patrimonial: caixa e imobilizado iniciais informados',
     ok: balancoBaseOk,
-    detalhe: balancoBaseOk ? 'Saldos de abertura informados' : 'Faltam saldos de abertura (caixa e/ou imobilizado)',
+    detalhe: balancoBaseOk ? 'Saldos de abertura informados' : 'Faltam saldos de abertura (caixa e/ou imobilizado) — responsabilidade do FP&A, não bloqueia envio',
+    obrigatorio: false,
   });
 
   return checks;
@@ -2363,7 +2379,9 @@ export default function OrcamentoARA({ usuario }) {
   const refUnidadeAtual = referenciaDaUnidade(unidadeAtual);
   const dre = useMemo(() => computeDRE(dados, refUnidadeAtual), [dados, refUnidadeAtual]);
   const checks = useMemo(() => runAuditoria(dados, dre, refUnidadeAtual), [dados, dre, refUnidadeAtual]);
-  const tudoOk = checks.every(c => c.ok);
+  // Só checks obrigatorio !== false bloqueiam o envio — Balanço Patrimonial
+  // é responsabilidade do FP&A, aparece na auditoria mas não trava o gestor.
+  const tudoOk = checks.filter(c => c.obrigatorio !== false).every(c => c.ok);
 
   function atualizar(caminho, valor) {
     setDados(prev => {
@@ -2453,8 +2471,8 @@ export default function OrcamentoARA({ usuario }) {
     atualizar(['custos', 'detalhes'], dados.custos.detalhes.filter(d => d.id !== id));
   }
 
-  function addProjeto() {
-    atualizar(['capex', 'projetos'], [...dados.capex.projetos, { id: uid(), nome: '', valor: '', mes: '', justificativa: '' }]);
+  function addProjeto(categoria) {
+    atualizar(['capex', 'projetos'], [...dados.capex.projetos, { id: uid(), nome: '', valor: '', mes: '', justificativa: '', categoria: categoria || 'melhoria_interna' }]);
   }
   function updateProjeto(id, campo, valor) {
     atualizar(['capex', 'projetos'], dados.capex.projetos.map(p => p.id === id ? { ...p, [campo]: valor } : p));
@@ -3059,6 +3077,18 @@ function VisaoGerente(props) {
               Diferente de Agrícola e Resorts, a ARA EI não tem nem plano de contas nem pacotes classificados ainda —
               não há de onde derivar a estrutura de lançamento sem inventar contas que não existem de fato.
               Assim que houver uma matriz de governança (ou equivalente) para esta unidade, o formulário completo é habilitado.
+            </div>
+          </div>
+        </div>
+      ) : unidadeAtual === 'energia' ? (
+        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 16, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <AlertTriangle size={18} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>Escritório de Investimentos — estrutura diferente das demais unidades</div>
+            <div style={{ fontSize: 11.5, color: COR.texto }}>
+              Esse segmento do Grupo ARA não segue o mesmo formulário de DRE por CC das outras unidades — é uma
+              Visão de Portfólio de Investimentos (UFVs, PCH, Novo Cais, MCMV) e Aporte/Distribuição no Grupo.
+              Essa tela ainda não foi construída (pendência de 2026-08-09, aguardando você detalhar a estrutura real).
             </div>
           </div>
         </div>
@@ -4221,24 +4251,48 @@ function AbaCustos({ refUnidade, linhas, updateLinha, dre, detalhes, addDetalhe,
   );
 }
 
+// Pedido de 2026-08-09: CAPEX separado em 3 grupos.
+const CATEGORIAS_CAPEX = [
+  { id: 'carryover', nome: '1. Carryover / Comprometido', descricao: 'Investimento realizado em anos anteriores, a pagar em 2027' },
+  { id: 'melhoria_interna', nome: '2. Melhoria Interna', descricao: 'Regulatório / Manutenção' },
+  { id: 'desenvolvimento_expansao', nome: '3. Desenvolvimento e Expansão', descricao: '' },
+];
+
 function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto }) {
   const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>6. CAPEX</h3>
-      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>Investimentos por projeto (inclui o CC Investimentos do Protheus), com mês previsto e justificativa.</p>
-      {projetos.map(p => (
-        <div key={p.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, marginBottom: 10, background: COR.claro }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8, marginBottom: 8 }}>
-            <CampoTexto value={p.nome} onChange={v => updateProjeto(p.id, 'nome', v)} placeholder="Nome do projeto" />
-            <CampoNumero value={p.valor} onChange={v => updateProjeto(p.id, 'valor', v)} prefixo="R$" placeholder="0,00" />
-            <Selecao value={p.mes} onChange={v => updateProjeto(p.id, 'mes', v)} opcoes={meses} />
-            <button onClick={() => removeProjeto(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={14} /></button>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>Investimentos por projeto (inclui o CC Investimentos do Protheus), com mês previsto e justificativa — agrupados por categoria.</p>
+
+      {CATEGORIAS_CAPEX.map(cat => {
+        // Projetos criados antes desta categorização caem em 'melhoria_interna'
+        // por padrão (mesmo fallback do addProjeto) — nada some da lista.
+        const projetosCategoria = projetos.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
+        const totalCategoria = projetosCategoria.reduce((acc, p) => acc + parseNum(p.valor), 0);
+        return (
+          <div key={cat.id} style={{ marginBottom: 22 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+              <h4 style={{ fontSize: 13, color: COR.azul }}>{cat.nome}</h4>
+              <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(totalCategoria)}</span>
+            </div>
+            {cat.descricao && <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>{cat.descricao}</p>}
+
+            {projetosCategoria.map(p => (
+              <div key={p.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, marginBottom: 10, background: COR.claro }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8, marginBottom: 8 }}>
+                  <CampoTexto value={p.nome} onChange={v => updateProjeto(p.id, 'nome', v)} placeholder="Nome do projeto" />
+                  <CampoNumero value={p.valor} onChange={v => updateProjeto(p.id, 'valor', v)} prefixo="R$" placeholder="0,00" />
+                  <Selecao value={p.mes} onChange={v => updateProjeto(p.id, 'mes', v)} opcoes={meses} />
+                  <button onClick={() => removeProjeto(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={14} /></button>
+                </div>
+                <CampoTexto value={p.justificativa} onChange={v => updateProjeto(p.id, 'justificativa', v)} placeholder="Justificativa de viabilidade" />
+              </div>
+            ))}
+            <Botao variante="fantasma" icone={Plus} onClick={() => addProjeto(cat.id)}>Adicionar projeto — {cat.nome}</Botao>
           </div>
-          <CampoTexto value={p.justificativa} onChange={v => updateProjeto(p.id, 'justificativa', v)} placeholder="Justificativa de viabilidade" />
-        </div>
-      ))}
-      <Botao variante="fantasma" icone={Plus} onClick={addProjeto}>Adicionar projeto</Botao>
+        );
+      })}
     </div>
   );
 }
@@ -4246,8 +4300,12 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto }) {
 function AbaGiro({ capitalGiro, atualizar }) {
   return (
     <div>
-      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>5. Capital de giro</h3>
-      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>Descasamento entre competência e caixa, mês a mês. Prazos em dias corridos.</p>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>5. Kgiro e FC Operacional</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Descasamento entre competência e caixa, mês a mês. Prazos em dias corridos.
+        Pendência (2026-08-09): cada unidade terá sua própria estrutura de Kgiro e fluxo de caixa direto —
+        os campos abaixo são os mesmos de antes até essa estrutura ser compartilhada.
+      </p>
       <TabelaMensal
         linhas={[
           { key: 'prazoRecebimento', label: 'Prazo recebimento (dias)', valores: capitalGiro.prazoRecebimento },
@@ -5022,6 +5080,28 @@ function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentari
         >DRE com IFRS 18</button>
       </div>
 
+      {/* Pedido de 2026-08-09: Fluxo de Caixa Direto primeiro — a visão de
+          viabilidade (cascata, bridges, sensibilidades) vem depois dele. */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal, por natureza de recebimento e pagamento</h4>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Recebimentos e pagamentos por categoria (e não a partir do EBITDA). Construído com os mesmos componentes do Indireto abaixo — os dois métodos chegam ao mesmo FC Operacional, só organizam a informação de forma diferente.
+      </p>
+      <div style={{ marginBottom: 24 }}>
+        <TabelaMensal
+          linhas={[]}
+          onChangeCelula={() => {}}
+          linhasCalculadas={[
+            { key: 'recebimentos', label: '(+) Recebimentos de clientes', valoresMensal: fcd.recebimentosClientesMes, totalValor: fcd.recebimentosClientesMes.reduce((a, v) => a + v, 0), cor: COR.verde },
+            { key: 'fornecedores', label: '(-) Pagamentos a fornecedores e insumos', valoresMensal: fcd.pagamentosFornecedoresMes.map(v => -v), totalValor: -fcd.pagamentosFornecedoresMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+            { key: 'pessoal', label: '(-) Pagamentos de pessoal', valoresMensal: fcd.pessoalEmCaixaMes.map(v => -v), totalValor: -fcd.pessoalEmCaixaMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+            { key: 'despesas', label: '(-) Pagamentos de despesas operacionais', valoresMensal: fcd.pagamentosDespesasMes.map(v => -v), totalValor: -fcd.pagamentosDespesasMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+            { key: 'ircslDireto', label: '(-) Pagamento de IRCSL', valoresMensal: fcd.ircslMes.map(v => -v), totalValor: -fcd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+            { key: 'fcopDireto', label: '(=) FC Operacional (Direto)', valoresMensal: fcd.fcOperacionalDiretoMes, totalValor: fcd.fcOperacionalDiretoMes.reduce((a, v) => a + v, 0), cor: COR.azul },
+          ]}
+        />
+      </div>
+
+      <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4, marginTop: 26 }}>Visão de viabilidade — DRE consolidada</h3>
       <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 20 }}>
         <div style={{ flex: '1 1 380px' }}>
           <CascataDRE dre={dre} ifrs18={ifrs18} />
@@ -5088,25 +5168,6 @@ function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentari
             { key: 'fcfin', label: '(=) FC Financiamentos', valoresMensal: fd.fcFinanciamentoMes, totalValor: totalFcFinanciamento, cor: COR.azul },
             { key: 'varcaixa', label: '(=) Variação de Caixa no Mês', valoresMensal: fd.variacaoCaixaMes, totalValor: totalVariacaoCaixa, cor: COR.laranja },
             { key: 'caixaacum', label: 'Caixa Acumulado', valoresMensal: fd.caixaAcumuladoMes, totalValor: fd.caixaAcumuladoMes[11], cor: COR.azul, formatarTotal: v => formatBRL(fd.caixaAcumuladoMes[11]) },
-          ]}
-        />
-      </div>
-
-      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal, por natureza de recebimento e pagamento</h4>
-      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
-        Recebimentos e pagamentos por categoria (e não a partir do EBITDA). Construído com os mesmos componentes do Indireto acima — os dois métodos chegam ao mesmo FC Operacional, só organizam a informação de forma diferente.
-      </p>
-      <div style={{ marginBottom: 24 }}>
-        <TabelaMensal
-          linhas={[]}
-          onChangeCelula={() => {}}
-          linhasCalculadas={[
-            { key: 'recebimentos', label: '(+) Recebimentos de clientes', valoresMensal: fcd.recebimentosClientesMes, totalValor: fcd.recebimentosClientesMes.reduce((a, v) => a + v, 0), cor: COR.verde },
-            { key: 'fornecedores', label: '(-) Pagamentos a fornecedores e insumos', valoresMensal: fcd.pagamentosFornecedoresMes.map(v => -v), totalValor: -fcd.pagamentosFornecedoresMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'pessoal', label: '(-) Pagamentos de pessoal', valoresMensal: fcd.pessoalEmCaixaMes.map(v => -v), totalValor: -fcd.pessoalEmCaixaMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'despesas', label: '(-) Pagamentos de despesas operacionais', valoresMensal: fcd.pagamentosDespesasMes.map(v => -v), totalValor: -fcd.pagamentosDespesasMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'ircslDireto', label: '(-) Pagamento de IRCSL', valoresMensal: fcd.ircslMes.map(v => -v), totalValor: -fcd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'fcopDireto', label: '(=) FC Operacional (Direto)', valoresMensal: fcd.fcOperacionalDiretoMes, totalValor: fcd.fcOperacionalDiretoMes.reduce((a, v) => a + v, 0), cor: COR.azul },
           ]}
         />
       </div>

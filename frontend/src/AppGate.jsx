@@ -174,7 +174,7 @@ function LoginDev({ onEntrou }) {
       </p>
       <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 6 }}>
         <input
-          required type="email" placeholder="lucas.santiago@grupoara.com.br"
+          required type="email" placeholder="nome.sobrenome@grupoara.com.br"
           value={email} onChange={(e) => setEmail(e.target.value)}
           style={{ flex: 1, fontSize: 12, padding: '7px 9px', borderRadius: 6, border: '1px solid #D9D9D9' }}
         />
