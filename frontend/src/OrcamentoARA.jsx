@@ -1085,8 +1085,8 @@ const ABAS = [
   { id: 'provisoes', label: '4. Provisões' },
   { id: 'giro', label: '5. Kgiro e FC Operacional' },
   { id: 'capex', label: '6. CAPEX' },
-  { id: 'fcfinanciamentos', label: '7. FC Financiamentos (opcional — FP&A)' },
-  { id: 'balanco', label: '8. Balanço Patrimonial (opcional — FP&A)' },
+  { id: 'fcfinanciamentos', label: '7. FC Financiamentos (FP&A)' },
+  { id: 'balanco', label: '8. Balanço Patrimonial (FP&A)' },
   { id: 'plano5y', label: '9. Plano 5Y (opcional)' },
   { id: 'revisao', label: 'Revisão, Análise e Envio' },
 ];
@@ -1848,8 +1848,8 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
             );
           })}
           {(linhasCalculadas || []).map(linha => (
-            <tr key={linha.key} style={{ background: COR.total }}>
-              <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.total, color: linha.cor || COR.azul }}>{linha.label}</td>
+            <tr key={linha.key} style={{ background: COR.branco }}>
+              <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco, color: linha.cor || COR.azul }}>{linha.label}</td>
               {linha.valoresMensal.map((v, mi) => (
                 <td key={mi} style={{ padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right', color: linha.cor || COR.texto, fontWeight: 700 }}>
                   {(linha.formatarCelula || formatBRL)(v)}
@@ -5080,28 +5080,8 @@ function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentari
         >DRE com IFRS 18</button>
       </div>
 
-      {/* Pedido de 2026-08-09: Fluxo de Caixa Direto primeiro — a visão de
-          viabilidade (cascata, bridges, sensibilidades) vem depois dele. */}
-      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal, por natureza de recebimento e pagamento</h4>
-      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
-        Recebimentos e pagamentos por categoria (e não a partir do EBITDA). Construído com os mesmos componentes do Indireto abaixo — os dois métodos chegam ao mesmo FC Operacional, só organizam a informação de forma diferente.
-      </p>
-      <div style={{ marginBottom: 24 }}>
-        <TabelaMensal
-          linhas={[]}
-          onChangeCelula={() => {}}
-          linhasCalculadas={[
-            { key: 'recebimentos', label: '(+) Recebimentos de clientes', valoresMensal: fcd.recebimentosClientesMes, totalValor: fcd.recebimentosClientesMes.reduce((a, v) => a + v, 0), cor: COR.verde },
-            { key: 'fornecedores', label: '(-) Pagamentos a fornecedores e insumos', valoresMensal: fcd.pagamentosFornecedoresMes.map(v => -v), totalValor: -fcd.pagamentosFornecedoresMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'pessoal', label: '(-) Pagamentos de pessoal', valoresMensal: fcd.pessoalEmCaixaMes.map(v => -v), totalValor: -fcd.pessoalEmCaixaMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'despesas', label: '(-) Pagamentos de despesas operacionais', valoresMensal: fcd.pagamentosDespesasMes.map(v => -v), totalValor: -fcd.pagamentosDespesasMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'ircslDireto', label: '(-) Pagamento de IRCSL', valoresMensal: fcd.ircslMes.map(v => -v), totalValor: -fcd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'fcopDireto', label: '(=) FC Operacional (Direto)', valoresMensal: fcd.fcOperacionalDiretoMes, totalValor: fcd.fcOperacionalDiretoMes.reduce((a, v) => a + v, 0), cor: COR.azul },
-          ]}
-        />
-      </div>
-
-      <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4, marginTop: 26 }}>Visão de viabilidade — DRE consolidada</h3>
+      {/* Ordem de 2026-08-09: DRE+gráficos -> DRE mensal -> FC Indireto mensal
+          -> FC Direto mensal -> Análise de Sensibilidades -> envio. */}
       <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 20 }}>
         <div style={{ flex: '1 1 380px' }}>
           <CascataDRE dre={dre} ifrs18={ifrs18} />
@@ -5117,8 +5097,6 @@ function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentari
           </div>
         </div>
       </div>
-
-      <AnaliseSensibilidades dados={dados} dre={dre} sensibilidades={sensibilidades} updateCenarioSensibilidade={updateCenarioSensibilidade} />
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>DRE Consolidada — mensal</h4>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Todas as contas sintéticas, mês a mês, com o total do ano na última coluna.</p>
@@ -5171,6 +5149,27 @@ function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentari
           ]}
         />
       </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal, por natureza de recebimento e pagamento</h4>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Recebimentos e pagamentos por categoria (e não a partir do EBITDA). Construído com os mesmos componentes do Indireto acima — os dois métodos chegam ao mesmo FC Operacional, só organizam a informação de forma diferente.
+      </p>
+      <div style={{ marginBottom: 24 }}>
+        <TabelaMensal
+          linhas={[]}
+          onChangeCelula={() => {}}
+          linhasCalculadas={[
+            { key: 'recebimentos', label: '(+) Recebimentos de clientes', valoresMensal: fcd.recebimentosClientesMes, totalValor: fcd.recebimentosClientesMes.reduce((a, v) => a + v, 0), cor: COR.verde },
+            { key: 'fornecedores', label: '(-) Pagamentos a fornecedores e insumos', valoresMensal: fcd.pagamentosFornecedoresMes.map(v => -v), totalValor: -fcd.pagamentosFornecedoresMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+            { key: 'pessoal', label: '(-) Pagamentos de pessoal', valoresMensal: fcd.pessoalEmCaixaMes.map(v => -v), totalValor: -fcd.pessoalEmCaixaMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+            { key: 'despesas', label: '(-) Pagamentos de despesas operacionais', valoresMensal: fcd.pagamentosDespesasMes.map(v => -v), totalValor: -fcd.pagamentosDespesasMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+            { key: 'ircslDireto', label: '(-) Pagamento de IRCSL', valoresMensal: fcd.ircslMes.map(v => -v), totalValor: -fcd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+            { key: 'fcopDireto', label: '(=) FC Operacional (Direto)', valoresMensal: fcd.fcOperacionalDiretoMes, totalValor: fcd.fcOperacionalDiretoMes.reduce((a, v) => a + v, 0), cor: COR.azul },
+          ]}
+        />
+      </div>
+
+      <AnaliseSensibilidades dados={dados} dre={dre} sensibilidades={sensibilidades} updateCenarioSensibilidade={updateCenarioSensibilidade} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
         <div>
