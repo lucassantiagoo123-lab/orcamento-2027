@@ -43,6 +43,35 @@ export function premissasRecebimentoVazias() {
   return p;
 }
 
+// Plano de contas de Pagamentos manuais do FC Direto — a aba "Fluxo de
+// Caixa Direto" da planilha-fonte não tinha rótulo nenhum nas 7 linhas de
+// pagamento (template em branco, só fórmulas de soma); os nomes reais
+// abaixo foram confirmados pelo usuário por print em 2026-08-16.
+export const PLANO_CONTAS_PAGAMENTOS_TEXTIL = [
+  { id: 'rateioAdministrativo', nome: 'Rateio Administrativo' },
+  { id: 'materiaPrimaFios', nome: 'Matéria-Prima Fios' },
+  { id: 'materiaPrimaQuimicos', nome: 'Matéria-Prima Produtos Químicos' },
+  { id: 'maoDeObra', nome: 'Mão de obra' },
+  { id: 'gas', nome: 'Gás' },
+  { id: 'energiaEletrica', nome: 'Energia Elétrica' },
+  { id: 'assessoriasConsultorias', nome: 'Assessorias e Consultorias Int' },
+  { id: 'outros', nome: 'Outros' },
+];
+
+export function pagamentosManuaisVazios() {
+  const p = {};
+  PLANO_CONTAS_PAGAMENTOS_TEXTIL.forEach((c) => { p[c.id] = mesesVazios(); });
+  return p;
+}
+
+/** Soma mensal de todas as contas de pagamento manual. */
+export function computePagamentosManuaisMes(pagamentosManuais) {
+  const p = pagamentosManuais || pagamentosManuaisVazios();
+  return MESES.map((_, m) =>
+    PLANO_CONTAS_PAGAMENTOS_TEXTIL.reduce((acc, c) => acc + parseNum(p[c.id]?.[m]), 0)
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Cascata de recebimentos — fórmulas conferidas na planilha (Premissas
 // Kgiro): linhas 6-7 são digitadas mês a mês (carryover do ano anterior);
@@ -62,17 +91,25 @@ export function computeRecebimentosKgiroMensal(data, dre) {
   const emCarteiraMes = (cg.recebimentosEmCarteira || mesesVazios()).map(parseNum);
   const vendasNovDezMes = (cg.recebimentosVendasNovDez || mesesVazios()).map(parseNum);
 
+  // porFaixaMes: valor mensal recebido por cada faixa (à vista + cada
+  // defasagem de 30 a 360 dias), individualmente — usado na UI para
+  // mostrar a tabela linha a linha igual à planilha (linhas 9 a 22).
+  const porFaixaMes = {};
+  PREMISSAS_RECEBIMENTO_REF.forEach((r) => {
+    porFaixaMes[r.id] = MESES.map((_, m) => {
+      const origem = m - r.defasagemMeses;
+      if (origem < 0) return 0; // antes do início do ciclo — coberto por "em carteira"/"vendas nov-dez"
+      return faturamentoMes[origem] * (parseNum(p[r.id]) / 100);
+    });
+  });
+
   const pctAVista = parseNum(p.avista) / 100;
   const recebimentosAVistaMes = faturamentoMes.map((f) => f * pctAVista);
 
   const recebimentosAPrazoMes = MESES.map((_, m) =>
     PREMISSAS_RECEBIMENTO_REF
       .filter((r) => r.defasagemMeses > 0)
-      .reduce((acc, r) => {
-        const origem = m - r.defasagemMeses;
-        if (origem < 0) return acc; // antes do início do ciclo — coberto por "em carteira"/"vendas nov-dez"
-        return acc + faturamentoMes[origem] * (parseNum(p[r.id]) / 100);
-      }, 0)
+      .reduce((acc, r) => acc + porFaixaMes[r.id][m], 0)
   );
 
   const pctCancelamento = parseNum(p.cancelamento) / 100;
@@ -82,7 +119,7 @@ export function computeRecebimentosKgiroMensal(data, dre) {
     emCarteiraMes[m] + vendasNovDezMes[m] + recebimentosAVistaMes[m] + recebimentosAPrazoMes[m] + cancelamentoMes[m]
   );
 
-  return { faturamentoMes, emCarteiraMes, vendasNovDezMes, recebimentosAVistaMes, recebimentosAPrazoMes, cancelamentoMes, totalMes };
+  return { faturamentoMes, emCarteiraMes, vendasNovDezMes, porFaixaMes, recebimentosAVistaMes, recebimentosAPrazoMes, cancelamentoMes, totalMes };
 }
 
 export function novoPagamentoManual() {
@@ -160,13 +197,58 @@ export function planoContasBalancoVazio() {
   return contas;
 }
 
+// Saldo de partida (Dez/25) por conta — um único valor por conta, não uma
+// série mensal (é o saldo de abertura do ciclo, antes de janeiro/2027).
+// Decisão do usuário (2026-08-16): essa coluna some as contas do Balanço,
+// digitada linha a linha, logo após a descrição da conta e antes de Jan.
+export function saldosIniciaisBalancoVazio() {
+  const saldos = {};
+  GRUPOS_BALANCO_TEXTIL.forEach((g) => g.contas.forEach((c) => { saldos[c.id] = ''; }));
+  return saldos;
+}
+
+// Deriva os saldos de abertura relevantes para os cálculos de FC (caixa,
+// contas a receber, contas a pagar, estoque) a partir do plano de contas
+// granular — só para Têxtil, quando data.balanco.planoContas existe.
+// Decisão do usuário (2026-08-16): os campos escalares de saldo de abertura
+// somem da tela do Balanço da Têxtil (retirados antes do bloco de plano de
+// contas); o valor passa a vir só da coluna Dez/25, lançada por conta. Para
+// as demais unidades (sem planoContas), mantém os campos escalares — nada
+// muda ali.
+export function saldosAberturaFc(data) {
+  const bal = data.balanco || {};
+  if (bal.planoContas && bal.saldosIniciais) {
+    const s = bal.saldosIniciais;
+    const contasEstoque = ['estoqueMateriaPrima', 'produtosAcabados', 'estoqueComTerceiros', 'estoqueAlmoxarifado', 'estoqueEmProcesso'];
+    return {
+      caixaInicial: parseNum(s.disponivel),
+      arInicial: parseNum(s.clientes),
+      apInicial: parseNum(s.contasAPagar),
+      estoqueInicial: contasEstoque.reduce((acc, id) => acc + parseNum(s[id]), 0),
+    };
+  }
+  return {
+    caixaInicial: parseNum(bal.caixaInicial),
+    arInicial: parseNum(bal.contasAReceberInicial),
+    apInicial: parseNum(bal.contasAPagarInicial),
+    estoqueInicial: parseNum(bal.estoqueInicial),
+  };
+}
+
 /** Subtotais por grupo, Ativo Total, Passivo e PL Total, e o Check Balanço
- * (Ativo Total - Passivo e PL Total — zero quando bate, igual à planilha). */
-export function computeBalancoMensal(planoContas) {
+ * (Ativo Total - Passivo e PL Total — zero quando bate, igual à planilha).
+ * saldosIniciais (Dez/25) entram como um subtotal adicional por grupo e um
+ * check inicial, só para conferência — não alimentam nenhuma fórmula de
+ * projeção dos meses seguintes (a aba-fonte não tinha fórmula de
+ * roll-forward real, é lançamento manual mês a mês). */
+export function computeBalancoMensal(planoContas, saldosIniciais) {
   const contas = planoContas || planoContasBalancoVazio();
+  const iniciais = saldosIniciais || saldosIniciaisBalancoVazio();
   const porGrupoMes = {};
+  const porGrupoInicial = {};
   GRUPOS_BALANCO_TEXTIL.forEach((g) => {
     porGrupoMes[g.id] = MESES.map((_, m) => g.contas.reduce((acc, c) => acc + parseNum(contas[c.id]?.[m]), 0));
+    porGrupoInicial[g.id] = g.contas.reduce((acc, c) => acc + parseNum(iniciais[c.id]), 0);
   });
   const ativoTotalMes = MESES.map((_, m) =>
     (porGrupoMes.ativoCirculante[m] || 0) + (porGrupoMes.ativoNaoCirculante[m] || 0) + (porGrupoMes.ativoPermanente[m] || 0)
@@ -175,5 +257,10 @@ export function computeBalancoMensal(planoContas) {
     (porGrupoMes.passivoCirculante[m] || 0) + (porGrupoMes.passivoNaoCirculante[m] || 0) + (porGrupoMes.patrimonioLiquido[m] || 0)
   );
   const checkMes = MESES.map((_, m) => ativoTotalMes[m] - passivoPlTotalMes[m]);
-  return { porGrupoMes, ativoTotalMes, passivoPlTotalMes, checkMes };
+
+  const ativoInicial = (porGrupoInicial.ativoCirculante || 0) + (porGrupoInicial.ativoNaoCirculante || 0) + (porGrupoInicial.ativoPermanente || 0);
+  const passivoPlInicial = (porGrupoInicial.passivoCirculante || 0) + (porGrupoInicial.passivoNaoCirculante || 0) + (porGrupoInicial.patrimonioLiquido || 0);
+  const checkInicial = ativoInicial - passivoPlInicial;
+
+  return { porGrupoMes, ativoTotalMes, passivoPlTotalMes, checkMes, porGrupoInicial, ativoInicial, passivoPlInicial, checkInicial };
 }

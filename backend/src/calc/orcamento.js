@@ -8,7 +8,7 @@
 // depois que a Fase 6 aposentar o protótipo, aqui passa a ser a única fonte).
 import { MESES, mesesVazios, PRODUTOS_REF, DEDUCOES_REF } from './constantesTextil.js';
 import { PRODUTOS_REF_AGRICOLA, DEDUCOES_REF_AGRICOLA, LINHAS_RECEITA_RESORTS, DEDUCOES_REF_RESORTS } from './receitaAgricolaResorts.js';
-import { premissasRecebimentoVazias, planoContasBalancoVazio, computeRecebimentosKgiroMensal } from './kgiroBalancoTextil.js';
+import { premissasRecebimentoVazias, planoContasBalancoVazio, saldosIniciaisBalancoVazio, computeRecebimentosKgiroMensal, pagamentosManuaisVazios, computePagamentosManuaisMes, saldosAberturaFc } from './kgiroBalancoTextil.js';
 
 export function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -156,7 +156,9 @@ export function emptyFormData(unidadeId = 'textil') {
         recebimentosEmCarteira: mesesVazios(),
         recebimentosVendasNovDez: mesesVazios(),
         premissasRecebimento: premissasRecebimentoVazias(),
-        pagamentosManuais: [],
+        // Plano de contas fixo (ver PLANO_CONTAS_PAGAMENTOS_TEXTIL), não
+        // mais lista livre — decisão de 2026-08-16.
+        pagamentosManuais: pagamentosManuaisVazios(),
       } : {}),
     },
     provisoes: {
@@ -186,7 +188,10 @@ export function emptyFormData(unidadeId = 'textil') {
       // Têxtil.xlsx, aba Balanço Patrimonial). Lançamento manual mês a mês
       // por conta, igual à planilha original (que também não tinha fórmula
       // de projeção real, só os subtotais) — ver computeBalancoMensal.
-      ...(unidadeId === 'textil' ? { planoContas: planoContasBalancoVazio() } : {}),
+      // saldosIniciais = coluna Dez/25 (saldo de partida, um valor por
+      // conta) — substitui os campos escalares antigos (caixaInicial etc.)
+      // como fonte dos cálculos de FC para Têxtil (ver saldosAberturaFc).
+      ...(unidadeId === 'textil' ? { planoContas: planoContasBalancoVazio(), saldosIniciais: saldosIniciaisBalancoVazio() } : {}),
     },
     plano5y: {
       anos: {
@@ -367,8 +372,8 @@ export function computeDFC(data, dre) {
   const fluxoFinanciamento = captacoes - amortizacoes - jurosPagos + aportes - distMinoritarios - distSocios + emprestimosAcionistas - devolucaoEmprestimos;
 
   const variacaoCaixa = fluxoOperacional + fluxoInvestimento + fluxoFinanciamento;
-  const caixaInicial = parseNum(data.balanco.caixaInicial);
-  const caixaFinal = caixaInicial + variacaoCaixa;
+  const caixaInicial = saldosAberturaFc(data).caixaInicial;
+  const caixaFinal = caixaInicial + variacaoCaixa; // computeDFC (anual, legado/dashboard consolidado)
 
   return {
     lucroLiquido: dre.lucroLiquido, depreciacao: dre.depreciacao, geracaoOperacionalAntesGiro,
@@ -415,9 +420,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref) {
   const arMes = MESES.map((_, m) => receitaLiquidaMes[m] * (parseNum(cg.prazoRecebimento?.[m]) / 30));
   const apMes = MESES.map((_, m) => cpvSemPessoalMes[m] * (parseNum(cg.prazoPagamento?.[m]) / 30));
   const estoqueMes = MESES.map((_, m) => cpvSemPessoalMes[m] * (parseNum(cg.giroEstoque?.[m]) / 30));
-  const arInicial = parseNum(data.balanco.contasAReceberInicial);
-  const apInicial = parseNum(data.balanco.contasAPagarInicial);
-  const estoqueInicial = parseNum(data.balanco.estoqueInicial);
+  const { arInicial, apInicial, estoqueInicial } = saldosAberturaFc(data);
   const variacaoGiroMes = MESES.map((_, m) => {
     const arAnt = m === 0 ? arInicial : arMes[m - 1];
     const apAnt = m === 0 ? apInicial : apMes[m - 1];
@@ -458,7 +461,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref) {
   const lucroLiquidoMes = MESES.map((_, m) => ebtMes[m] - ircslMes[m]);
 
   const variacaoCaixaMes = MESES.map((_, m) => fcOperacionalMes[m] + fcInvestimentoMes[m] + fcFinanciamentoMes[m]);
-  const caixaInicial = parseNum(data.balanco.caixaInicial);
+  const caixaInicial = saldosAberturaFc(data).caixaInicial;
   const caixaAcumuladoMes = [];
   let acumulado = caixaInicial;
   MESES.forEach((_, m) => { acumulado += variacaoCaixaMes[m]; caixaAcumuladoMes.push(acumulado); });
@@ -504,9 +507,7 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref) {
   const arMes = MESES.map((_, m) => receitaLiquidaMes[m] * (parseNum(cg.prazoRecebimento?.[m]) / 30));
   const apMes = MESES.map((_, m) => cpvSemPessoalMes[m] * (parseNum(cg.prazoPagamento?.[m]) / 30));
   const estoqueMes = MESES.map((_, m) => cpvSemPessoalMes[m] * (parseNum(cg.giroEstoque?.[m]) / 30));
-  const arInicial = parseNum(data.balanco.contasAReceberInicial);
-  const apInicial = parseNum(data.balanco.contasAPagarInicial);
-  const estoqueInicial = parseNum(data.balanco.estoqueInicial);
+  const { arInicial, apInicial, estoqueInicial } = saldosAberturaFc(data);
 
   // ARA Têxtil (única unidade com cg.premissasRecebimento definido — ver
   // emptyFormData): recebimentos vêm da cascata de aging real (Premissas
@@ -532,11 +533,13 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref) {
   const ircslMes = MESES.map(() => dre.ircsl / 12);
 
   // "Deixe a opção de incluir manualmente algum pagamento" (pedido de
-  // 2026-08-16) — catch-all que soma às saídas do FC Direto, sem duplicar o
-  // que já vem de Custos e Despesas (esses continuam automáticos acima).
-  const pagamentosManuaisMes = MESES.map((_, m) =>
-    (cg.pagamentosManuais || []).reduce((acc, p) => acc + parseNum(p.valores?.[m]), 0)
-  );
+  // 2026-08-16) — plano de contas fixo (Rateio Administrativo, Matéria-Prima
+  // Fios/Químicos, Mão de obra, Gás, Energia Elétrica, Assessorias e
+  // Consultorias, Outros — confirmado pelo usuário por print, já que a aba
+  // Fluxo de Caixa Direto da planilha-fonte não trazia rótulo nenhum),
+  // lançamento manual por conta/mês. Soma às saídas do FC Direto, sem
+  // duplicar o que já vem de Custos e Despesas (esses continuam automáticos acima).
+  const pagamentosManuaisMes = computePagamentosManuaisMes(cg.pagamentosManuais);
 
   const fcOperacionalDiretoMes = MESES.map((_, m) =>
     recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m] - pagamentosManuaisMes[m]

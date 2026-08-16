@@ -137,6 +137,35 @@ function premissasRecebimentoVazias() {
   return p;
 }
 
+// Plano de contas de Pagamentos manuais do FC Direto — a aba "Fluxo de
+// Caixa Direto" da planilha-fonte não tinha rótulo nenhum nas 7 linhas de
+// pagamento (template em branco, só fórmulas de soma); os nomes reais
+// abaixo foram confirmados pelo usuário por print em 2026-08-16 (batem com
+// contas reais do plano oficial, ex.: "MATERIA PRIMA FIO"/"MATERIA PRIMA
+// PRODUTOS QUIMICOS" em PLANO_CONTAS.producao).
+const PLANO_CONTAS_PAGAMENTOS_TEXTIL = [
+  { id: 'rateioAdministrativo', nome: 'Rateio Administrativo' },
+  { id: 'materiaPrimaFios', nome: 'Matéria-Prima Fios' },
+  { id: 'materiaPrimaQuimicos', nome: 'Matéria-Prima Produtos Químicos' },
+  { id: 'maoDeObra', nome: 'Mão de obra' },
+  { id: 'gas', nome: 'Gás' },
+  { id: 'energiaEletrica', nome: 'Energia Elétrica' },
+  { id: 'assessoriasConsultorias', nome: 'Assessorias e Consultorias Int' },
+  { id: 'outros', nome: 'Outros' },
+];
+function pagamentosManuaisVazios() {
+  const p = {};
+  PLANO_CONTAS_PAGAMENTOS_TEXTIL.forEach((c) => { p[c.id] = mesesVazios(); });
+  return p;
+}
+/** Soma mensal de todas as contas de pagamento manual. */
+function computePagamentosManuaisMes(pagamentosManuais) {
+  const p = pagamentosManuais || pagamentosManuaisVazios();
+  return MESES.map((_, m) =>
+    PLANO_CONTAS_PAGAMENTOS_TEXTIL.reduce((acc, c) => acc + parseNum(p[c.id]?.[m]), 0)
+  );
+}
+
 // Fórmulas conferidas na planilha (ver nota completa no arquivo espelho
 // backend/src/calc/kgiroBalancoTextil.js): à vista = %avista × faturamento
 // do mês; a prazo = soma das % aplicadas ao faturamento do mês de origem,
@@ -148,17 +177,25 @@ function computeRecebimentosKgiroMensal(data, dre) {
   const emCarteiraMes = (cg.recebimentosEmCarteira || mesesVazios()).map(parseNum);
   const vendasNovDezMes = (cg.recebimentosVendasNovDez || mesesVazios()).map(parseNum);
 
+  // porFaixaMes: valor mensal recebido por cada faixa (à vista + cada
+  // defasagem de 30 a 360 dias), individualmente — usado na UI para
+  // mostrar a tabela linha a linha igual à planilha (linhas 9 a 22).
+  const porFaixaMes = {};
+  PREMISSAS_RECEBIMENTO_REF.forEach((r) => {
+    porFaixaMes[r.id] = MESES.map((_, m) => {
+      const origem = m - r.defasagemMeses;
+      if (origem < 0) return 0;
+      return faturamentoMes[origem] * (parseNum(p[r.id]) / 100);
+    });
+  });
+
   const pctAVista = parseNum(p.avista) / 100;
   const recebimentosAVistaMes = faturamentoMes.map((f) => f * pctAVista);
 
   const recebimentosAPrazoMes = MESES.map((_, m) =>
     PREMISSAS_RECEBIMENTO_REF
       .filter((r) => r.defasagemMeses > 0)
-      .reduce((acc, r) => {
-        const origem = m - r.defasagemMeses;
-        if (origem < 0) return acc;
-        return acc + faturamentoMes[origem] * (parseNum(p[r.id]) / 100);
-      }, 0)
+      .reduce((acc, r) => acc + porFaixaMes[r.id][m], 0)
   );
 
   const pctCancelamento = parseNum(p.cancelamento) / 100;
@@ -168,11 +205,7 @@ function computeRecebimentosKgiroMensal(data, dre) {
     emCarteiraMes[m] + vendasNovDezMes[m] + recebimentosAVistaMes[m] + recebimentosAPrazoMes[m] + cancelamentoMes[m]
   );
 
-  return { faturamentoMes, emCarteiraMes, vendasNovDezMes, recebimentosAVistaMes, recebimentosAPrazoMes, cancelamentoMes, totalMes };
-}
-
-function novoPagamentoManual() {
-  return { id: uid(), nome: '', valores: mesesVazios() };
+  return { faturamentoMes, emCarteiraMes, vendasNovDezMes, porFaixaMes, recebimentosAVistaMes, recebimentosAPrazoMes, cancelamentoMes, totalMes };
 }
 
 // Plano de contas do Balanço Patrimonial — conferido na aba Balanço
@@ -237,11 +270,31 @@ function planoContasBalancoVazio() {
   GRUPOS_BALANCO_TEXTIL.forEach((g) => g.contas.forEach((c) => { contas[c.id] = mesesVazios(); }));
   return contas;
 }
-function computeBalancoMensal(planoContas) {
+
+// Saldo de partida (Dez/25) por conta — um único valor por conta, não uma
+// série mensal. Decisão do usuário (2026-08-16): essa coluna soma as
+// contas do Balanço, digitada linha a linha, logo após a descrição da
+// conta e antes de Jan.
+function saldosIniciaisBalancoVazio() {
+  const saldos = {};
+  GRUPOS_BALANCO_TEXTIL.forEach((g) => g.contas.forEach((c) => { saldos[c.id] = ''; }));
+  return saldos;
+}
+
+/** Subtotais por grupo, Ativo Total, Passivo e PL Total, e o Check Balanço
+ * (Ativo Total - Passivo e PL Total — zero quando bate, igual à planilha).
+ * saldosIniciais (Dez/25) entram como um subtotal adicional por grupo e um
+ * check inicial, só para conferência — não alimentam nenhuma fórmula de
+ * projeção dos meses seguintes (a aba-fonte não tinha fórmula de
+ * roll-forward real, é lançamento manual mês a mês). */
+function computeBalancoMensal(planoContas, saldosIniciais) {
   const contas = planoContas || planoContasBalancoVazio();
+  const iniciais = saldosIniciais || saldosIniciaisBalancoVazio();
   const porGrupoMes = {};
+  const porGrupoInicial = {};
   GRUPOS_BALANCO_TEXTIL.forEach((g) => {
     porGrupoMes[g.id] = MESES.map((_, m) => g.contas.reduce((acc, c) => acc + parseNum(contas[c.id]?.[m]), 0));
+    porGrupoInicial[g.id] = g.contas.reduce((acc, c) => acc + parseNum(iniciais[c.id]), 0);
   });
   const ativoTotalMes = MESES.map((_, m) =>
     (porGrupoMes.ativoCirculante[m] || 0) + (porGrupoMes.ativoNaoCirculante[m] || 0) + (porGrupoMes.ativoPermanente[m] || 0)
@@ -250,7 +303,38 @@ function computeBalancoMensal(planoContas) {
     (porGrupoMes.passivoCirculante[m] || 0) + (porGrupoMes.passivoNaoCirculante[m] || 0) + (porGrupoMes.patrimonioLiquido[m] || 0)
   );
   const checkMes = MESES.map((_, m) => ativoTotalMes[m] - passivoPlTotalMes[m]);
-  return { porGrupoMes, ativoTotalMes, passivoPlTotalMes, checkMes };
+
+  const ativoInicial = (porGrupoInicial.ativoCirculante || 0) + (porGrupoInicial.ativoNaoCirculante || 0) + (porGrupoInicial.ativoPermanente || 0);
+  const passivoPlInicial = (porGrupoInicial.passivoCirculante || 0) + (porGrupoInicial.passivoNaoCirculante || 0) + (porGrupoInicial.patrimonioLiquido || 0);
+  const checkInicial = ativoInicial - passivoPlInicial;
+
+  return { porGrupoMes, ativoTotalMes, passivoPlTotalMes, checkMes, porGrupoInicial, ativoInicial, passivoPlInicial, checkInicial };
+}
+
+// Deriva os saldos de abertura relevantes para os cálculos de FC (caixa,
+// contas a receber, contas a pagar, estoque) a partir do plano de contas
+// granular — só para Têxtil, quando data.balanco.planoContas existe.
+// Decisão do usuário (2026-08-16): os campos escalares de saldo de abertura
+// somem da tela do Balanço da Têxtil; o valor passa a vir só da coluna
+// Dez/25, lançada por conta. Demais unidades (sem planoContas): inalterado.
+function saldosAberturaFc(data) {
+  const bal = data.balanco || {};
+  if (bal.planoContas && bal.saldosIniciais) {
+    const s = bal.saldosIniciais;
+    const contasEstoque = ['estoqueMateriaPrima', 'produtosAcabados', 'estoqueComTerceiros', 'estoqueAlmoxarifado', 'estoqueEmProcesso'];
+    return {
+      caixaInicial: parseNum(s.disponivel),
+      arInicial: parseNum(s.clientes),
+      apInicial: parseNum(s.contasAPagar),
+      estoqueInicial: contasEstoque.reduce((acc, id) => acc + parseNum(s[id]), 0),
+    };
+  }
+  return {
+    caixaInicial: parseNum(bal.caixaInicial),
+    arInicial: parseNum(bal.contasAReceberInicial),
+    apInicial: parseNum(bal.contasAPagarInicial),
+    estoqueInicial: parseNum(bal.estoqueInicial),
+  };
 }
 
 
@@ -1327,7 +1411,9 @@ function emptyFormData(unidadeId = 'textil') {
         recebimentosEmCarteira: mesesVazios(),
         recebimentosVendasNovDez: mesesVazios(),
         premissasRecebimento: premissasRecebimentoVazias(),
-        pagamentosManuais: [],
+        // Plano de contas fixo (ver PLANO_CONTAS_PAGAMENTOS_TEXTIL), não
+        // mais lista livre — decisão de 2026-08-16.
+        pagamentosManuais: pagamentosManuaisVazios(),
       } : {}),
     },
     provisoes: {
@@ -1354,7 +1440,10 @@ function emptyFormData(unidadeId = 'textil') {
       emprestimos: { saldoInicial: '', taxaJurosAnual: '', justificativa: '' },
       justificativa: '',
       // Só ARA Têxtil — plano de contas completo, ver GRUPOS_BALANCO_TEXTIL.
-      ...(unidadeId === 'textil' ? { planoContas: planoContasBalancoVazio() } : {}),
+      // saldosIniciais = coluna Dez/25 (saldo de partida por conta) —
+      // substitui os campos escalares acima como fonte dos cálculos de FC
+      // para Têxtil (ver saldosAberturaFc).
+      ...(unidadeId === 'textil' ? { planoContas: planoContasBalancoVazio(), saldosIniciais: saldosIniciaisBalancoVazio() } : {}),
     },
     plano5y: {
       anos: {
@@ -1539,7 +1628,7 @@ function computeDFC(data, dre) {
   const fluxoFinanciamento = captacoes - amortizacoes - jurosPagos + aportes - distMinoritarios - distSocios + emprestimosAcionistas - devolucaoEmprestimos;
 
   const variacaoCaixa = fluxoOperacional + fluxoInvestimento + fluxoFinanciamento;
-  const caixaInicial = parseNum(data.balanco.caixaInicial);
+  const caixaInicial = saldosAberturaFc(data).caixaInicial; // computeDFC (anual, legado/dashboard consolidado)
   const caixaFinal = caixaInicial + variacaoCaixa;
 
   return {
@@ -1594,9 +1683,7 @@ function computeFluxoIndiretoMensal(data, dre, ref) {
   const arMes = MESES.map((_, m) => receitaLiquidaMes[m] * (parseNum(cg.prazoRecebimento?.[m]) / 30));
   const apMes = MESES.map((_, m) => cpvSemPessoalMes[m] * (parseNum(cg.prazoPagamento?.[m]) / 30));
   const estoqueMes = MESES.map((_, m) => cpvSemPessoalMes[m] * (parseNum(cg.giroEstoque?.[m]) / 30));
-  const arInicial = parseNum(data.balanco.contasAReceberInicial);
-  const apInicial = parseNum(data.balanco.contasAPagarInicial);
-  const estoqueInicial = parseNum(data.balanco.estoqueInicial);
+  const { arInicial, apInicial, estoqueInicial } = saldosAberturaFc(data);
   const variacaoGiroMes = MESES.map((_, m) => {
     const arAnt = m === 0 ? arInicial : arMes[m - 1];
     const apAnt = m === 0 ? apInicial : apMes[m - 1];
@@ -1637,7 +1724,7 @@ function computeFluxoIndiretoMensal(data, dre, ref) {
   const lucroLiquidoMes = MESES.map((_, m) => ebtMes[m] - ircslMes[m]);
 
   const variacaoCaixaMes = MESES.map((_, m) => fcOperacionalMes[m] + fcInvestimentoMes[m] + fcFinanciamentoMes[m]);
-  const caixaInicial = parseNum(data.balanco.caixaInicial);
+  const caixaInicial = saldosAberturaFc(data).caixaInicial;
   const caixaAcumuladoMes = [];
   let acumulado = caixaInicial;
   MESES.forEach((_, m) => { acumulado += variacaoCaixaMes[m]; caixaAcumuladoMes.push(acumulado); });
@@ -1690,9 +1777,7 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref) {
   const arMes = MESES.map((_, m) => receitaLiquidaMes[m] * (parseNum(cg.prazoRecebimento?.[m]) / 30));
   const apMes = MESES.map((_, m) => cpvSemPessoalMes[m] * (parseNum(cg.prazoPagamento?.[m]) / 30));
   const estoqueMes = MESES.map((_, m) => cpvSemPessoalMes[m] * (parseNum(cg.giroEstoque?.[m]) / 30));
-  const arInicial = parseNum(data.balanco.contasAReceberInicial);
-  const apInicial = parseNum(data.balanco.contasAPagarInicial);
-  const estoqueInicial = parseNum(data.balanco.estoqueInicial);
+  const { arInicial, apInicial, estoqueInicial } = saldosAberturaFc(data);
 
   // ARA Têxtil (única unidade com cg.premissasRecebimento — ver
   // emptyFormData): recebimentos vêm da cascata de aging real (Premissas
@@ -1717,10 +1802,10 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref) {
   const ircslMes = MESES.map(() => dre.ircsl / 12);
 
   // "Deixe a opção de incluir manualmente algum pagamento" (pedido de
-  // 2026-08-16) — catch-all somado às saídas, sem duplicar Custos e Despesas.
-  const pagamentosManuaisMes = MESES.map((_, m) =>
-    (cg.pagamentosManuais || []).reduce((acc, p) => acc + parseNum(p.valores?.[m]), 0)
-  );
+  // 2026-08-16) — plano de contas fixo (ver PLANO_CONTAS_PAGAMENTOS_TEXTIL,
+  // confirmado pelo usuário por print), somado às saídas do FC Direto sem
+  // duplicar o que já vem de Custos e Despesas.
+  const pagamentosManuaisMes = computePagamentosManuaisMes(cg.pagamentosManuais);
 
   const fcOperacionalDiretoMes = MESES.map((_, m) =>
     recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m] - pagamentosManuaisMes[m]
@@ -1983,13 +2068,37 @@ function CampoJustificativa({ value, onChange, placeholder, obrigatorio }) {
 }
 
 // Tabela mensal genérica: uma linha por item, 12 colunas de mês + total
-function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal, linhasCalculadas }) {
+// colunaExtra: { titulo, chave, sufixo } — coluna opcional entre a
+// descrição e Jan (ex.: % de premissa da cascata de Kgiro, ou o saldo de
+// partida Dez/25 do Balanço). Cada linha (de `linhas` ou `linhasCalculadas`)
+// carrega opcionalmente `[chave]: { valor, onChange, placeholder }`; quando
+// ausente, a célula mostra um traço.
+function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal, linhasCalculadas, colunaExtra }) {
+  function celulaExtra(linha, i) {
+    const dado = colunaExtra && linha[colunaExtra.chave];
+    return (
+      <td style={{ padding: 3, border: `1px solid ${COR.borda}`, background: i % 2 ? COR.claro : COR.branco }}>
+        {dado ? (
+          <input
+            type="text" inputMode="decimal" value={dado.valor} placeholder={dado.placeholder}
+            onChange={e => dado.onChange(e.target.value)}
+            style={{ width: '100%', border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 11, color: COR.laranja, fontWeight: 700, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' }}
+          />
+        ) : (
+          <div style={{ textAlign: 'right', padding: '5px 4px', color: '#C7CBD1', fontSize: 11 }}>—</div>
+        )}
+      </td>
+    );
+  }
   return (
     <div style={{ overflowX: 'auto' }}>
       <table>
         <thead>
           <tr>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: 'left', minWidth: 150, position: 'sticky', left: 0 }}>Linha</th>
+            {colunaExtra && (
+              <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 6px', minWidth: 70 }}>{colunaExtra.titulo}</th>
+            )}
             {MESES.map(m => (
               <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 4px', minWidth: 62 }}>{m}</th>
             ))}
@@ -2002,6 +2111,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
             return (
               <tr key={linha.key} style={{ background: i % 2 ? COR.claro : COR.branco }}>
                 <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: i % 2 ? COR.claro : COR.branco }}>{linha.label}</td>
+                {colunaExtra && celulaExtra(linha, i)}
                 {MESES.map((m, mi) => (
                   <td key={m} style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
                     <input
@@ -2020,6 +2130,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
           {(linhasCalculadas || []).map(linha => (
             <tr key={linha.key} style={{ background: COR.branco }}>
               <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco, color: linha.cor || COR.azul }}>{linha.label}</td>
+              {colunaExtra && celulaExtra(linha, 0)}
               {linha.valoresMensal.map((v, mi) => (
                 <td key={mi} style={{ padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right', color: linha.cor || COR.texto, fontWeight: 700 }}>
                   {(linha.formatarCelula || formatBRL)(v)}
@@ -2822,46 +2933,36 @@ export default function OrcamentoARA({ usuario }) {
       const tituloUnidade = role === 'fpa' ? 'Grupo ARA — Consolidado' : unidadeObj.nome;
       const dataGeracao = new Date().toLocaleDateString('pt-BR');
 
-      // -------------------- Slide 1 — Capa e resumo executivo --------------------
-      const s1 = pptx.addSlide();
-      s1.background = { color: AZUL };
-      s1.addText('ORÇAMENTO 2027', { x: 0.6, y: 0.5, w: 9, h: 0.5, fontSize: 13, bold: true, color: LARANJA, charSpacing: 2 });
-      s1.addText(tituloUnidade, { x: 0.6, y: 0.9, w: 9, h: 0.8, fontSize: 30, bold: true, color: 'FFFFFF' });
-      s1.addText(`Resumo Executivo — Apresentação ao Conselho de Administração · ${dataGeracao}`, { x: 0.6, y: 1.55, w: 9, h: 0.4, fontSize: 12, color: 'D9E4F5' });
-
-      const kpis = role === 'fpa'
-        ? (() => {
-            const totais = UNIDADES.reduce((acc, u) => {
-              const d = statusUnidades[u.id];
-              const t = d ? computeDRE(d, referenciaDaUnidade(u.id)) : computeDRE(emptyFormData(u.id), referenciaDaUnidade(u.id));
-              acc.receitaLiquida += t.receitaLiquida; acc.ebitda += t.ebitda; acc.lucroLiquido += t.lucroLiquido;
-              return acc;
-            }, { receitaLiquida: 0, ebitda: 0, lucroLiquido: 0 });
-            return [
-              { label: 'Receita Líquida', valor: formatBRL(totais.receitaLiquida) },
-              { label: 'EBITDA', valor: `${formatBRL(totais.ebitda)}  (${formatPct(totais.receitaLiquida ? totais.ebitda / totais.receitaLiquida * 100 : 0)})` },
-              { label: 'Lucro Líquido', valor: `${formatBRL(totais.lucroLiquido)}  (${formatPct(totais.receitaLiquida ? totais.lucroLiquido / totais.receitaLiquida * 100 : 0)})` },
-            ];
-          })()
-        : [
-            { label: 'Receita Líquida', valor: formatBRL(dre.receitaLiquida) },
-            { label: 'EBITDA', valor: `${formatBRL(dre.ebitda)}  (${formatPct(dre.margemEbitda)})` },
-            { label: 'Lucro Líquido', valor: `${formatBRL(dre.lucroLiquido)}  (${formatPct(dre.margemLiquida)})` },
-          ];
-
-      kpis.forEach((k, i) => {
-        const x = 0.6 + i * 3.13;
-        s1.addShape('roundRect', { x, y: 2.4, w: 2.9, h: 1.7, fill: { color: 'FFFFFF' }, rectRadius: 0.08, line: { color: 'FFFFFF' } });
-        s1.addText(k.label.toUpperCase(), { x: x + 0.15, y: 2.55, w: 2.6, h: 0.4, fontSize: 10.5, bold: true, color: '7A8088', charSpacing: 1 });
-        s1.addText(k.valor, { x: x + 0.15, y: 2.9, w: 2.6, h: 1.0, fontSize: 17, bold: true, color: AZUL, valign: 'top' });
-      });
-
-      // -------------------- Slide 2 — Cascata de DRE / comparativo por unidade --------------------
-      const s2 = pptx.addSlide();
-      s2.addText('Cascata de DRE', { x: 0.5, y: 0.35, w: 9, h: 0.5, fontSize: 20, bold: true, color: AZUL });
-
       if (role === 'fpa') {
-        const linhas = [[
+        // -------------------- Slide 1 — Capa e resumo executivo (consolidado) --------------------
+        const s1 = pptx.addSlide();
+        s1.background = { color: AZUL };
+        s1.addText('ORÇAMENTO 2027', { x: 0.6, y: 0.5, w: 9, h: 0.5, fontSize: 13, bold: true, color: LARANJA, charSpacing: 2 });
+        s1.addText(tituloUnidade, { x: 0.6, y: 0.9, w: 9, h: 0.8, fontSize: 30, bold: true, color: 'FFFFFF' });
+        s1.addText(`Resumo Executivo — Apresentação ao Conselho de Administração · ${dataGeracao}`, { x: 0.6, y: 1.55, w: 9, h: 0.4, fontSize: 12, color: 'D9E4F5' });
+
+        const totais = UNIDADES.reduce((acc, u) => {
+          const d = statusUnidades[u.id];
+          const t = d ? computeDRE(d, referenciaDaUnidade(u.id)) : computeDRE(emptyFormData(u.id), referenciaDaUnidade(u.id));
+          acc.receitaLiquida += t.receitaLiquida; acc.ebitda += t.ebitda; acc.lucroLiquido += t.lucroLiquido;
+          return acc;
+        }, { receitaLiquida: 0, ebitda: 0, lucroLiquido: 0 });
+        const kpis = [
+          { label: 'Receita Líquida', valor: formatBRL(totais.receitaLiquida) },
+          { label: 'EBITDA', valor: `${formatBRL(totais.ebitda)}  (${formatPct(totais.receitaLiquida ? totais.ebitda / totais.receitaLiquida * 100 : 0)})` },
+          { label: 'Lucro Líquido', valor: `${formatBRL(totais.lucroLiquido)}  (${formatPct(totais.receitaLiquida ? totais.lucroLiquido / totais.receitaLiquida * 100 : 0)})` },
+        ];
+        kpis.forEach((k, i) => {
+          const x = 0.6 + i * 3.13;
+          s1.addShape('roundRect', { x, y: 2.4, w: 2.9, h: 1.7, fill: { color: 'FFFFFF' }, rectRadius: 0.08, line: { color: 'FFFFFF' } });
+          s1.addText(k.label.toUpperCase(), { x: x + 0.15, y: 2.55, w: 2.6, h: 0.4, fontSize: 10.5, bold: true, color: '7A8088', charSpacing: 1 });
+          s1.addText(k.valor, { x: x + 0.15, y: 2.9, w: 2.6, h: 1.0, fontSize: 17, bold: true, color: AZUL, valign: 'top' });
+        });
+
+        // -------------------- Slide 2 — Comparativo de DRE por unidade --------------------
+        const s2 = pptx.addSlide();
+        s2.addText('Cascata de DRE', { x: 0.5, y: 0.35, w: 9, h: 0.5, fontSize: 20, bold: true, color: AZUL });
+        const linhas2 = [[
           { text: 'Unidade', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
           { text: 'Receita Líquida', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
           { text: 'EBITDA', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
@@ -2872,18 +2973,75 @@ export default function OrcamentoARA({ usuario }) {
         UNIDADES.forEach((u) => {
           const d = statusUnidades[u.id];
           const t = d ? computeDRE(d, referenciaDaUnidade(u.id)) : computeDRE(emptyFormData(u.id), referenciaDaUnidade(u.id));
-          linhas.push([u.nome, formatBRL(t.receitaLiquida), formatBRL(t.ebitda), formatPct(t.margemEbitda), formatBRL(t.lucroLiquido), d?.meta?.status || 'nao_iniciado']);
+          linhas2.push([u.nome, formatBRL(t.receitaLiquida), formatBRL(t.ebitda), formatPct(t.margemEbitda), formatBRL(t.lucroLiquido), d?.meta?.status || 'nao_iniciado']);
         });
-        s2.addTable(linhas, { x: 0.5, y: 1.0, w: 9, fontSize: 10.5, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
+        s2.addTable(linhas2, { x: 0.5, y: 1.0, w: 9, fontSize: 10.5, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
+
+        // -------------------- Slide 3 — Status do processo por unidade --------------------
+        const s3 = pptx.addSlide();
+        s3.addText('Status do Processo Orçamentário', { x: 0.5, y: 0.35, w: 9, h: 0.5, fontSize: 20, bold: true, color: AZUL });
+        const linhas3 = [[
+          { text: 'Unidade', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+          { text: 'Status', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+          { text: 'Última atualização', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
+        ]];
+        UNIDADES.forEach((u) => {
+          const d = statusUnidades[u.id];
+          linhas3.push([u.nome, d?.meta?.status || 'nao_iniciado', d?.meta?.atualizadoEm ? formatData(d.meta.atualizadoEm) : '—']);
+        });
+        s3.addTable(linhas3, { x: 0.5, y: 1.0, w: 9, fontSize: 11, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
       } else {
+        // Pedido de 2026-08-16: sem capa — reflete a mesma estrutura da tela
+        // de Revisão, Análise e Envio (DRE + gráficos Bridge, DRE mensal, FC
+        // Indireto mensal, FC Direto mensal), por unidade.
+        const fd = computeFluxoIndiretoMensal(dados, dre, refUnidadeAtual);
+        const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidadeAtual);
+        const totalFcOperacional = fd.fcOperacionalMes.reduce((a, v) => a + v, 0);
+        const totalIrcslAno = fd.ircslMes.reduce((a, v) => a + v, 0);
+        const totalGiroAno = fd.variacaoGiroMes.reduce((a, v) => a + v, 0);
+        const totalAjuste13Ano = fd.ajuste13Mes.reduce((a, v) => a + v, 0);
+
+        function cumulativo(etapas) {
+          let acumulado = 0;
+          return etapas.map(e => {
+            if (e.tipo === 'inicio' || e.tipo === 'total') { acumulado = e.valor; } else { acumulado += e.valor; }
+            return acumulado;
+          });
+        }
+        function corPonto(e) {
+          if (e.tipo === 'inicio' || e.tipo === 'total') return AZUL;
+          return e.valor >= 0 ? '3AA65C' : 'C0392B';
+        }
+        function addBridgeChart(slide, etapas, x, y, w, h) {
+          slide.addChart(pptx.ChartType.bar, [{ name: 'Valor', labels: etapas.map(e => e.label), values: cumulativo(etapas) }], {
+            x, y, w, h, barDir: 'col', showLegend: false, showValue: true, dataLabelFontSize: 8, dataLabelFormatCode: '#,##0',
+            catAxisLabelFontSize: 8, valAxisHidden: true, chartColors: etapas.map(corPonto), barGapWidthPct: 40,
+          });
+        }
+        const bridgeReceitaEbitda = [
+          { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'inicio' },
+          { label: 'Deduções/Impostos', valor: -dre.deducoes, tipo: 'incremento' },
+          { label: 'Custos (CPV)', valor: -dre.cpv, tipo: 'incremento' },
+          { label: 'Despesas', valor: -dre.despesasSemDA, tipo: 'incremento' },
+          { label: 'EBITDA', valor: dre.ebitda, tipo: 'total' },
+        ];
+        const bridgeEbitdaFco = [
+          { label: 'EBITDA', valor: dre.ebitda, tipo: 'inicio' },
+          { label: 'Impostos', valor: -totalIrcslAno, tipo: 'incremento' },
+          { label: 'Var. Capital de Giro', valor: totalGiroAno, tipo: 'incremento' },
+          { label: 'Outros Ajustes', valor: totalAjuste13Ano, tipo: 'incremento' },
+          { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
+        ];
+
+        // -------------------- Slide 1 — DRE Consolidada + Bridge --------------------
+        const s1 = pptx.addSlide();
+        s1.addText(`DRE Consolidada — ${tituloUnidade}`, { x: 0.4, y: 0.3, w: 9.2, h: 0.5, fontSize: 18, bold: true, color: AZUL });
         const linha = (label, valor, destaque) => ([
-          { text: label, options: { bold: !!destaque, fill: destaque ? { color: CLARO } : undefined } },
-          { text: valor, options: { align: 'right', bold: !!destaque, fill: destaque ? { color: CLARO } : undefined } },
+          { text: label, options: { bold: !!destaque, fill: destaque ? { color: CLARO } : undefined, fontSize: 10.5 } },
+          { text: valor, options: { align: 'right', bold: !!destaque, fill: destaque ? { color: CLARO } : undefined, fontSize: 10.5 } },
         ]);
-        const linhas = [
-          linha('Receita Bruta', formatBRL(dre.receitaBruta)),
-          linha('(–) Deduções', formatBRL(-dre.deducoes)),
-          linha('Receita Líquida', formatBRL(dre.receitaLiquida), true),
+        const linhasDreCascata = [
+          linha('Receita Operacional Líquida', formatBRL(dre.receitaLiquida), true),
           linha('(–) CPV', formatBRL(-dre.cpv)),
           linha(`Lucro Bruto (${formatPct(dre.margemBruta)})`, formatBRL(dre.lucroBruto), true),
           linha('(–) Despesas Operacionais', formatBRL(-dre.despesasSemDA)),
@@ -2891,44 +3049,58 @@ export default function OrcamentoARA({ usuario }) {
           linha('(–) Depreciação e Amortização', formatBRL(-dre.depreciacao)),
           linha('(+/–) Resultado Financeiro', formatBRL(dre.resultadoFinanceiro)),
           linha('(+/–) Outras Receitas/Despesas', formatBRL(dre.outras)),
-          linha('EBT', formatBRL(dre.ebt), true),
           linha('(–) IRCSL', formatBRL(-dre.ircsl)),
           linha(`Lucro Líquido (${formatPct(dre.margemLiquida)})`, formatBRL(dre.lucroLiquido), true),
         ];
-        s2.addTable(linhas, { x: 1.3, y: 1.0, w: 7.4, fontSize: 12, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
-      }
+        s1.addTable(linhasDreCascata, { x: 0.4, y: 0.9, w: 4.6, fontSize: 10.5, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
+        s1.addText('Bridge — Receita até EBITDA', { x: 5.2, y: 0.85, w: 4.4, h: 0.3, fontSize: 11, bold: true, color: AZUL });
+        addBridgeChart(s1, bridgeReceitaEbitda, 5.2, 1.1, 4.4, 2.3);
+        s1.addText('Bridge — EBITDA até FCO', { x: 5.2, y: 3.5, w: 4.4, h: 0.3, fontSize: 11, bold: true, color: AZUL });
+        addBridgeChart(s1, bridgeEbitdaFco, 5.2, 3.75, 4.4, 2.3);
 
-      // -------------------- Slide 3 — Status do processo e auditoria --------------------
-      const s3 = pptx.addSlide();
-      s3.addText('Status do Processo Orçamentário', { x: 0.5, y: 0.35, w: 9, h: 0.5, fontSize: 20, bold: true, color: AZUL });
-
-      if (role === 'fpa') {
-        const linhas = [[
-          { text: 'Unidade', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
-          { text: 'Status', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
-          { text: 'Última atualização', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF' } },
-        ]];
-        UNIDADES.forEach((u) => {
-          const d = statusUnidades[u.id];
-          linhas.push([u.nome, d?.meta?.status || 'nao_iniciado', d?.meta?.atualizadoEm ? formatData(d.meta.atualizadoEm) : '—']);
-        });
-        s3.addTable(linhas, { x: 0.5, y: 1.0, w: 9, fontSize: 11, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
-      } else {
-        const pendentes = checks.filter(c => !c.ok);
-        s3.addText(
-          `Status: ${dados.meta?.status || 'nao_iniciado'}   ·   Autor: ${autorNome || '—'}   ·   Auditoria: ${checks.length - pendentes.length}/${checks.length} itens OK`,
-          { x: 0.5, y: 1.0, w: 9, h: 0.4, fontSize: 12, color: TEXTO }
-        );
-        if (comentarioEnvio) {
-          s3.addText(`Comentário: ${comentarioEnvio}`, { x: 0.5, y: 1.4, w: 9, h: 0.4, fontSize: 11, italic: true, color: '7A8088' });
+        // -------------------- Slides 2-4 — tabelas mensais --------------------
+        const colW = [1.9, ...Array(12).fill(0.53), 0.7];
+        function addTabelaMensal(titulo, linhasCalc) {
+          const s = pptx.addSlide();
+          s.addText(titulo, { x: 0.3, y: 0.25, w: 9.4, h: 0.4, fontSize: 15, bold: true, color: AZUL });
+          const header = [
+            { text: 'Linha', options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF', fontSize: 7.5 } },
+            ...MESES.map(m => ({ text: m, options: { bold: true, fill: { color: AZUL }, color: 'FFFFFF', fontSize: 7 } })),
+            { text: 'Total', options: { bold: true, fill: { color: LARANJA }, color: 'FFFFFF', fontSize: 7.5 } },
+          ];
+          const corpo = linhasCalc.map(l => ([
+            { text: l.label, options: { fontSize: 7, bold: true, fontFace: FONT } },
+            ...l.valoresMensal.map(v => ({ text: formatBRLCompacto(v), options: { fontSize: 6.5, align: 'right' } })),
+            { text: formatBRLCompacto(l.totalValor), options: { fontSize: 7, bold: true, align: 'right' } },
+          ]));
+          s.addTable([header, ...corpo], { x: 0.3, y: 0.75, w: 9.4, colW, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false, valign: 'middle' });
         }
-        if (pendentes.length > 0) {
-          s3.addText('Pendências da auditoria:', { x: 0.5, y: 1.95, w: 9, h: 0.35, fontSize: 12, bold: true, color: 'C00000' });
-          const linhasPend = pendentes.slice(0, 8).map(c => ([{ text: `•  ${c.label}`, options: { fontSize: 10.5, color: TEXTO } }]));
-          s3.addTable(linhasPend, { x: 0.5, y: 2.3, w: 9, fontSize: 10.5, border: { type: 'none' } });
-        } else {
-          s3.addText('✓ Nenhuma pendência de auditoria — orçamento pronto para envio.', { x: 0.5, y: 1.95, w: 9, h: 0.4, fontSize: 12, bold: true, color: '008000' });
-        }
+        addTabelaMensal('DRE Consolidada — mensal', [
+          { label: 'Receita Bruta', valoresMensal: fd.receitaBrutaMes, totalValor: fd.receitaBrutaMes.reduce((a, v) => a + v, 0) },
+          { label: '(-) Deduções', valoresMensal: fd.deducoesMes.map(v => -v), totalValor: -fd.deducoesMes.reduce((a, v) => a + v, 0) },
+          { label: '(=) Receita Líquida', valoresMensal: fd.receitaLiquidaMes, totalValor: fd.receitaLiquidaMes.reduce((a, v) => a + v, 0) },
+          { label: '(-) CPV', valoresMensal: fd.cpvMes.map(v => -v), totalValor: -fd.cpvMes.reduce((a, v) => a + v, 0) },
+          { label: '(=) Lucro Bruto', valoresMensal: fd.lucroBrutoMes, totalValor: fd.lucroBrutoMes.reduce((a, v) => a + v, 0) },
+          { label: '(-) Despesas Operacionais', valoresMensal: fd.despesasSemDAmes.map(v => -v), totalValor: -fd.despesasSemDAmes.reduce((a, v) => a + v, 0) },
+          { label: '(=) EBITDA', valoresMensal: fd.ebitdaMes, totalValor: fd.ebitdaMes.reduce((a, v) => a + v, 0) },
+          { label: '(-) Depreciação e Amortização', valoresMensal: fd.depreciacaoMes.map(v => -v), totalValor: -fd.depreciacaoMes.reduce((a, v) => a + v, 0) },
+          { label: '(+/-) Resultado Financeiro', valoresMensal: fd.resultadoFinanceiroMes, totalValor: fd.resultadoFinanceiroMes.reduce((a, v) => a + v, 0) },
+          { label: '(+/-) Outras Receitas e Despesas', valoresMensal: fd.outrasMes, totalValor: fd.outrasMes.reduce((a, v) => a + v, 0) },
+          { label: '(-) IRCSL', valoresMensal: fd.ircslMes.map(v => -v), totalValor: -fd.ircslMes.reduce((a, v) => a + v, 0) },
+          { label: '(=) Lucro Líquido', valoresMensal: fd.lucroLiquidoMes, totalValor: fd.lucroLiquidoMes.reduce((a, v) => a + v, 0) },
+        ]);
+        addTabelaMensal('Fluxo de Caixa Indireto — mensal, a partir do EBITDA', [
+          { label: 'EBITDA', valoresMensal: fd.ebitdaMes, totalValor: fd.ebitdaMes.reduce((a, v) => a + v, 0) },
+          { label: '(-) IRCSL proporcional', valoresMensal: fd.ircslMes.map(v => -v), totalValor: -fd.ircslMes.reduce((a, v) => a + v, 0) },
+          { label: '(+/-) Ajuste 13º (competência × caixa)', valoresMensal: fd.ajuste13Mes, totalValor: fd.ajuste13Mes.reduce((a, v) => a + v, 0) },
+          { label: '(+/-) Variação de Capital de Giro', valoresMensal: fd.variacaoGiroMes, totalValor: fd.variacaoGiroMes.reduce((a, v) => a + v, 0) },
+          { label: '(=) FC Operacional', valoresMensal: fd.fcOperacionalMes, totalValor: totalFcOperacional },
+          { label: '(=) FC Investimentos', valoresMensal: fd.fcInvestimentoMes, totalValor: fd.fcInvestimentoMes.reduce((a, v) => a + v, 0) },
+          { label: '(=) FC Financiamentos', valoresMensal: fd.fcFinanciamentoMes, totalValor: fd.fcFinanciamentoMes.reduce((a, v) => a + v, 0) },
+          { label: '(=) Variação de Caixa no Mês', valoresMensal: fd.variacaoCaixaMes, totalValor: fd.variacaoCaixaMes.reduce((a, v) => a + v, 0) },
+          { label: 'Caixa Acumulado', valoresMensal: fd.caixaAcumuladoMes, totalValor: fd.caixaAcumuladoMes[11] },
+        ]);
+        addTabelaMensal('Fluxo de Caixa Direto — mensal, por natureza de recebimento e pagamento', linhasFcDireto(fcd).map(l => ({ label: l.label, valoresMensal: l.valoresMensal, totalValor: l.totalValor })));
       }
 
       const nomeArquivo = `Orcamento_2027_ResumoExecutivo_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}.pptx`;
@@ -3315,7 +3487,7 @@ function VisaoGerente(props) {
         {aba === 'capex' && (
           <AbaCapex projetos={dados.capex.projetos} addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} />
         )}
-        {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} />}
+        {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={refUnidadeAtual} />}
         {aba === 'provisoes' && <AbaProvisoes provisoes={dados.provisoes} resultado={dados.resultado} atualizar={atualizar} />}
         {aba === 'fcfinanciamentos' && (
           <AbaFcFinanciamentos
@@ -4467,9 +4639,9 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto }) {
   );
 }
 
-function AbaGiro({ capitalGiro, atualizar, dre }) {
+function AbaGiro({ capitalGiro, atualizar, dre, dados, refUnidade }) {
   if (capitalGiro.premissasRecebimento) {
-    return <AbaGiroTextil capitalGiro={capitalGiro} atualizar={atualizar} dre={dre} />;
+    return <AbaGiroTextil capitalGiro={capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={refUnidade} />;
   }
   return (
     <div>
@@ -4499,38 +4671,62 @@ function AbaGiro({ capitalGiro, atualizar, dre }) {
   );
 }
 
+// Linhas do FC Direto por natureza de recebimento/pagamento — usado tanto
+// na aba 5 (Kgiro) quanto na Revisão, Análise e Envio, para os dois serem
+// exatamente a mesma tabela (pedido de 2026-08-16), construídas a partir do
+// mesmo `fcd = computeFluxoCaixaDiretoMensal(...)`.
+function linhasFcDireto(fcd) {
+  return [
+    { key: 'recebimentos', label: '(+) Recebimentos de clientes', valoresMensal: fcd.recebimentosClientesMes, totalValor: fcd.recebimentosClientesMes.reduce((a, v) => a + v, 0), cor: COR.verde },
+    { key: 'fornecedores', label: '(-) Pagamentos a fornecedores e insumos', valoresMensal: fcd.pagamentosFornecedoresMes.map(v => -v), totalValor: -fcd.pagamentosFornecedoresMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+    { key: 'pessoal', label: '(-) Pagamentos de pessoal', valoresMensal: fcd.pessoalEmCaixaMes.map(v => -v), totalValor: -fcd.pessoalEmCaixaMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+    { key: 'despesas', label: '(-) Pagamentos de despesas operacionais', valoresMensal: fcd.pagamentosDespesasMes.map(v => -v), totalValor: -fcd.pagamentosDespesasMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+    { key: 'ircslDireto', label: '(-) Pagamento de IRCSL', valoresMensal: fcd.ircslMes.map(v => -v), totalValor: -fcd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+    { key: 'manuais', label: '(-) Pagamentos manuais', valoresMensal: fcd.pagamentosManuaisMes.map(v => -v), totalValor: -fcd.pagamentosManuaisMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+    { key: 'fcopDireto', label: '(=) FC Operacional (Direto)', valoresMensal: fcd.fcOperacionalDiretoMes, totalValor: fcd.fcOperacionalDiretoMes.reduce((a, v) => a + v, 0), cor: COR.azul },
+  ];
+}
+
 // Só ARA Têxtil — cascata de recebimentos real (Premissas Têxtil.xlsx, aba
-// Premissas Kgiro) + catch-all manual de pagamentos do FC Direto. Ver nota
-// completa em PREMISSAS_RECEBIMENTO_REF / computeRecebimentosKgiroMensal.
-function AbaGiroTextil({ capitalGiro, atualizar, dre }) {
+// Premissas Kgiro), plano de contas de pagamentos manuais (aba Fluxo de
+// Caixa Direto) e o próprio FC Direto — igual ao da Revisão (pedido de
+// 2026-08-16). Ver nota completa em PREMISSAS_RECEBIMENTO_REF /
+// computeRecebimentosKgiroMensal / PLANO_CONTAS_PAGAMENTOS_TEXTIL.
+function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade }) {
   const kgiro = computeRecebimentosKgiroMensal({ capitalGiro }, dre);
+  const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade);
   const p = capitalGiro.premissasRecebimento;
-  const pagamentosManuais = capitalGiro.pagamentosManuais || [];
+  const pagamentos = capitalGiro.pagamentosManuais || pagamentosManuaisVazios();
 
   function updatePremissa(id, valor) {
     atualizar(['capitalGiro', 'premissasRecebimento'], { ...p, [id]: valor });
   }
-  function addPagamento() {
-    atualizar(['capitalGiro', 'pagamentosManuais'], [...pagamentosManuais, novoPagamentoManual()]);
+  function updatePagamento(contaId, mesIdx, valor) {
+    // Defensivo: se o orçamento foi criado antes desta migração (formato
+    // antigo, lista livre), pagamentos[contaId] pode não existir ainda.
+    const novoArray = (pagamentos[contaId] || mesesVazios()).map((v, idx) => idx === mesIdx ? valor : v);
+    atualizar(['capitalGiro', 'pagamentosManuais'], { ...pagamentos, [contaId]: novoArray });
   }
-  function updatePagamento(id, campo, valor) {
-    atualizar(['capitalGiro', 'pagamentosManuais'], pagamentosManuais.map(pg => pg.id === id ? { ...pg, [campo]: valor } : pg));
-  }
-  function removePagamento(id) {
-    atualizar(['capitalGiro', 'pagamentosManuais'], pagamentosManuais.filter(pg => pg.id !== id));
-  }
+
+  // Linha "à vista" (defasagem 0) e as 12 linhas de aging (30 a 360 dias),
+  // cada uma com sua própria % de premissa editável e valor mensal
+  // calculado — mesma disposição da planilha (coluna D = premissa, colunas
+  // H em diante = meses).
+  const linhaAVista = PREMISSAS_RECEBIMENTO_REF[0];
+  const faixasAging = PREMISSAS_RECEBIMENTO_REF.slice(1);
 
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>5. Kgiro e FC Operacional — ARA Têxtil</h3>
       <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
         Cascata de recebimentos real (fonte: Premissas Têxtil.xlsx, aba Premissas Kgiro — fornecida em 2026-08-16).
-        Carteira e vendas de nov-dez são digitadas mês a mês; da linha "Faturamento" pra baixo é tudo calculado
-        automaticamente a partir da Receita Líquida — só as % de premissa são editáveis.
+        Carteira e Vendas Nov-Dez são digitadas mês a mês; da linha "Faturamento" pra baixo é tudo calculado
+        automaticamente a partir da Receita Líquida (após cancelamento) — só a coluna de % de premissa é editável.
       </p>
 
-      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>Recebimentos digitados (carryover do ciclo anterior)</h4>
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>Premissas e cascata de recebimentos</h4>
       <TabelaMensal
+        colunaExtra={{ titulo: 'Premissa', chave: 'premissa' }}
         linhas={[
           { key: 'recebimentosEmCarteira', label: 'Recebimentos em carteira', valores: capitalGiro.recebimentosEmCarteira },
           { key: 'recebimentosVendasNovDez', label: 'Recebimentos Vendas Nov a Dez', valores: capitalGiro.recebimentosVendasNovDez },
@@ -4540,62 +4736,50 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre }) {
           atualizar(['capitalGiro', chave], novoArray);
         }}
         corTotal={COR.azul}
-      />
-
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Premissas de recebimento (% sobre o faturamento do mês de origem)</h4>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginBottom: 8 }}>
-        {PREMISSAS_RECEBIMENTO_REF.map(r => (
-          <div key={r.id}>
-            <Rotulo>{r.nome}</Rotulo>
-            <CampoNumero value={p[r.id]} onChange={v => updatePremissa(r.id, v)} sufixo="%" placeholder={`ref. ${r.pctRef}%`} />
-          </div>
-        ))}
-        <div>
-          <Rotulo>Cancelamento</Rotulo>
-          <CampoNumero value={p.cancelamento} onChange={v => updatePremissa('cancelamento', v)} sufixo="%" placeholder="0%" />
-        </div>
-      </div>
-
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Recebimentos calculados — mensal</h4>
-      <TabelaMensal
-        linhas={[]}
-        onChangeCelula={() => {}}
         linhasCalculadas={[
-          { key: 'faturamento', label: 'Faturamento Líquido (Receita Líquida)', valoresMensal: kgiro.faturamentoMes, totalValor: somaMes(kgiro.faturamentoMes), cor: COR.texto },
-          { key: 'avista', label: 'Recebimentos à vista', valoresMensal: kgiro.recebimentosAVistaMes, totalValor: somaMes(kgiro.recebimentosAVistaMes), cor: COR.texto },
-          { key: 'aprazo', label: 'Recebimentos à prazo (cascata 30-360d)', valoresMensal: kgiro.recebimentosAPrazoMes, totalValor: somaMes(kgiro.recebimentosAPrazoMes), cor: COR.texto },
-          { key: 'cancelamento', label: '(-) Cancelamento', valoresMensal: kgiro.cancelamentoMes, totalValor: somaMes(kgiro.cancelamentoMes), cor: COR.vermelho },
+          { key: 'faturamento', label: 'Faturamento Líquido de Cancelamentos', valoresMensal: kgiro.faturamentoMes, totalValor: somaMes(kgiro.faturamentoMes), cor: COR.texto },
+          {
+            key: 'avista', label: 'Recebimentos à vista', valoresMensal: kgiro.porFaixaMes[linhaAVista.id], totalValor: somaMes(kgiro.porFaixaMes[linhaAVista.id]), cor: COR.texto,
+            premissa: { valor: p[linhaAVista.id], onChange: v => updatePremissa(linhaAVista.id, v), placeholder: `ref. ${linhaAVista.pctRef}%` },
+          },
+          { key: 'aprazo', label: 'Recebimentos à prazo (subtotal)', valoresMensal: kgiro.recebimentosAPrazoMes, totalValor: somaMes(kgiro.recebimentosAPrazoMes), cor: COR.texto },
+          ...faixasAging.map(r => ({
+            key: r.id, label: r.nome, valoresMensal: kgiro.porFaixaMes[r.id], totalValor: somaMes(kgiro.porFaixaMes[r.id]), cor: COR.texto,
+            premissa: { valor: p[r.id], onChange: v => updatePremissa(r.id, v), placeholder: `ref. ${r.pctRef}%` },
+          })),
+          {
+            key: 'cancelamento', label: '(-) Cancelamento', valoresMensal: kgiro.cancelamentoMes, totalValor: somaMes(kgiro.cancelamentoMes), cor: COR.vermelho,
+            premissa: { valor: p.cancelamento, onChange: v => updatePremissa('cancelamento', v), placeholder: '0%' },
+          },
           { key: 'total', label: '(=) Total de Recebimentos', valoresMensal: kgiro.totalMes, totalValor: somaMes(kgiro.totalMes), cor: COR.verde },
         ]}
       />
-
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Pagamentos manuais (FC Direto)</h4>
-      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
-        Fornecedores, pessoal e despesas operacionais já são calculados automaticamente a partir da aba
-        Custos e Despesas — use esta lista só para algum pagamento avulso que não esteja capturado ali.
-      </p>
-      {pagamentosManuais.length > 0 && (
-        <TabelaMensal
-          linhas={pagamentosManuais.map(pg => ({ key: pg.id, label: pg.nome || '(sem nome)', valores: pg.valores }))}
-          onChangeCelula={(id, mesIdx, valor) => {
-            const pg = pagamentosManuais.find(x => x.id === id);
-            updatePagamento(id, 'valores', pg.valores.map((v, idx) => idx === mesIdx ? valor : v));
-          }}
-          corTotal={COR.vermelho}
-        />
-      )}
-      {pagamentosManuais.map(pg => (
-        <div key={pg.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, marginBottom: 6 }}>
-          <CampoTexto value={pg.nome} onChange={v => updatePagamento(pg.id, 'nome', v)} placeholder="Nome do pagamento" />
-          <button onClick={() => removePagamento(pg.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={14} /></button>
-        </div>
-      ))}
-      <Botao variante="fantasma" icone={Plus} onClick={addPagamento}>Adicionar pagamento manual</Botao>
-
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginTop: 10 }}>
         <CampoJustificativa value={capitalGiro.justificativa} onChange={v => atualizar(['capitalGiro', 'justificativa'], v)}
           placeholder="Justificativa das premissas de recebimento (ex.: mudança de prazo médio, renegociação com clientes)" />
       </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 26, marginBottom: 8 }}>Pagamentos manuais (FC Direto)</h4>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Plano de contas da aba Fluxo de Caixa Direto (fonte: Premissas Têxtil.xlsx). Lançamento manual mês a mês —
+        essas contas somam às saídas do FC Direto abaixo, sem duplicar o que já vem de Custos e Despesas.
+      </p>
+      <TabelaMensal
+        linhas={PLANO_CONTAS_PAGAMENTOS_TEXTIL.map(c => ({ key: c.id, label: c.nome, valores: pagamentos[c.id] || mesesVazios() }))}
+        onChangeCelula={updatePagamento}
+        corTotal={COR.vermelho}
+      />
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 26, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal, por natureza de recebimento e pagamento</h4>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Mesma tabela apresentada na Revisão, Análise e Envio — recebimentos vêm da cascata acima, pagamentos somam
+        Custos e Despesas + a lista manual acima.
+      </p>
+      <TabelaMensal
+        linhas={[]}
+        onChangeCelula={() => {}}
+        linhasCalculadas={linhasFcDireto(fcd)}
+      />
     </div>
   );
 }
@@ -4799,6 +4983,29 @@ function AbaFcFinanciamentos({ fcFinanciamentos, addLinhaFinanciamento, updateLi
 }
 
 function AbaBalanco({ balanco, atualizar }) {
+  // ARA Têxtil (pedido de 2026-08-16): retirados os campos escalares de
+  // saldo de abertura — a coluna Dez/25 do plano de contas abaixo é agora a
+  // única fonte desses saldos (ver saldosAberturaFc). As demais unidades
+  // continuam com os campos escalares, sem plano de contas.
+  if (balanco.planoContas) {
+    return (
+      <div>
+        <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>8. Balanço Patrimonial — ARA Têxtil</h3>
+        <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+          Plano de contas completo (fonte: Premissas Têxtil.xlsx, aba Balanço Patrimonial). O saldo de partida
+          (Dez/25) de cada conta é lançado na primeira coluna; os meses seguintes são lançamento manual mês a mês,
+          igual à planilha original.
+        </p>
+        <AbaBalancoPlanoContasTextil planoContas={balanco.planoContas} saldosIniciais={balanco.saldosIniciais} atualizar={atualizar} />
+        <div style={{ marginTop: 18 }}>
+          <Rotulo>Justificativa geral do bloco</Rotulo>
+          <CampoJustificativa value={balanco.justificativa} onChange={v => atualizar(['balanco', 'justificativa'], v)}
+            placeholder="Observações gerais sobre o Balanço Patrimonial projetado" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>8. Balanço Patrimonial</h3>
@@ -4856,8 +5063,6 @@ function AbaBalanco({ balanco, atualizar }) {
         <CampoJustificativa value={balanco.justificativa} onChange={v => atualizar(['balanco', 'justificativa'], v)}
           placeholder="Observações gerais sobre o Balanço Patrimonial projetado" />
       </div>
-
-      {balanco.planoContas && <AbaBalancoPlanoContasTextil planoContas={balanco.planoContas} atualizar={atualizar} />}
     </div>
   );
 }
@@ -4868,10 +5073,19 @@ function AbaBalanco({ balanco, atualizar }) {
 // template de contas e os SUM() dos subtotais — então aqui é lançamento
 // manual por conta/mês, igual à planilha; só os subtotais por grupo, Ativo
 // Total, Passivo e PL Total e o Check Balanço são calculados automaticamente.
-function AbaBalancoPlanoContasTextil({ planoContas, atualizar }) {
-  const calc = computeBalancoMensal(planoContas);
+// saldosIniciais = coluna Dez/25 (pedido de 2026-08-16): um valor por conta,
+// logo após a descrição e antes de Jan — substitui os campos escalares
+// antigos como fonte de caixa/AR/AP/estoque inicial (ver saldosAberturaFc).
+function AbaBalancoPlanoContasTextil({ planoContas, saldosIniciais, atualizar }) {
+  const calc = computeBalancoMensal(planoContas, saldosIniciais);
+  const iniciais = saldosIniciais || saldosIniciaisBalancoVazio();
+
+  function updateInicial(contaId, valor) {
+    atualizar(['balanco', 'saldosIniciais', contaId], valor);
+  }
+
   return (
-    <div style={{ marginTop: 28 }}>
+    <div style={{ marginTop: 8 }}>
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Plano de contas do Balanço Patrimonial — ARA Têxtil</h4>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 12 }}>
         Lançamento manual mês a mês por conta (igual à planilha-fonte, que não trazia fórmula de projeção nessas
@@ -4881,24 +5095,32 @@ function AbaBalancoPlanoContasTextil({ planoContas, atualizar }) {
         <div key={g.id} style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: g.ladoBalanco === 'ativo' ? COR.azul : COR.laranja, marginBottom: 6 }}>{g.nome}</div>
           <TabelaMensal
-            linhas={g.contas.map(c => ({ key: c.id, label: c.nome, valores: planoContas[c.id] }))}
+            colunaExtra={{ titulo: 'Dez/25', chave: 'inicial' }}
+            linhas={g.contas.map(c => ({
+              key: c.id, label: c.nome, valores: planoContas[c.id],
+              inicial: { valor: iniciais[c.id], onChange: v => updateInicial(c.id, v), placeholder: '0,00' },
+            }))}
             onChangeCelula={(contaId, mesIdx, valor) => {
               const novoArray = planoContas[contaId].map((v, idx) => idx === mesIdx ? valor : v);
               atualizar(['balanco', 'planoContas', contaId], novoArray);
             }}
             linhasCalculadas={[
-              { key: `subtotal-${g.id}`, label: `(=) ${g.nome}`, valoresMensal: calc.porGrupoMes[g.id], totalValor: somaMes(calc.porGrupoMes[g.id]), cor: g.ladoBalanco === 'ativo' ? COR.azul : COR.laranja },
+              {
+                key: `subtotal-${g.id}`, label: `(=) ${g.nome}`, valoresMensal: calc.porGrupoMes[g.id], totalValor: somaMes(calc.porGrupoMes[g.id]), cor: g.ladoBalanco === 'ativo' ? COR.azul : COR.laranja,
+                inicial: { valor: calc.porGrupoInicial[g.id], onChange: () => {}, placeholder: '' },
+              },
             ]}
           />
         </div>
       ))}
       <TabelaMensal
+        colunaExtra={{ titulo: 'Dez/25', chave: 'inicial' }}
         linhas={[]}
         onChangeCelula={() => {}}
         linhasCalculadas={[
-          { key: 'ativoTotal', label: 'ATIVO TOTAL', valoresMensal: calc.ativoTotalMes, totalValor: somaMes(calc.ativoTotalMes), cor: COR.azul },
-          { key: 'passivoPlTotal', label: 'PASSIVO E PL TOTAL', valoresMensal: calc.passivoPlTotalMes, totalValor: somaMes(calc.passivoPlTotalMes), cor: COR.laranja },
-          { key: 'check', label: 'Check Balanço (Ativo − Passivo e PL)', valoresMensal: calc.checkMes, totalValor: somaMes(calc.checkMes), cor: COR.verde },
+          { key: 'ativoTotal', label: 'ATIVO TOTAL', valoresMensal: calc.ativoTotalMes, totalValor: somaMes(calc.ativoTotalMes), cor: COR.azul, inicial: { valor: calc.ativoInicial, onChange: () => {}, placeholder: '' } },
+          { key: 'passivoPlTotal', label: 'PASSIVO E PL TOTAL', valoresMensal: calc.passivoPlTotalMes, totalValor: somaMes(calc.passivoPlTotalMes), cor: COR.laranja, inicial: { valor: calc.passivoPlInicial, onChange: () => {}, placeholder: '' } },
+          { key: 'check', label: 'Check Balanço (Ativo − Passivo e PL)', valoresMensal: calc.checkMes, totalValor: somaMes(calc.checkMes), cor: COR.verde, inicial: { valor: calc.checkInicial, onChange: () => {}, placeholder: '' } },
         ]}
       />
     </div>
@@ -5477,14 +5699,7 @@ function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentari
         <TabelaMensal
           linhas={[]}
           onChangeCelula={() => {}}
-          linhasCalculadas={[
-            { key: 'recebimentos', label: '(+) Recebimentos de clientes', valoresMensal: fcd.recebimentosClientesMes, totalValor: fcd.recebimentosClientesMes.reduce((a, v) => a + v, 0), cor: COR.verde },
-            { key: 'fornecedores', label: '(-) Pagamentos a fornecedores e insumos', valoresMensal: fcd.pagamentosFornecedoresMes.map(v => -v), totalValor: -fcd.pagamentosFornecedoresMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'pessoal', label: '(-) Pagamentos de pessoal', valoresMensal: fcd.pessoalEmCaixaMes.map(v => -v), totalValor: -fcd.pessoalEmCaixaMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'despesas', label: '(-) Pagamentos de despesas operacionais', valoresMensal: fcd.pagamentosDespesasMes.map(v => -v), totalValor: -fcd.pagamentosDespesasMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'ircslDireto', label: '(-) Pagamento de IRCSL', valoresMensal: fcd.ircslMes.map(v => -v), totalValor: -fcd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'fcopDireto', label: '(=) FC Operacional (Direto)', valoresMensal: fcd.fcOperacionalDiretoMes, totalValor: fcd.fcOperacionalDiretoMes.reduce((a, v) => a + v, 0), cor: COR.azul },
-          ]}
+          linhasCalculadas={linhasFcDireto(fcd)}
         />
       </div>
 
