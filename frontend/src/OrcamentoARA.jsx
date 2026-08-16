@@ -108,6 +108,151 @@ const REFERENCIA_2026_TEXTIL = {
   receitaLiquida: [9974.86, 3879.63, 8179.12, 8832.89, 9277.04, 9491.18, 9738.74, 9403.65, 10274.17, 10945.92, 10904.22, 6887.09],
 };
 
+// ---------------------------------------------------------------------------
+// Kgiro (cascata de recebimentos) e Balanço Patrimonial — só ARA Têxtil.
+// Extraído de "Premissas Têxtil.xlsx" (abas Premissas Kgiro, Fluxo de Caixa
+// Direto, Balanço Patrimonial), fornecida pelo usuário em 2026-08-16.
+// Decisão de 2026-08-16: uma cascata única (todos os 9 produtos somados),
+// não duas separadas por Baixo Giro — por escopo.
+// ---------------------------------------------------------------------------
+const PREMISSAS_RECEBIMENTO_REF = [
+  { id: 'avista', nome: 'À vista', pctRef: 10, defasagemMeses: 0 },
+  { id: 'd30', nome: '30 dias', pctRef: 4, defasagemMeses: 1 },
+  { id: 'd60', nome: '60 dias', pctRef: 14, defasagemMeses: 2 },
+  { id: 'd90', nome: '90 dias', pctRef: 45, defasagemMeses: 3 },
+  { id: 'd120', nome: '120 dias', pctRef: 19, defasagemMeses: 4 },
+  { id: 'd150', nome: '150 dias', pctRef: 8, defasagemMeses: 5 },
+  { id: 'd180', nome: '180 dias', pctRef: 0, defasagemMeses: 6 },
+  { id: 'd210', nome: '210 dias', pctRef: 0, defasagemMeses: 7 },
+  { id: 'd240', nome: '240 dias', pctRef: 0, defasagemMeses: 8 },
+  { id: 'd270', nome: '270 dias', pctRef: 0, defasagemMeses: 9 },
+  { id: 'd300', nome: '300 dias', pctRef: 0, defasagemMeses: 10 },
+  { id: 'd330', nome: '330 dias', pctRef: 0, defasagemMeses: 11 },
+  { id: 'd360', nome: '360 dias', pctRef: 0, defasagemMeses: 12 },
+];
+function premissasRecebimentoVazias() {
+  const p = {};
+  PREMISSAS_RECEBIMENTO_REF.forEach((r) => { p[r.id] = ''; });
+  p.cancelamento = '';
+  return p;
+}
+
+// Fórmulas conferidas na planilha (ver nota completa no arquivo espelho
+// backend/src/calc/kgiroBalancoTextil.js): à vista = %avista × faturamento
+// do mês; a prazo = soma das % aplicadas ao faturamento do mês de origem,
+// defasado; cancelamento = -%cancelamento × recebimentos a prazo do mês.
+function computeRecebimentosKgiroMensal(data, dre) {
+  const cg = data.capitalGiro;
+  const p = cg.premissasRecebimento || premissasRecebimentoVazias();
+  const faturamentoMes = dre.receitaLiquidaMes;
+  const emCarteiraMes = (cg.recebimentosEmCarteira || mesesVazios()).map(parseNum);
+  const vendasNovDezMes = (cg.recebimentosVendasNovDez || mesesVazios()).map(parseNum);
+
+  const pctAVista = parseNum(p.avista) / 100;
+  const recebimentosAVistaMes = faturamentoMes.map((f) => f * pctAVista);
+
+  const recebimentosAPrazoMes = MESES.map((_, m) =>
+    PREMISSAS_RECEBIMENTO_REF
+      .filter((r) => r.defasagemMeses > 0)
+      .reduce((acc, r) => {
+        const origem = m - r.defasagemMeses;
+        if (origem < 0) return acc;
+        return acc + faturamentoMes[origem] * (parseNum(p[r.id]) / 100);
+      }, 0)
+  );
+
+  const pctCancelamento = parseNum(p.cancelamento) / 100;
+  const cancelamentoMes = recebimentosAPrazoMes.map((v) => -pctCancelamento * v);
+
+  const totalMes = MESES.map((_, m) =>
+    emCarteiraMes[m] + vendasNovDezMes[m] + recebimentosAVistaMes[m] + recebimentosAPrazoMes[m] + cancelamentoMes[m]
+  );
+
+  return { faturamentoMes, emCarteiraMes, vendasNovDezMes, recebimentosAVistaMes, recebimentosAPrazoMes, cancelamentoMes, totalMes };
+}
+
+function novoPagamentoManual() {
+  return { id: uid(), nome: '', valores: mesesVazios() };
+}
+
+// Plano de contas do Balanço Patrimonial — conferido na aba Balanço
+// Patrimonial da planilha (template em branco, só os SUM() dos subtotais
+// tinham fórmula real — por isso cada conta aqui é lançamento manual mês a
+// mês, igual à planilha original; só os subtotais e o Check Balanço são
+// calculados, ver computeBalancoMensal).
+const GRUPOS_BALANCO_TEXTIL = [
+  {
+    id: 'ativoCirculante', nome: 'ATIVO CIRCULANTE', ladoBalanco: 'ativo',
+    contas: [
+      { id: 'disponivel', nome: 'DISPONÍVEL' },
+      { id: 'clientes', nome: 'CLIENTES' },
+      { id: 'outrosCreditos', nome: 'OUTROS CRÉDITOS' },
+      { id: 'estoqueMateriaPrima', nome: 'ESTOQUE DE MATÉRIA PRIMA' },
+      { id: 'produtosAcabados', nome: 'PRODUTOS ACABADOS' },
+      { id: 'estoqueComTerceiros', nome: 'ESTOQUE COM TERCEIROS' },
+      { id: 'estoqueAlmoxarifado', nome: 'ESTOQUE ALMOXARIFADO' },
+      { id: 'estoqueEmProcesso', nome: 'ESTOQUE EM PROCESSO' },
+      { id: 'outrosCustosAtivo', nome: 'OUTROS CUSTOS' },
+    ],
+  },
+  {
+    id: 'ativoNaoCirculante', nome: 'ATIVO NÃO CIRCULANTE', ladoBalanco: 'ativo',
+    contas: [{ id: 'creditosDiversos', nome: 'CRÉDITOS DIVERSOS' }],
+  },
+  {
+    id: 'ativoPermanente', nome: 'ATIVO PERMANENTE', ladoBalanco: 'ativo',
+    contas: [
+      { id: 'investimentos', nome: 'INVESTIMENTOS' },
+      { id: 'imobilizadoExistente', nome: 'IMOBILIZADO E INTANGÍVEL EXISTENTE' },
+      { id: 'capexNovosInvestimentos', nome: 'CAPEX NOVOS INVESTIMENTOS' },
+      { id: 'depreciacaoAcumulada', nome: 'DEPRECIAÇÃO ACUMULADA' },
+      { id: 'depreciacaoPeriodo', nome: 'DEPRECIAÇÃO DO PERÍODO' },
+    ],
+  },
+  {
+    id: 'passivoCirculante', nome: 'PASSIVO CIRCULANTE', ladoBalanco: 'passivo',
+    contas: [
+      { id: 'contasAPagar', nome: 'CONTAS A PAGAR' },
+      { id: 'obrigacoesComTerceiros', nome: 'OBRIGAÇÕES COM TERCEIROS' },
+      { id: 'obrigacoesTrabalhistas', nome: 'OBRIGAÇÕES TRABALHISTAS/SOCIAIS' },
+      { id: 'obrigacoesTributarias', nome: 'OBRIGAÇÕES TRIBUTÁRIAS' },
+    ],
+  },
+  {
+    id: 'passivoNaoCirculante', nome: 'PASSIVO NÃO CIRCULANTE', ladoBalanco: 'passivo',
+    contas: [{ id: 'emprestimosPassivo', nome: 'EMPRÉSTIMOS' }],
+  },
+  {
+    id: 'patrimonioLiquido', nome: 'PATRIMÔNIO LÍQUIDO', ladoBalanco: 'passivo',
+    contas: [
+      { id: 'capitalSocialReservas', nome: 'CAPITAL SOCIAL E RESERVAS' },
+      { id: 'reservaIncentivoFiscal', nome: 'RESERVA DE INCENTIVO FISCAL - PRODEPE' },
+      { id: 'lucroPrejuizoAcumulados', nome: 'LUCRO OU PREJUÍZO ACUMULADOS' },
+      { id: 'resultadoPeriodo', nome: 'RESULTADO DO PERÍODO' },
+    ],
+  },
+];
+function planoContasBalancoVazio() {
+  const contas = {};
+  GRUPOS_BALANCO_TEXTIL.forEach((g) => g.contas.forEach((c) => { contas[c.id] = mesesVazios(); }));
+  return contas;
+}
+function computeBalancoMensal(planoContas) {
+  const contas = planoContas || planoContasBalancoVazio();
+  const porGrupoMes = {};
+  GRUPOS_BALANCO_TEXTIL.forEach((g) => {
+    porGrupoMes[g.id] = MESES.map((_, m) => g.contas.reduce((acc, c) => acc + parseNum(contas[c.id]?.[m]), 0));
+  });
+  const ativoTotalMes = MESES.map((_, m) =>
+    (porGrupoMes.ativoCirculante[m] || 0) + (porGrupoMes.ativoNaoCirculante[m] || 0) + (porGrupoMes.ativoPermanente[m] || 0)
+  );
+  const passivoPlTotalMes = MESES.map((_, m) =>
+    (porGrupoMes.passivoCirculante[m] || 0) + (porGrupoMes.passivoNaoCirculante[m] || 0) + (porGrupoMes.patrimonioLiquido[m] || 0)
+  );
+  const checkMes = MESES.map((_, m) => ativoTotalMes[m] - passivoPlTotalMes[m]);
+  return { porGrupoMes, ativoTotalMes, passivoPlTotalMes, checkMes };
+}
+
 
 // ---- Deduções sobre receita — referência 2026 (aba 1.1 DRE), editável ----
 const DEDUCOES_REF = [
@@ -1177,6 +1322,13 @@ function emptyFormData(unidadeId = 'textil') {
     capex: { projetos: [] },
     capitalGiro: {
       prazoRecebimento: mesesVazios(), prazoPagamento: mesesVazios(), giroEstoque: mesesVazios(), justificativa: '',
+      // Só ARA Têxtil — ver PREMISSAS_RECEBIMENTO_REF e nota de 2026-08-16.
+      ...(unidadeId === 'textil' ? {
+        recebimentosEmCarteira: mesesVazios(),
+        recebimentosVendasNovDez: mesesVazios(),
+        premissasRecebimento: premissasRecebimentoVazias(),
+        pagamentosManuais: [],
+      } : {}),
     },
     provisoes: {
       inadimplencia: mesesVazios(), contingencias: mesesVazios(), perdas: mesesVazios(), justificativa: '',
@@ -1201,6 +1353,8 @@ function emptyFormData(unidadeId = 'textil') {
       contasAReceberInicial: '', estoqueInicial: '', contasAPagarInicial: '',
       emprestimos: { saldoInicial: '', taxaJurosAnual: '', justificativa: '' },
       justificativa: '',
+      // Só ARA Têxtil — plano de contas completo, ver GRUPOS_BALANCO_TEXTIL.
+      ...(unidadeId === 'textil' ? { planoContas: planoContasBalancoVazio() } : {}),
     },
     plano5y: {
       anos: {
@@ -1540,10 +1694,20 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref) {
   const apInicial = parseNum(data.balanco.contasAPagarInicial);
   const estoqueInicial = parseNum(data.balanco.estoqueInicial);
 
-  const recebimentosClientesMes = MESES.map((_, m) => {
+  // ARA Têxtil (única unidade com cg.premissasRecebimento — ver
+  // emptyFormData): recebimentos vêm da cascata de aging real (Premissas
+  // Têxtil.xlsx, aba Premissas Kgiro), não da aproximação genérica de
+  // "prazo médio em dias". Pendência conhecida: isso quebra um pouco a
+  // reconciliação exata com o método Indireto, que ainda usa a aproximação
+  // genérica — ver aviso na tela de Revisão.
+  let recebimentosClientesMes = MESES.map((_, m) => {
     const arAnt = m === 0 ? arInicial : arMes[m - 1];
     return receitaLiquidaMes[m] - (arMes[m] - arAnt);
   });
+  if (cg.premissasRecebimento) {
+    recebimentosClientesMes = computeRecebimentosKgiroMensal(data, dre).totalMes;
+  }
+
   const pagamentosFornecedoresMes = MESES.map((_, m) => {
     const apAnt = m === 0 ? apInicial : apMes[m - 1];
     const estAnt = m === 0 ? estoqueInicial : estoqueMes[m - 1];
@@ -1552,12 +1716,18 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref) {
   const pagamentosDespesasMes = despesasSemPessoalMes;
   const ircslMes = MESES.map(() => dre.ircsl / 12);
 
+  // "Deixe a opção de incluir manualmente algum pagamento" (pedido de
+  // 2026-08-16) — catch-all somado às saídas, sem duplicar Custos e Despesas.
+  const pagamentosManuaisMes = MESES.map((_, m) =>
+    (cg.pagamentosManuais || []).reduce((acc, p) => acc + parseNum(p.valores?.[m]), 0)
+  );
+
   const fcOperacionalDiretoMes = MESES.map((_, m) =>
-    recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m]
+    recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m] - pagamentosManuaisMes[m]
   );
 
   return {
-    recebimentosClientesMes, pagamentosFornecedoresMes, pessoalEmCaixaMes, pagamentosDespesasMes, ircslMes,
+    recebimentosClientesMes, pagamentosFornecedoresMes, pessoalEmCaixaMes, pagamentosDespesasMes, ircslMes, pagamentosManuaisMes,
     fcOperacionalDiretoMes,
   };
 }
@@ -3145,7 +3315,7 @@ function VisaoGerente(props) {
         {aba === 'capex' && (
           <AbaCapex projetos={dados.capex.projetos} addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} />
         )}
-        {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} />}
+        {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} />}
         {aba === 'provisoes' && <AbaProvisoes provisoes={dados.provisoes} resultado={dados.resultado} atualizar={atualizar} />}
         {aba === 'fcfinanciamentos' && (
           <AbaFcFinanciamentos
@@ -4297,7 +4467,10 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto }) {
   );
 }
 
-function AbaGiro({ capitalGiro, atualizar }) {
+function AbaGiro({ capitalGiro, atualizar, dre }) {
+  if (capitalGiro.premissasRecebimento) {
+    return <AbaGiroTextil capitalGiro={capitalGiro} atualizar={atualizar} dre={dre} />;
+  }
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>5. Kgiro e FC Operacional</h3>
@@ -4321,6 +4494,107 @@ function AbaGiro({ capitalGiro, atualizar }) {
       <div style={{ marginTop: 10 }}>
         <CampoJustificativa value={capitalGiro.justificativa} onChange={v => atualizar(['capitalGiro', 'justificativa'], v)}
           placeholder="Justificativa dos prazos (ex.: renegociação com fornecedor, mudança de política de crédito)" />
+      </div>
+    </div>
+  );
+}
+
+// Só ARA Têxtil — cascata de recebimentos real (Premissas Têxtil.xlsx, aba
+// Premissas Kgiro) + catch-all manual de pagamentos do FC Direto. Ver nota
+// completa em PREMISSAS_RECEBIMENTO_REF / computeRecebimentosKgiroMensal.
+function AbaGiroTextil({ capitalGiro, atualizar, dre }) {
+  const kgiro = computeRecebimentosKgiroMensal({ capitalGiro }, dre);
+  const p = capitalGiro.premissasRecebimento;
+  const pagamentosManuais = capitalGiro.pagamentosManuais || [];
+
+  function updatePremissa(id, valor) {
+    atualizar(['capitalGiro', 'premissasRecebimento'], { ...p, [id]: valor });
+  }
+  function addPagamento() {
+    atualizar(['capitalGiro', 'pagamentosManuais'], [...pagamentosManuais, novoPagamentoManual()]);
+  }
+  function updatePagamento(id, campo, valor) {
+    atualizar(['capitalGiro', 'pagamentosManuais'], pagamentosManuais.map(pg => pg.id === id ? { ...pg, [campo]: valor } : pg));
+  }
+  function removePagamento(id) {
+    atualizar(['capitalGiro', 'pagamentosManuais'], pagamentosManuais.filter(pg => pg.id !== id));
+  }
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>5. Kgiro e FC Operacional — ARA Têxtil</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Cascata de recebimentos real (fonte: Premissas Têxtil.xlsx, aba Premissas Kgiro — fornecida em 2026-08-16).
+        Carteira e vendas de nov-dez são digitadas mês a mês; da linha "Faturamento" pra baixo é tudo calculado
+        automaticamente a partir da Receita Líquida — só as % de premissa são editáveis.
+      </p>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>Recebimentos digitados (carryover do ciclo anterior)</h4>
+      <TabelaMensal
+        linhas={[
+          { key: 'recebimentosEmCarteira', label: 'Recebimentos em carteira', valores: capitalGiro.recebimentosEmCarteira },
+          { key: 'recebimentosVendasNovDez', label: 'Recebimentos Vendas Nov a Dez', valores: capitalGiro.recebimentosVendasNovDez },
+        ]}
+        onChangeCelula={(chave, mesIdx, valor) => {
+          const novoArray = capitalGiro[chave].map((v, idx) => idx === mesIdx ? valor : v);
+          atualizar(['capitalGiro', chave], novoArray);
+        }}
+        corTotal={COR.azul}
+      />
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Premissas de recebimento (% sobre o faturamento do mês de origem)</h4>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginBottom: 8 }}>
+        {PREMISSAS_RECEBIMENTO_REF.map(r => (
+          <div key={r.id}>
+            <Rotulo>{r.nome}</Rotulo>
+            <CampoNumero value={p[r.id]} onChange={v => updatePremissa(r.id, v)} sufixo="%" placeholder={`ref. ${r.pctRef}%`} />
+          </div>
+        ))}
+        <div>
+          <Rotulo>Cancelamento</Rotulo>
+          <CampoNumero value={p.cancelamento} onChange={v => updatePremissa('cancelamento', v)} sufixo="%" placeholder="0%" />
+        </div>
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Recebimentos calculados — mensal</h4>
+      <TabelaMensal
+        linhas={[]}
+        onChangeCelula={() => {}}
+        linhasCalculadas={[
+          { key: 'faturamento', label: 'Faturamento Líquido (Receita Líquida)', valoresMensal: kgiro.faturamentoMes, totalValor: somaMes(kgiro.faturamentoMes), cor: COR.texto },
+          { key: 'avista', label: 'Recebimentos à vista', valoresMensal: kgiro.recebimentosAVistaMes, totalValor: somaMes(kgiro.recebimentosAVistaMes), cor: COR.texto },
+          { key: 'aprazo', label: 'Recebimentos à prazo (cascata 30-360d)', valoresMensal: kgiro.recebimentosAPrazoMes, totalValor: somaMes(kgiro.recebimentosAPrazoMes), cor: COR.texto },
+          { key: 'cancelamento', label: '(-) Cancelamento', valoresMensal: kgiro.cancelamentoMes, totalValor: somaMes(kgiro.cancelamentoMes), cor: COR.vermelho },
+          { key: 'total', label: '(=) Total de Recebimentos', valoresMensal: kgiro.totalMes, totalValor: somaMes(kgiro.totalMes), cor: COR.verde },
+        ]}
+      />
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Pagamentos manuais (FC Direto)</h4>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Fornecedores, pessoal e despesas operacionais já são calculados automaticamente a partir da aba
+        Custos e Despesas — use esta lista só para algum pagamento avulso que não esteja capturado ali.
+      </p>
+      {pagamentosManuais.length > 0 && (
+        <TabelaMensal
+          linhas={pagamentosManuais.map(pg => ({ key: pg.id, label: pg.nome || '(sem nome)', valores: pg.valores }))}
+          onChangeCelula={(id, mesIdx, valor) => {
+            const pg = pagamentosManuais.find(x => x.id === id);
+            updatePagamento(id, 'valores', pg.valores.map((v, idx) => idx === mesIdx ? valor : v));
+          }}
+          corTotal={COR.vermelho}
+        />
+      )}
+      {pagamentosManuais.map(pg => (
+        <div key={pg.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, marginBottom: 6 }}>
+          <CampoTexto value={pg.nome} onChange={v => updatePagamento(pg.id, 'nome', v)} placeholder="Nome do pagamento" />
+          <button onClick={() => removePagamento(pg.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={14} /></button>
+        </div>
+      ))}
+      <Botao variante="fantasma" icone={Plus} onClick={addPagamento}>Adicionar pagamento manual</Botao>
+
+      <div style={{ marginTop: 16 }}>
+        <CampoJustificativa value={capitalGiro.justificativa} onChange={v => atualizar(['capitalGiro', 'justificativa'], v)}
+          placeholder="Justificativa das premissas de recebimento (ex.: mudança de prazo médio, renegociação com clientes)" />
       </div>
     </div>
   );
@@ -4582,6 +4856,51 @@ function AbaBalanco({ balanco, atualizar }) {
         <CampoJustificativa value={balanco.justificativa} onChange={v => atualizar(['balanco', 'justificativa'], v)}
           placeholder="Observações gerais sobre o Balanço Patrimonial projetado" />
       </div>
+
+      {balanco.planoContas && <AbaBalancoPlanoContasTextil planoContas={balanco.planoContas} atualizar={atualizar} />}
+    </div>
+  );
+}
+
+// Só ARA Têxtil — plano de contas do Balanço Patrimonial completo, mês a mês
+// (fonte: Premissas Têxtil.xlsx, aba Balanço Patrimonial, fornecida em
+// 2026-08-16). A aba original não trazia fórmulas de projeção reais — só o
+// template de contas e os SUM() dos subtotais — então aqui é lançamento
+// manual por conta/mês, igual à planilha; só os subtotais por grupo, Ativo
+// Total, Passivo e PL Total e o Check Balanço são calculados automaticamente.
+function AbaBalancoPlanoContasTextil({ planoContas, atualizar }) {
+  const calc = computeBalancoMensal(planoContas);
+  return (
+    <div style={{ marginTop: 28 }}>
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Plano de contas do Balanço Patrimonial — ARA Têxtil</h4>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 12 }}>
+        Lançamento manual mês a mês por conta (igual à planilha-fonte, que não trazia fórmula de projeção nessas
+        contas). Subtotais por grupo, Ativo Total, Passivo e PL Total e o Check Balanço são calculados automaticamente.
+      </p>
+      {GRUPOS_BALANCO_TEXTIL.map(g => (
+        <div key={g.id} style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: g.ladoBalanco === 'ativo' ? COR.azul : COR.laranja, marginBottom: 6 }}>{g.nome}</div>
+          <TabelaMensal
+            linhas={g.contas.map(c => ({ key: c.id, label: c.nome, valores: planoContas[c.id] }))}
+            onChangeCelula={(contaId, mesIdx, valor) => {
+              const novoArray = planoContas[contaId].map((v, idx) => idx === mesIdx ? valor : v);
+              atualizar(['balanco', 'planoContas', contaId], novoArray);
+            }}
+            linhasCalculadas={[
+              { key: `subtotal-${g.id}`, label: `(=) ${g.nome}`, valoresMensal: calc.porGrupoMes[g.id], totalValor: somaMes(calc.porGrupoMes[g.id]), cor: g.ladoBalanco === 'ativo' ? COR.azul : COR.laranja },
+            ]}
+          />
+        </div>
+      ))}
+      <TabelaMensal
+        linhas={[]}
+        onChangeCelula={() => {}}
+        linhasCalculadas={[
+          { key: 'ativoTotal', label: 'ATIVO TOTAL', valoresMensal: calc.ativoTotalMes, totalValor: somaMes(calc.ativoTotalMes), cor: COR.azul },
+          { key: 'passivoPlTotal', label: 'PASSIVO E PL TOTAL', valoresMensal: calc.passivoPlTotalMes, totalValor: somaMes(calc.passivoPlTotalMes), cor: COR.laranja },
+          { key: 'check', label: 'Check Balanço (Ativo − Passivo e PL)', valoresMensal: calc.checkMes, totalValor: somaMes(calc.checkMes), cor: COR.verde },
+        ]}
+      />
     </div>
   );
 }

@@ -8,6 +8,7 @@
 // depois que a Fase 6 aposentar o protótipo, aqui passa a ser a única fonte).
 import { MESES, mesesVazios, PRODUTOS_REF, DEDUCOES_REF } from './constantesTextil.js';
 import { PRODUTOS_REF_AGRICOLA, DEDUCOES_REF_AGRICOLA, LINHAS_RECEITA_RESORTS, DEDUCOES_REF_RESORTS } from './receitaAgricolaResorts.js';
+import { premissasRecebimentoVazias, planoContasBalancoVazio, computeRecebimentosKgiroMensal } from './kgiroBalancoTextil.js';
 
 export function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -148,6 +149,15 @@ export function emptyFormData(unidadeId = 'textil') {
     capex: { projetos: [] },
     capitalGiro: {
       prazoRecebimento: mesesVazios(), prazoPagamento: mesesVazios(), giroEstoque: mesesVazios(), justificativa: '',
+      // Só usado por ARA Têxtil (ver Premissas Têxtil.xlsx, aba Premissas
+      // Kgiro — decisão de 2026-08-16). Agrícola/Resorts continuam só com
+      // os prazos em dias acima.
+      ...(unidadeId === 'textil' ? {
+        recebimentosEmCarteira: mesesVazios(),
+        recebimentosVendasNovDez: mesesVazios(),
+        premissasRecebimento: premissasRecebimentoVazias(),
+        pagamentosManuais: [],
+      } : {}),
     },
     provisoes: {
       inadimplencia: mesesVazios(), contingencias: mesesVazios(), perdas: mesesVazios(), justificativa: '',
@@ -172,6 +182,11 @@ export function emptyFormData(unidadeId = 'textil') {
       contasAReceberInicial: '', estoqueInicial: '', contasAPagarInicial: '',
       emprestimos: { saldoInicial: '', taxaJurosAnual: '', justificativa: '' },
       justificativa: '',
+      // Só usado por ARA Têxtil — plano de contas completo (ver Premissas
+      // Têxtil.xlsx, aba Balanço Patrimonial). Lançamento manual mês a mês
+      // por conta, igual à planilha original (que também não tinha fórmula
+      // de projeção real, só os subtotais) — ver computeBalancoMensal.
+      ...(unidadeId === 'textil' ? { planoContas: planoContasBalancoVazio() } : {}),
     },
     plano5y: {
       anos: {
@@ -493,10 +508,21 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref) {
   const apInicial = parseNum(data.balanco.contasAPagarInicial);
   const estoqueInicial = parseNum(data.balanco.estoqueInicial);
 
-  const recebimentosClientesMes = MESES.map((_, m) => {
+  // ARA Têxtil (única unidade com cg.premissasRecebimento definido — ver
+  // emptyFormData): recebimentos vêm da cascata de aging real (Premissas
+  // Têxtil.xlsx, aba Premissas Kgiro), não da aproximação genérica de
+  // "prazo médio em dias" usada pelas demais unidades. Isso quebra um pouco
+  // a reconciliação exata com o método Indireto (que ainda usa a
+  // aproximação genérica para variacaoGiroMes) — pendência conhecida, não
+  // escondida: ver aviso na tela de Revisão.
+  let recebimentosClientesMes = MESES.map((_, m) => {
     const arAnt = m === 0 ? arInicial : arMes[m - 1];
     return receitaLiquidaMes[m] - (arMes[m] - arAnt);
   });
+  if (cg.premissasRecebimento) {
+    recebimentosClientesMes = computeRecebimentosKgiroMensal(data, dre).totalMes;
+  }
+
   const pagamentosFornecedoresMes = MESES.map((_, m) => {
     const apAnt = m === 0 ? apInicial : apMes[m - 1];
     const estAnt = m === 0 ? estoqueInicial : estoqueMes[m - 1];
@@ -505,12 +531,19 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref) {
   const pagamentosDespesasMes = despesasSemPessoalMes;
   const ircslMes = MESES.map(() => dre.ircsl / 12);
 
+  // "Deixe a opção de incluir manualmente algum pagamento" (pedido de
+  // 2026-08-16) — catch-all que soma às saídas do FC Direto, sem duplicar o
+  // que já vem de Custos e Despesas (esses continuam automáticos acima).
+  const pagamentosManuaisMes = MESES.map((_, m) =>
+    (cg.pagamentosManuais || []).reduce((acc, p) => acc + parseNum(p.valores?.[m]), 0)
+  );
+
   const fcOperacionalDiretoMes = MESES.map((_, m) =>
-    recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m]
+    recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m] - pagamentosManuaisMes[m]
   );
 
   return {
-    recebimentosClientesMes, pagamentosFornecedoresMes, pessoalEmCaixaMes, pagamentosDespesasMes, ircslMes,
+    recebimentosClientesMes, pagamentosFornecedoresMes, pessoalEmCaixaMes, pagamentosDespesasMes, ircslMes, pagamentosManuaisMes,
     fcOperacionalDiretoMes,
   };
 }
