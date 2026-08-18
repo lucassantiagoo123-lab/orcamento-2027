@@ -3693,22 +3693,297 @@ function VisaoGerente(props) {
   );
 }
 
+// Cabeçalho de tabela mensal reaproveitado por todas as visões de leitura
+// abaixo (12 meses + total) — mesmo visual do resto do app.
+function CabecalhoMensalLeitura({ rotuloPrimeiraColuna = 'Linha' }) {
+  return (
+    <thead>
+      <tr>
+        <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>{rotuloPrimeiraColuna}</th>
+        {MESES.map(m => (
+          <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', minWidth: 58 }}>{m}</th>
+        ))}
+        <th style={{ background: COR.laranja, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 78 }}>Total</th>
+      </tr>
+    </thead>
+  );
+}
+const formatarPctLeitura = (v) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+const formatarQtdLeitura = (v) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+
+// Folha de pessoal, versão leitura — lista de funcionários (nome, salário,
+// admissão) + a folha calculada mês a mês (mesma fórmula do editor).
+function FolhaPessoalLeitura({ funcionarios, folha }) {
+  return (
+    <div>
+      {funcionarios.length === 0 ? (
+        <div style={{ fontSize: 11.5, color: '#8A8F96', marginBottom: 8 }}>Nenhum funcionário lançado neste CC.</div>
+      ) : (
+        <div style={{ marginBottom: 10 }}>
+          {funcionarios.map(f => (
+            <div key={f.id} style={{ fontSize: 11, padding: '4px 2px', borderBottom: `1px solid ${COR.borda}`, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span>{f.nome || '(sem nome)'}{f.mesAdmissao ? ` — admissão ${f.mesAdmissao}` : ''}</span>
+              <span style={{ fontWeight: 700, color: COR.azul, flexShrink: 0 }}>{formatBRL(parseNum(f.salario))}/mês</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ overflowX: 'auto' }}>
+        <table>
+          <CabecalhoMensalLeitura />
+          <tbody>
+            <LinhaCalculadaMensal label="Salários" valoresMensal={folha.salariosMes} />
+            <LinhaCalculadaMensal label="Folha calculada (total, com encargos)" valoresMensal={folha.totalMes} />
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Custos e Despesas, versão leitura — mesmo agrupamento CC → Pacote → Conta
+// analítica do editor (AbaCustos/LinhaConta), só que sem nenhum campo
+// editável. É a peça central do pedido de 2026-08-17 ("detalhe até a conta
+// analítica e por premissas").
+function CustosLeituraVersao({ refUnidade, dados, dre }) {
+  const [ccSel, setCcSel] = useState(refUnidade.ccs?.[0]?.codigo);
+  const [pacotesAbertos, setPacotesAbertos] = useState({});
+  const [contaAberta, setContaAberta] = useState(null);
+  const linhas = dados.custos?.linhas || {};
+  const funcionarios = dados.custos?.funcionarios || [];
+  const premissasPessoal = dados.custos?.premissasPessoal;
+
+  if (!refUnidade.ccs || refUnidade.ccs.length === 0) {
+    return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Sem Centros de Custo cadastrados para esta unidade.</p>;
+  }
+  const ccAtual = refUnidade.ccs.find(c => c.codigo === ccSel) || refUnidade.ccs[0];
+  const origemAlvo = ccAtual.tipo === 'producao' ? 'Custo' : 'Despesa';
+  function chaveLinha(contaCodigo) { return `${ccSel}|${contaCodigo}`; }
+  function totalConta(contaCodigo) { return valorLinhaAnual(linhas[chaveLinha(contaCodigo)], dre.receitaBrutaMes, dre.receitaLiquidaMes); }
+  const gruposPacote = (refUnidade.pacotes || [])
+    .map(p => ({ ...p, contas: (refUnidade.planoContas?.[p.id] || []).filter(c => c.origem === origemAlvo) }))
+    .filter(g => g.contas.length > 0);
+  const funcionariosCC = funcionarios.filter(f => f.ccCodigo === ccSel);
+  const folhaAtual = computeFolhaPessoalAnual(funcionariosCC, premissasPessoal);
+  const totalCC = gruposPacote.filter(g => g.id !== 'pessoal').reduce((acc, g) => acc + g.contas.reduce((a, c) => a + totalConta(c.codigo), 0), 0) + folhaAtual.totalAnual;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {refUnidade.ccs.map(cc => (
+          <button key={cc.codigo} onClick={() => { setCcSel(cc.codigo); setContaAberta(null); }}
+            style={{
+              fontFamily: FONT, fontSize: 11, fontWeight: 700, padding: '6px 11px', borderRadius: 14, cursor: 'pointer',
+              border: `1.5px solid ${cc.codigo === ccSel ? COR.azul : COR.borda}`,
+              background: cc.codigo === ccSel ? COR.azul : COR.branco, color: cc.codigo === ccSel ? COR.branco : COR.texto,
+            }}
+          >{cc.nome}</button>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 10 }}>Total anual — {ccAtual.nome}: {formatBRL(totalCC)}</div>
+      {gruposPacote.map(g => {
+        const pacoteAberto = !!pacotesAbertos[g.id];
+        const totalPacote = g.id === 'pessoal' ? folhaAtual.totalAnual : g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0);
+        return (
+          <div key={g.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
+            <button
+              onClick={() => setPacotesAbertos(prev => ({ ...prev, [g.id]: !prev[g.id] }))}
+              style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, color: COR.azul }}>
+                {pacoteAberto ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {g.nome} <span style={{ fontWeight: 400, color: '#8A8F96' }}>{g.id === 'pessoal' ? `(${funcionariosCC.length} funcionários)` : `(${g.contas.length} contas)`}</span>
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: totalPacote > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(totalPacote)}</span>
+            </button>
+            {pacoteAberto && (
+              <div style={{ padding: 8 }}>
+                {g.id === 'pessoal' ? (
+                  <FolhaPessoalLeitura funcionarios={funcionariosCC} folha={folhaAtual} />
+                ) : (
+                  g.contas.map(c => (
+                    <LinhaContaLeitura
+                      key={c.codigo} conta={c}
+                      linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
+                      aberta={contaAberta === chaveLinha(c.codigo)}
+                      onToggle={() => setContaAberta(prev => prev === chaveLinha(c.codigo) ? null : chaveLinha(c.codigo))}
+                      total={totalConta(c.codigo)}
+                      receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Receita, versão leitura — cobre o formato "produtos" (Têxtil/Agrícola) e
+// o formato "linhas" (Resorts), este último de forma genérica (mostra os
+// campos mensais crus de cada linha) já que a nomenclatura de cada campo é
+// específica da aba de edição (AbaReceitaResorts) e reconstruí-la aqui só
+// pra leitura não valeria o risco de divergir do cálculo real.
+function ReceitaLeituraVersao({ dados }) {
+  const receita = dados.receita || {};
+  if (Array.isArray(receita.produtos) && receita.produtos.length > 0) {
+    return (
+      <div>
+        <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Produtos — volume, preço e receita</h4>
+        {receita.produtos.map(p => (
+          <div key={p.id} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: COR.texto, marginBottom: 4 }}>{p.nome}</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <CabecalhoMensalLeitura />
+                <tbody>
+                  <LinhaCalculadaMensal label="Volume" valoresMensal={(p.volumes || mesesVazios()).map(parseNum)} formatarCelula={formatarQtdLeitura} />
+                  {p.precoUsd ? (
+                    <>
+                      <LinhaCalculadaMensal label="Preço (USD/t)" valoresMensal={(p.precoUsd || mesesVazios()).map(parseNum)} formatarCelula={v => `US$ ${formatarQtdLeitura(v)}`} />
+                      <LinhaCalculadaMensal label="Câmbio (R$/USD)" valoresMensal={(p.cambio || mesesVazios()).map(parseNum)} formatarCelula={v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} />
+                    </>
+                  ) : (
+                    <LinhaCalculadaMensal label="Preço (R$)" valoresMensal={(p.precos || mesesVazios()).map(parseNum)} />
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+        {(receita.deducoes || []).length > 0 && (
+          <>
+            <h4 style={{ fontSize: 12.5, color: COR.azul, marginTop: 4, marginBottom: 8 }}>Deduções sobre a receita</h4>
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <CabecalhoMensalLeitura />
+                <tbody>
+                  {receita.deducoes.map(d => (
+                    <LinhaCalculadaMensal key={d.id} label={d.nome} valoresMensal={(d.pcts || mesesVazios()).map(parseNum)} formatarCelula={formatarPctLeitura} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+  if (receita.linhas && Object.keys(receita.linhas).length > 0) {
+    return (
+      <div>
+        <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 12 }}>
+          Campos mensais de cada linha de receita, como lançados no formulário (formato específico desta unidade).
+        </p>
+        {Object.entries(receita.linhas).map(([id, linha]) => (
+          <div key={id} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: COR.texto, marginBottom: 4 }}>{id}</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <CabecalhoMensalLeitura />
+                <tbody>
+                  {Object.entries(linha).filter(([, v]) => Array.isArray(v)).map(([campo, valores]) => (
+                    <LinhaCalculadaMensal key={campo} label={campo} valoresMensal={valores.map(parseNum)} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Sem dados de receita nesta unidade.</p>;
+}
+
+// CAPEX, versão leitura — lista simples (cada projeto é um valor único num
+// mês específico, não uma série mensal, mesmo formato do editor AbaCapex).
+function CapexLeituraVersao({ dados }) {
+  const projetos = dados.capex?.projetos || [];
+  const CATEGORIA_LABEL = { carryover: 'Carryover / Comprometido', melhoria_interna: 'Melhoria Interna', desenvolvimento_expansao: 'Desenvolvimento e Expansão' };
+  if (projetos.length === 0) return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Nenhum projeto de CAPEX lançado.</p>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {projetos.map(p => (
+        <div key={p.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 6, padding: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: COR.texto }}>{p.nome || '(sem nome)'}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(parseNum(p.valor))}</span>
+          </div>
+          <div style={{ fontSize: 10.5, color: '#7A8088' }}>{CATEGORIA_LABEL[p.categoria] || p.categoria || 'Sem categoria'} · {p.mes || 'sem mês'}</div>
+          {p.justificativa && <div style={{ fontSize: 10.5, color: COR.texto, marginTop: 4 }}>{p.justificativa}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Provisões e resultado financeiro, versão leitura.
+function ProvisoesLeituraVersao({ dados }) {
+  const provisoes = dados.provisoes || {};
+  const resultado = dados.resultado || {};
+  return (
+    <div>
+      <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Provisões</h4>
+      <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+        <table>
+          <CabecalhoMensalLeitura />
+          <tbody>
+            <LinhaCalculadaMensal label="Inadimplência (%)" valoresMensal={(provisoes.inadimplencia || mesesVazios()).map(parseNum)} formatarCelula={formatarPctLeitura} />
+            <LinhaCalculadaMensal label="Provisão contingências" valoresMensal={(provisoes.contingencias || mesesVazios()).map(parseNum)} />
+            <LinhaCalculadaMensal label="Provisão perdas" valoresMensal={(provisoes.perdas || mesesVazios()).map(parseNum)} />
+          </tbody>
+        </table>
+      </div>
+      <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Resultado financeiro e outras receitas/despesas</h4>
+      <div style={{ overflowX: 'auto' }}>
+        <table>
+          <CabecalhoMensalLeitura />
+          <tbody>
+            <LinhaCalculadaMensal label="Receita financeira" valoresMensal={(resultado.receitaFinanceira || mesesVazios()).map(parseNum)} />
+            <LinhaCalculadaMensal label="Despesa financeira" valoresMensal={(resultado.despesaFinanceira || mesesVazios()).map(parseNum)} />
+            <LinhaCalculadaMensal label="Outras receitas/despesas" valoresMensal={(resultado.outrasReceitasDespesas || mesesVazios()).map(parseNum)} />
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11.5, color: '#7A8088', marginTop: 8 }}>Alíquota IRCSL sobre EBT (anual): <b style={{ color: COR.texto }}>{resultado.aliquotaIR || '—'}%</b></div>
+    </div>
+  );
+}
+
+const ABAS_DETALHE_VERSAO = [
+  { id: 'dre', label: 'DRE' },
+  { id: 'receita', label: 'Receita' },
+  { id: 'custos', label: 'Custos e Despesas' },
+  { id: 'capex', label: 'CAPEX' },
+  { id: 'provisoes', label: 'Provisões' },
+];
+
 // "Abrir a versão enviada e salva" (pedido de 2026-08-17) — modal de
 // leitura por cima da tela, busca o snapshot completo sob demanda (só
 // quando o usuário clica "Abrir"; listarVersoes não traz `dados`, ficaria
-// pesado numa lista). Não mexe no `dados` que está sendo editado — é uma
-// visualização à parte, com sua própria cascata de DRE.
+// pesado numa lista). Não mexe no `dados` que está sendo editado.
+//
+// Correção de 2026-08-17: a primeira versão só mostrava a Cascata de DRE —
+// pedido explícito foi "detalhe até a conta analítica e por premissas, para
+// possível comparação" — por isso ganhou abas internas, com destaque pra
+// Custos e Despesas (CC → Pacote → Conta, com a premissa por trás de cada
+// valor, igual ao editor, só que sem nenhum campo editável).
 function ModalVersao({ unidadeId, versaoId, onClose }) {
   const [versao, setVersao] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
   const [ifrs18, setIfrs18] = useState(false);
+  const [abaDetalhe, setAbaDetalhe] = useState('dre');
 
   useEffect(() => {
     let cancelado = false;
     setCarregando(true);
     setErro(null);
     setVersao(null);
+    setAbaDetalhe('dre');
     buscarVersaoApi(unidadeId, versaoId)
       .then(v => { if (!cancelado) setVersao(v); })
       .catch(() => { if (!cancelado) setErro('Não foi possível carregar esta versão. Tente novamente.'); })
@@ -3725,7 +4000,7 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
       onClick={onClose}
     >
       <div
-        style={{ background: COR.branco, borderRadius: 10, maxWidth: 760, width: '100%', maxHeight: '85vh', overflowY: 'auto', padding: 22, boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}
+        style={{ background: COR.branco, borderRadius: 10, maxWidth: 900, width: '100%', maxHeight: '88vh', overflowY: 'auto', padding: 22, boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}
         onClick={e => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
@@ -3738,27 +4013,49 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
 
         {versao && dre && (
           <>
-            <div style={{ fontSize: 12, color: '#7A8088', marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
               Autor: <b style={{ color: COR.texto }}>{versao.autor_nome}</b> · Enviado em {formatData(versao.enviado_em)}
               {versao.comentario && <> · {versao.comentario}</>}
             </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-              <button
-                onClick={() => setIfrs18(false)}
-                style={{
-                  fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
-                  border: `1.5px solid ${COR.azul}`, background: !ifrs18 ? COR.azul : COR.branco, color: !ifrs18 ? COR.branco : COR.azul,
-                }}
-              >DRE sem IFRS 18</button>
-              <button
-                onClick={() => setIfrs18(true)}
-                style={{
-                  fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
-                  border: `1.5px solid ${COR.azul}`, background: ifrs18 ? COR.azul : COR.branco, color: ifrs18 ? COR.branco : COR.azul,
-                }}
-              >DRE com IFRS 18</button>
+
+            <div style={{ display: 'flex', gap: 2, borderBottom: `2px solid ${COR.borda}`, marginBottom: 16, flexWrap: 'wrap' }}>
+              {ABAS_DETALHE_VERSAO.map(a => (
+                <button
+                  key={a.id} onClick={() => setAbaDetalhe(a.id)}
+                  style={{
+                    fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '8px 12px', cursor: 'pointer',
+                    border: 'none', borderBottom: abaDetalhe === a.id ? `3px solid ${COR.laranja}` : '3px solid transparent',
+                    background: 'transparent', color: abaDetalhe === a.id ? COR.azul : '#8A8F96', marginBottom: -2,
+                  }}
+                >{a.label}</button>
+              ))}
             </div>
-            <CascataDRE dre={dre} ifrs18={ifrs18} />
+
+            {abaDetalhe === 'dre' && (
+              <>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  <button
+                    onClick={() => setIfrs18(false)}
+                    style={{
+                      fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
+                      border: `1.5px solid ${COR.azul}`, background: !ifrs18 ? COR.azul : COR.branco, color: !ifrs18 ? COR.branco : COR.azul,
+                    }}
+                  >DRE sem IFRS 18</button>
+                  <button
+                    onClick={() => setIfrs18(true)}
+                    style={{
+                      fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
+                      border: `1.5px solid ${COR.azul}`, background: ifrs18 ? COR.azul : COR.branco, color: ifrs18 ? COR.branco : COR.azul,
+                    }}
+                  >DRE com IFRS 18</button>
+                </div>
+                <CascataDRE dre={dre} ifrs18={ifrs18} />
+              </>
+            )}
+            {abaDetalhe === 'receita' && <ReceitaLeituraVersao dados={versao.dados} />}
+            {abaDetalhe === 'custos' && <CustosLeituraVersao refUnidade={ref} dados={versao.dados} dre={dre} />}
+            {abaDetalhe === 'capex' && <CapexLeituraVersao dados={versao.dados} />}
+            {abaDetalhe === 'provisoes' && <ProvisoesLeituraVersao dados={versao.dados} />}
           </>
         )}
       </div>
@@ -4225,19 +4522,24 @@ function GradeMensalLinha({ label, valores, onChange, formatarTotal }) {
   );
 }
 
-// Linha somente leitura com o valor calculado mês a mês (resultado da premissa).
-function LinhaCalculadaMensal({ label, valoresMensal }) {
+// Linha somente leitura com o valor calculado mês a mês (resultado da
+// premissa). formatarCelula/formatarTotal opcionais — usados pra reaproveitar
+// este componente em linhas somente-leitura de % ou quantidade (não só R$),
+// ver LinhaContaLeitura e a visualização de versão do histórico.
+function LinhaCalculadaMensal({ label, valoresMensal, formatarCelula, formatarTotal }) {
   const total = valoresMensal.reduce((a, v) => a + (v || 0), 0);
+  const fCelula = formatarCelula || formatBRL;
+  const fTotal = formatarTotal || formatarCelula || formatBRL;
   return (
     <tr>
       <td style={{ fontSize: 10.5, fontWeight: 700, color: COR.azul, padding: '4px 8px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.total, whiteSpace: 'nowrap' }}>{label}</td>
       {valoresMensal.map((v, mi) => (
         <td key={mi} style={{ padding: '4px 6px', border: `1px solid ${COR.borda}`, background: COR.total, fontSize: 10, textAlign: 'right', color: COR.texto }}>
-          {v ? formatBRL(v) : '—'}
+          {v ? fCelula(v) : '—'}
         </td>
       ))}
       <td style={{ padding: '4px 8px', border: `1px solid ${COR.borda}`, background: COR.laranja, fontSize: 10.5, fontWeight: 700, textAlign: 'right', color: COR.branco }}>
-        {formatBRL(total)}
+        {fTotal(total)}
       </td>
     </tr>
   );
@@ -4344,6 +4646,83 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
             </div>
           )}
           <CampoJustificativa value={linha.justificativa} onChange={v => onUpdate('justificativa', v)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Espelho somente-leitura de LinhaConta — usado na visualização detalhada de
+// versões do histórico (pedido de 2026-08-17: "detalhe até a conta
+// analítica e por premissas"). Mostra as mesmas linhas de premissa que o
+// editor mostra (quantidade/valor unit., ou base/%, ou valor direto), só
+// que via LinhaCalculadaMensal (sem <input>) em vez de GradeMensalLinha.
+function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBrutaMes, receitaLiquidaMes }) {
+  const valoresMensaisCalc = MESES.map((_, m) => valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes));
+  const formatarPct = (v) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+  return (
+    <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 6, marginBottom: 6, background: COR.branco, overflow: 'hidden' }}>
+      <button
+        onClick={onToggle}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+          padding: '8px 10px', background: aberta ? COR.claro : COR.branco, border: 'none', cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+          {aberta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          <span style={{ fontSize: 10.5, color: '#8A8F96', flexShrink: 0 }}>{conta.codigo}</span>
+          <span style={{ fontSize: 11.5, color: COR.texto, fontWeight: aberta ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conta.nome.toLowerCase()}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <span style={{ fontSize: 9.5, fontWeight: 700, color: '#8A8F96' }}>{linha.classificacao === 'variavel' ? 'Variável' : 'Fixo'}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: total > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(total)}</span>
+        </div>
+      </button>
+      {aberta && (
+        <div style={{ padding: '10px 10px 12px', borderTop: `1px solid ${COR.borda}` }}>
+          <div style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 8 }}>
+            Premissa: <b style={{ color: COR.texto }}>{TIPOS_PREMISSA.find(t => t.id === linha.premissaTipo)?.nome || linha.premissaTipo}</b>
+          </div>
+          <div style={{ overflowX: 'auto', marginBottom: 8 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Premissa</th>
+                  {MESES.map(m => (
+                    <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', minWidth: 58 }}>{m}</th>
+                  ))}
+                  <th style={{ background: COR.laranja, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 78 }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linha.premissaTipo === 'direto' && (
+                  <LinhaCalculadaMensal label="Valor (R$)" valoresMensal={(linha.valores || mesesVazios()).map(parseNum)} />
+                )}
+                {linha.premissaTipo === 'qtd_valor' && (
+                  <>
+                    <LinhaCalculadaMensal label={`Quantidade${linha.unidadeMedida ? ` (${linha.unidadeMedida})` : ''}`} valoresMensal={(linha.quantidades || mesesVazios()).map(parseNum)} formatarCelula={v => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
+                    <LinhaCalculadaMensal label="Valor unit. (R$)" valoresMensal={(linha.valoresUnit || mesesVazios()).map(parseNum)} />
+                    <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+                  </>
+                )}
+                {linha.premissaTipo === 'rateio' && (
+                  <>
+                    {linha.baseTipo === 'manual' && (
+                      <LinhaCalculadaMensal label="Base manual (R$)" valoresMensal={(linha.baseManual || mesesVazios()).map(parseNum)} />
+                    )}
+                    <LinhaCalculadaMensal label={`Percentual — base: ${BASES_RATEIO.find(b => b.id === linha.baseTipo)?.nome || linha.baseTipo}`} valoresMensal={(linha.percentuais || mesesVazios()).map(parseNum)} formatarCelula={formatarPct} />
+                    <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {linha.justificativa && (
+            <div style={{ fontSize: 10.5, color: COR.texto, background: COR.claro, borderRadius: 6, padding: 8 }}>
+              <b>Justificativa:</b> {linha.justificativa}
+            </div>
+          )}
         </div>
       )}
     </div>
