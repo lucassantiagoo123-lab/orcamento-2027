@@ -703,15 +703,8 @@ export function runAuditoria(data, dre, ref) {
     detalhe: `${linhasProducao.length} linha(s) analítica(s) com valor em CC de produção`,
   });
 
-  const linhasDespesa = linhasCustos.filter(([chave]) => {
-    const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
-    return cc?.tipo === 'despesa';
-  }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
-  checks.push({
-    label: 'Despesas: ao menos uma linha analítica lançada em CC de despesa',
-    ok: linhasDespesa.length > 0,
-    detalhe: `${linhasDespesa.length} linha(s) analítica(s) com valor em CC de despesa`,
-  });
+  // Pedido de 2026-08-16: retirada do quadro de auditoria (não é mais nem
+  // pendência informativa, nem bloqueio de envio).
 
   const linhasIncoerentes = linhasCustos.filter(([, linha]) => linhaIncoerente(linha));
   checks.push({
