@@ -4,7 +4,7 @@
 // do vínculo real do usuário no banco — nunca confia no que vem da URL.
 import { Router } from 'express';
 import { exigirUnidade, exigirPerfil } from '../middleware/authorize.js';
-import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes } from '../db/orcamentos.js';
+import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
 import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
@@ -203,6 +203,18 @@ orcamentosRouter.get('/:unidadeId/versoes', exigirUnidade('unidadeId'), async (r
   try {
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
     res.json({ versoes: await listarVersoes(atual.id) });
+  } catch (err) { next(err); }
+});
+
+/** Snapshot completo de uma versão específica — "abrir a versão enviada e
+ * salva" (pedido de 2026-08-17). Mesmo escopo de acesso da unidade
+ * (exigirUnidade): quem já vê o orçamento vê o histórico dele. */
+orcamentosRouter.get('/:unidadeId/versoes/:versaoId', exigirUnidade('unidadeId'), async (req, res, next) => {
+  try {
+    const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
+    const versao = await buscarVersao(atual.id, req.params.versaoId);
+    if (!versao) return res.status(404).json({ erro: 'versao_nao_encontrada' });
+    res.json({ versao });
   } catch (err) { next(err); }
 });
 

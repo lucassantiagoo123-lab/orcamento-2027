@@ -10,7 +10,7 @@ import {
   Building2, ChevronDown, ChevronRight, Plus, Trash2, Clock, ShieldCheck,
   Users, Loader2, Info,
 } from 'lucide-react';
-import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi } from './api/orcamentos.js';
+import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi } from './api/orcamentos.js';
 import { logout } from './api/auth.js';
 import { legacyStorage } from './legacyStorage.js';
 import { ApiError } from './api/client.js';
@@ -2585,6 +2585,10 @@ export default function OrcamentoARA({ usuario }) {
   // só exibição/comentário, não é o que decide quem é o autor no banco.
   const [autorNome, setAutorNome] = useState(usuario.nome);
   const [mostrarHistorico, setMostrarHistorico] = useState(false);
+  // "Abrir a versão enviada e salva" (pedido de 2026-08-17) — modal de
+  // leitura por cima de tudo, não mexe no `dados` que está sendo editado.
+  const [versaoAberta, setVersaoAberta] = useState(null); // { unidadeId, versaoId } | null
+  function abrirVersao(unidadeId, versaoId) { setVersaoAberta({ unidadeId, versaoId }); }
   const [backlog, setBacklog] = useState([]);
   const [unidadeDrill, setUnidadeDrill] = useState(null);
   const [versoesDrill, setVersoesDrill] = useState([]);
@@ -3304,6 +3308,7 @@ export default function OrcamentoARA({ usuario }) {
           enviarVersao={enviarVersao} enviando={enviando} erro={erro}
           versoes={versoes} mostrarHistorico={mostrarHistorico} setMostrarHistorico={setMostrarHistorico}
           exportarExcel={exportarExcel} solicitarResumoExecutivo={solicitarResumoExecutivo}
+          abrirVersao={abrirVersao}
         />
       ) : (
         <VisaoFPA
@@ -3313,6 +3318,13 @@ export default function OrcamentoARA({ usuario }) {
           etapasProcesso={etapasProcesso} atualizarEtapa={atualizarEtapa}
           premissasMacro={premissasMacro} updatePremissaMacroGlobal={updatePremissaMacroGlobal}
           buscarBoletimFocus={buscarBoletimFocus} buscandoFocus={buscandoFocus} erroFocus={erroFocus}
+          abrirVersao={abrirVersao}
+        />
+      )}
+      {versaoAberta && (
+        <ModalVersao
+          unidadeId={versaoAberta.unidadeId} versaoId={versaoAberta.versaoId}
+          onClose={() => setVersaoAberta(null)}
         />
       )}
 
@@ -3458,6 +3470,7 @@ function VisaoGerente(props) {
     atualizar, autorNome, setAutorNome,
     comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, erro,
     versoes, mostrarHistorico, setMostrarHistorico, exportarExcel, solicitarResumoExecutivo,
+    abrirVersao,
   } = props;
 
   return (
@@ -3657,7 +3670,13 @@ function VisaoGerente(props) {
                 {versoes.length === 0 && <div style={{ fontSize: 11.5, color: '#8A8F96' }}>Nenhuma versão enviada ainda.</div>}
                 {versoes.map(v => (
                   <div key={v.id} style={{ borderLeft: `3px solid ${COR.laranja}`, paddingLeft: 8, fontSize: 11 }}>
-                    <div style={{ fontWeight: 700, color: COR.texto }}>{v.autor}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                      <div style={{ fontWeight: 700, color: COR.texto }}>{v.autor}</div>
+                      <button
+                        onClick={() => abrirVersao(unidadeAtual, v.id)}
+                        style={{ fontFamily: FONT, fontSize: 10.5, fontWeight: 700, color: COR.azul, background: 'none', border: `1px solid ${COR.azul}`, borderRadius: 12, padding: '2px 8px', cursor: 'pointer' }}
+                      >Abrir</button>
+                    </div>
                     <div style={{ color: '#7A8088', display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={11} /> {formatData(v.timestamp)}</div>
                     {v.comentario && <div style={{ color: COR.texto, marginTop: 2 }}>{v.comentario}</div>}
                     <div style={{ color: COR.azul, marginTop: 2 }}>Lucro líquido: {formatBRL(v.totais?.lucroLiquido)}</div>
@@ -3670,6 +3689,79 @@ function VisaoGerente(props) {
       </div>
       </>
       )}
+    </div>
+  );
+}
+
+// "Abrir a versão enviada e salva" (pedido de 2026-08-17) — modal de
+// leitura por cima da tela, busca o snapshot completo sob demanda (só
+// quando o usuário clica "Abrir"; listarVersoes não traz `dados`, ficaria
+// pesado numa lista). Não mexe no `dados` que está sendo editado — é uma
+// visualização à parte, com sua própria cascata de DRE.
+function ModalVersao({ unidadeId, versaoId, onClose }) {
+  const [versao, setVersao] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
+  const [ifrs18, setIfrs18] = useState(false);
+
+  useEffect(() => {
+    let cancelado = false;
+    setCarregando(true);
+    setErro(null);
+    setVersao(null);
+    buscarVersaoApi(unidadeId, versaoId)
+      .then(v => { if (!cancelado) setVersao(v); })
+      .catch(() => { if (!cancelado) setErro('Não foi possível carregar esta versão. Tente novamente.'); })
+      .finally(() => { if (!cancelado) setCarregando(false); });
+    return () => { cancelado = true; };
+  }, [unidadeId, versaoId]);
+
+  const ref = referenciaDaUnidade(unidadeId);
+  const dre = versao ? computeDRE(versao.dados, ref) : null;
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(20,24,32,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: COR.branco, borderRadius: 10, maxWidth: 760, width: '100%', maxHeight: '85vh', overflowY: 'auto', padding: 22, boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+          <h3 style={{ fontSize: 15, color: COR.azul }}>Versão enviada — visualização (somente leitura)</h3>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 22, lineHeight: 1, color: '#8A8F96' }}>×</button>
+        </div>
+
+        {carregando && <p style={{ fontSize: 12.5, color: '#7A8088' }}>Carregando…</p>}
+        {erro && <p style={{ fontSize: 12.5, color: COR.vermelho }}>{erro}</p>}
+
+        {versao && dre && (
+          <>
+            <div style={{ fontSize: 12, color: '#7A8088', marginBottom: 16 }}>
+              Autor: <b style={{ color: COR.texto }}>{versao.autor_nome}</b> · Enviado em {formatData(versao.enviado_em)}
+              {versao.comentario && <> · {versao.comentario}</>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <button
+                onClick={() => setIfrs18(false)}
+                style={{
+                  fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
+                  border: `1.5px solid ${COR.azul}`, background: !ifrs18 ? COR.azul : COR.branco, color: !ifrs18 ? COR.branco : COR.azul,
+                }}
+              >DRE sem IFRS 18</button>
+              <button
+                onClick={() => setIfrs18(true)}
+                style={{
+                  fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
+                  border: `1.5px solid ${COR.azul}`, background: ifrs18 ? COR.azul : COR.branco, color: ifrs18 ? COR.branco : COR.azul,
+                }}
+              >DRE com IFRS 18</button>
+            </div>
+            <CascataDRE dre={dre} ifrs18={ifrs18} />
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -5885,7 +5977,7 @@ function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentari
 // Visão FP&A Corporativo
 // ---------------------------------------------------------------------------
 
-function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, buscarBoletimFocus, buscandoFocus, erroFocus }) {
+function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, buscarBoletimFocus, buscandoFocus, erroFocus, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
 
@@ -6038,8 +6130,12 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                       <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>Últimas versões</div>
                       {versoesDrill.length === 0 && <div style={{ fontSize: 11.5, color: '#8A8F96' }}>Nenhuma versão enviada por esta unidade.</div>}
                       {versoesDrill.slice(0, 5).map(v => (
-                        <div key={v.id} style={{ fontSize: 11.5, padding: '4px 0', borderBottom: `1px solid ${COR.borda}` }}>
-                          <b>{v.autor}</b> — {formatData(v.timestamp)} — Lucro líquido {formatBRL(v.totais?.lucroLiquido)} {v.comentario ? `— ${v.comentario}` : ''}
+                        <div key={v.id} style={{ fontSize: 11.5, padding: '4px 0', borderBottom: `1px solid ${COR.borda}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <span><b>{v.autor}</b> — {formatData(v.timestamp)} — Lucro líquido {formatBRL(v.totais?.lucroLiquido)} {v.comentario ? `— ${v.comentario}` : ''}</span>
+                          <button
+                            onClick={() => abrirVersao(u.id, v.id)}
+                            style={{ fontFamily: FONT, fontSize: 10.5, fontWeight: 700, color: COR.azul, background: 'none', border: `1px solid ${COR.azul}`, borderRadius: 12, padding: '2px 8px', cursor: 'pointer', flexShrink: 0 }}
+                          >Abrir</button>
                         </div>
                       ))}
                     </div>

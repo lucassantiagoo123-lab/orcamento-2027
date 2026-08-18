@@ -124,3 +124,18 @@ export async function listarVersoes(orcamentoId) {
   );
   return rows;
 }
+
+/** Snapshot completo de uma versão específica (com `dados`) — pedido de
+ * 2026-08-17: "o gestor da unidade ou admin FP&A precisa ter a opção de
+ * abrir a versão enviada e salva". listarVersoes não traz `dados` de
+ * propósito (é uma lista, ficaria pesada); esta busca é só quando o usuário
+ * clica em "Abrir" numa versão específica. */
+export async function buscarVersao(orcamentoId, versaoId) {
+  const { rows } = await pool.query(
+    `SELECT ov.id, ov.dados, ov.autor_id, u.nome AS autor_nome, ov.comentario, ov.totais, ov.enviado_em
+     FROM orcamento_versoes ov JOIN usuarios u ON u.id = ov.autor_id
+     WHERE ov.orcamento_id = $1 AND ov.id = $2`,
+    [orcamentoId, versaoId]
+  );
+  return rows[0] || null;
+}

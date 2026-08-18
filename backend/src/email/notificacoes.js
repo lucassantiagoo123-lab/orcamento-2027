@@ -44,6 +44,10 @@ export async function notificarEnvioParaFpa({ unidadeNome, autorNome, comentario
   const linhaTotais = totais
     ? `Receita Líquida: R$ ${Number(totais.receitaLiquida || 0).toLocaleString('pt-BR')} · EBITDA: R$ ${Number(totais.ebitda || 0).toLocaleString('pt-BR')} · Lucro Líquido: R$ ${Number(totais.lucroLiquido || 0).toLocaleString('pt-BR')}`
     : '';
+  // Pedido de 2026-08-17: o e-mail precisa trazer o link da plataforma —
+  // config.frontendOrigin (FRONTEND_ORIGIN) é a mesma origem que o backend
+  // já usa pra CORS/cookie, então é o endereço certo do app publicado.
+  const link = config.frontendOrigin;
   await enviarEmail({
     to: destinatarios,
     subject: `[Orçamento 2027] ${unidadeNome} enviou uma nova versão`,
@@ -54,6 +58,8 @@ export async function notificarEnvioParaFpa({ unidadeNome, autorNome, comentario
       linhaTotais || null,
       '',
       'O envio ficará travado (sem permitir reenvio) até um Admin FP&A liberar na tela de Administração/Revisão.',
+      '',
+      `Abrir a plataforma: ${link}`,
     ].filter(Boolean).join('\n'),
     html: `
       <p><strong>${unidadeNome}</strong> enviou uma nova versão do orçamento.</p>
@@ -61,6 +67,7 @@ export async function notificarEnvioParaFpa({ unidadeNome, autorNome, comentario
       ${comentario ? `<p><strong>Comentário:</strong> ${comentario}</p>` : ''}
       ${linhaTotais ? `<p>${linhaTotais}</p>` : ''}
       <p>O envio ficará travado (sem permitir reenvio) até um Admin FP&A liberar.</p>
+      <p><a href="${link}">Abrir a plataforma</a></p>
     `,
   });
 }

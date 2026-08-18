@@ -52,3 +52,10 @@ export async function listarVersoes(unidadeId) {
 export function listarLog(unidadeId) {
   return apiFetch(`/api/orcamentos/${unidadeId}/log`);
 }
+
+// Snapshot completo (com `dados`) de uma versão específica — "abrir a
+// versão enviada e salva" (pedido de 2026-08-17).
+export async function buscarVersao(unidadeId, versaoId) {
+  const { versao } = await apiFetch(`/api/orcamentos/${unidadeId}/versoes/${versaoId}`);
+  return versao;
+}
