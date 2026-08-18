@@ -52,27 +52,24 @@ export async function desvincularUnidade(usuarioId, unidadeId) {
   await pool.query(`DELETE FROM usuario_unidade WHERE usuario_id = $1 AND unidade_id = $2`, [usuarioId, unidadeId]);
 }
 
-/** Define o único CC do Gestor de CC (perfil gerente_cc_corporativo) —
- * "cada Gestor de CC precisa ter acesso apenas ao seu CC" (pedido de
- * 2026-08-16). Substitui qualquer vínculo anterior em vez de acumular. */
-export async function definirCcUsuario(usuarioId, unidadeId, ccCodigo) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(`DELETE FROM usuario_cc_corporativo WHERE usuario_id = $1`, [usuarioId]);
-    await client.query(
-      `INSERT INTO usuario_cc_corporativo (usuario_id, unidade_id, cc_codigo) VALUES ($1, $2, $3)`,
-      [usuarioId, unidadeId, ccCodigo]
-    );
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+/** Vincula mais um CC ao Gestor de CC (perfil gerente_cc_corporativo) —
+ * "um gestor pode ser gestor de mais de um CC" (correção de 2026-08-16 ao
+ * pedido original, que tinha sido "só 1 CC"). Não substitui os anteriores. */
+export async function vincularCc(usuarioId, unidadeId, ccCodigo) {
+  await pool.query(
+    `INSERT INTO usuario_cc_corporativo (usuario_id, unidade_id, cc_codigo) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+    [usuarioId, unidadeId, ccCodigo]
+  );
 }
-export async function removerCcUsuario(usuarioId) {
+export async function desvincularCc(usuarioId, unidadeId, ccCodigo) {
+  await pool.query(
+    `DELETE FROM usuario_cc_corporativo WHERE usuario_id = $1 AND unidade_id = $2 AND cc_codigo = $3`,
+    [usuarioId, unidadeId, ccCodigo]
+  );
+}
+/** Limpa todos os CCs do usuário — usado quando a unidade do Gestor de CC
+ * muda (os CCs antigos pertenciam à unidade anterior). */
+export async function removerTodosCcUsuario(usuarioId) {
   await pool.query(`DELETE FROM usuario_cc_corporativo WHERE usuario_id = $1`, [usuarioId]);
 }
 

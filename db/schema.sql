@@ -2,6 +2,14 @@
 -- Orçamento 2027 (OBZ) — Grupo ARA — Caminho B
 -- Schema Postgres — Fase 1
 -- Fonte: Especificacao_Caminho_B_Multiusuario.md, seção 3.
+--
+-- Este arquivo é o estado final do schema — usado para criar um banco novo
+-- do zero (docker-compose local e os testes automatizados em
+-- backend/test/helpers.js). Não é aplicado em produção diretamente: o banco
+-- do Railway já existe e evolui por migrações incrementais, aplicadas
+-- sozinhas a cada deploy do backend — ver backend/db/migrations/ (desde
+-- 2026-08-16). Toda mudança de schema precisa ser feita nos dois lugares:
+-- aqui (referência) e como uma migração nova (aplicação real).
 -- =====================================================================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()

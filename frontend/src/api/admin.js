@@ -9,11 +9,13 @@ export const vincularUnidade = (usuarioId, unidadeId) =>
 export const desvincularUnidade = (usuarioId, unidadeId) =>
   apiFetch(`/api/admin/usuarios/${usuarioId}/unidades/${unidadeId}`, { method: 'DELETE' });
 
-// Gestor de CC (pedido de 2026-08-16): 1 CC só — definirCcUsuario substitui
-// qualquer vínculo anterior em vez de acumular.
-export const definirCcUsuario = (usuarioId, unidadeId, ccCodigo) =>
+// Gestor de CC (pedido de 2026-08-16): checklist — cada CC marcado/
+// desmarcado chama vincularCc/desvincularCc (acumula, não substitui).
+export const vincularCc = (usuarioId, unidadeId, ccCodigo) =>
   apiFetch(`/api/admin/usuarios/${usuarioId}/ccs`, { method: 'POST', body: { unidadeId, ccCodigo } });
-export const removerCcUsuario = (usuarioId) =>
+export const desvincularCc = (usuarioId, unidadeId, ccCodigo) =>
+  apiFetch(`/api/admin/usuarios/${usuarioId}/ccs/${unidadeId}/${ccCodigo}`, { method: 'DELETE' });
+export const removerTodosCcUsuario = (usuarioId) =>
   apiFetch(`/api/admin/usuarios/${usuarioId}/ccs`, { method: 'DELETE' });
 
 export const listarConcessoes = (apenasAtivas = false) =>

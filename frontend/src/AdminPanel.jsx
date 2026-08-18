@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   listarUsuarios, criarUsuario, atualizarUsuario, vincularUnidade, desvincularUnidade,
-  definirCcUsuario, removerCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
+  vincularCc, desvincularCc, removerTodosCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
@@ -20,10 +20,12 @@ const PERFIL_LABEL = {
 };
 // Rebatizado de "Gerente de CC — Corporativo" para "Gestor de CC" em
 // 2026-08-16: deixou de ser exclusivo do Corporativo — agora escolhe 1
-// unidade (inclusive Corporativo) e, dentro dela, 1 CC. Reaproveita as
-// mesmas listas de CC já usadas no orçamento (Agrícola/Resorts reaproveitam
-// a lista da Têxtil, mesma decisão já tomada para o formulário de orçamento
-// — CLAUDE.md, "pendência de dado-fonte"). EI/Energia ainda não têm CC.
+// unidade (inclusive Corporativo) e, dentro dela, marca 1 ou mais CCs
+// (checklist — "um gestor pode ser gestor de mais de um CC", correção do
+// mesmo dia). Reaproveita as mesmas listas de CC já usadas no orçamento
+// (Agrícola/Resorts reaproveitam a lista da Têxtil, mesma decisão já tomada
+// para o formulário de orçamento — CLAUDE.md, "pendência de dado-fonte").
+// EI/Energia ainda não têm CC.
 const CCS_POR_UNIDADE = {
   textil: CCS_TEXTIL,
   agricola: CCS_TEXTIL,
@@ -195,20 +197,20 @@ function LinhaUsuario({ usuario, onMudou }) {
     onMudou();
   }
   // Gestor de CC (pedido de 2026-08-16): a unidade é seleção única — trocar
-  // de unidade limpa o CC anterior, já que ele pertencia à unidade antiga.
+  // de unidade limpa os CCs marcados, já que pertenciam à unidade antiga.
   async function selecionarUnidadeGestorCc(unidadeId) {
     const atual = usuario.unidades[0];
     if (atual === unidadeId) return;
     if (atual) await desvincularUnidade(usuario.id, atual);
-    if (usuario.ccs.length > 0) await removerCcUsuario(usuario.id);
+    if (usuario.ccs.length > 0) await removerTodosCcUsuario(usuario.id);
     await vincularUnidade(usuario.id, unidadeId);
     onMudou();
   }
-  async function selecionarCc(ccCodigo) {
-    const unidadeId = usuario.unidades[0];
-    if (!unidadeId) return;
-    if (!ccCodigo) { await removerCcUsuario(usuario.id); onMudou(); return; }
-    await definirCcUsuario(usuario.id, unidadeId, ccCodigo);
+  // Checklist — "um gestor pode ser gestor de mais de um CC" (correção de
+  // 2026-08-16): cada marcação/desmarcação acumula, não substitui.
+  async function toggleCc(unidadeId, ccCodigo, marcado) {
+    if (marcado) await vincularCc(usuario.id, unidadeId, ccCodigo);
+    else await desvincularCc(usuario.id, unidadeId, ccCodigo);
     onMudou();
   }
 
@@ -266,12 +268,19 @@ function LinhaUsuario({ usuario, onMudou }) {
             if (!unidadeId) return <span style={{ color: '#B5BAC0', fontSize: 11 }}>Selecione a unidade primeiro</span>;
             const opcoes = CCS_POR_UNIDADE[unidadeId] || [];
             if (opcoes.length === 0) return <span style={{ color: '#B5BAC0', fontSize: 11 }}>Sem CCs cadastrados nesta unidade</span>;
-            const ccAtual = usuario.ccs.find((c) => c.unidadeId === unidadeId)?.codigo || '';
+            const marcados = new Set(usuario.ccs.filter((c) => c.unidadeId === unidadeId).map((c) => c.codigo));
             return (
-              <select value={ccAtual} onChange={(e) => selecionarCc(e.target.value)} style={campo}>
-                <option value="">Centro de Custo…</option>
-                {opcoes.map((cc) => <option key={cc.codigo} value={cc.codigo}>{cc.codigo} — {cc.nome}</option>)}
-              </select>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 120, overflowY: 'auto' }}>
+                {opcoes.map((cc) => (
+                  <label key={cc.codigo} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox" checked={marcados.has(cc.codigo)}
+                      onChange={(e) => toggleCc(unidadeId, cc.codigo, e.target.checked)}
+                    />
+                    {cc.codigo} — {cc.nome}
+                  </label>
+                ))}
+              </div>
             );
           })()
         ) : <span style={{ color: '#B5BAC0' }}>—</span>}

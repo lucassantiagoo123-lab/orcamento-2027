@@ -5,6 +5,7 @@ COPY package.json ./
 RUN npm install --omit=dev
 
 COPY src ./src
+COPY db ./db
 
 EXPOSE 3000
 CMD ["node", "src/server.js"]

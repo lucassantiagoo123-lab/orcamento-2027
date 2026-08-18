@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { exigirPerfil } from '../middleware/authorize.js';
 import {
   listarUsuarios, criarUsuario, atualizarUsuario,
-  vincularUnidade, desvincularUnidade, definirCcUsuario, removerCcUsuario,
+  vincularUnidade, desvincularUnidade, vincularCc, desvincularCc, removerTodosCcUsuario,
   listarConcessoes, criarConcessao, revogarConcessao,
 } from '../db/admin.js';
 import { definirSenha } from '../db/usuarios.js';
@@ -97,20 +97,29 @@ adminRouter.delete('/usuarios/:id/unidades/:unidadeId', async (req, res, next) =
   } catch (err) { next(err); }
 });
 
-/** Gestor de CC (pedido de 2026-08-16): 1 CC só, dentro de 1 unidade — este
- * POST substitui qualquer vínculo anterior em vez de acumular. */
+/** Gestor de CC (pedido de 2026-08-16, corrigido no mesmo dia: "um gestor
+ * pode ser gestor de mais de um CC") — checklist na tela de admin, cada
+ * marcação/desmarcação chama estas duas rotas (acumula, não substitui). */
 adminRouter.post('/usuarios/:id/ccs', async (req, res, next) => {
   try {
     const { unidadeId, ccCodigo } = req.body;
     if (!unidadeId || !UNIDADES_VALIDAS.includes(unidadeId)) return res.status(400).json({ erro: 'unidadeId_invalido' });
     if (!ccCodigo) return res.status(400).json({ erro: 'ccCodigo_obrigatorio' });
-    await definirCcUsuario(req.params.id, unidadeId, ccCodigo);
+    await vincularCc(req.params.id, unidadeId, ccCodigo);
     res.status(204).end();
   } catch (err) { next(err); }
 });
+adminRouter.delete('/usuarios/:id/ccs/:unidadeId/:ccCodigo', async (req, res, next) => {
+  try {
+    await desvincularCc(req.params.id, req.params.unidadeId, req.params.ccCodigo);
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+/** Limpa todos os CCs — usado quando o admin troca a unidade do Gestor de
+ * CC (os CCs antigos eram da unidade anterior). */
 adminRouter.delete('/usuarios/:id/ccs', async (req, res, next) => {
   try {
-    await removerCcUsuario(req.params.id);
+    await removerTodosCcUsuario(req.params.id);
     res.status(204).end();
   } catch (err) { next(err); }
 });
