@@ -10,7 +10,16 @@
 export function podeAcessarUnidade(usuario, unidadeId) {
   if (usuario.perfil === 'admin_fpa') return true;
   if (usuario.perfil === 'gerente_unidade') return usuario.unidadesPermitidas.includes(unidadeId);
-  return false; // Gestor de CC não acessa a unidade inteira, só o seu CC (ver podeAcessarCc)
+  // Gestor de CC (corrigido em 2026-08-16): o orçamento ainda é um único
+  // bloco JSONB por unidade, não fatiado por CC — então, pra sequer
+  // conseguir editar o próprio CC, ele precisa abrir a unidade inteira.
+  // O acesso não é "de graça": só libera se tiver pelo menos 1 CC vinculado
+  // a essa unidade; e o PUT valida linha a linha (ver validarEscritaCcCustos
+  // em routes/orcamentos.js) que ele só grava contas do(s) seu(s) CC(s).
+  if (usuario.perfil === 'gerente_cc_corporativo') {
+    return usuario.ccsPermitidos.some((c) => c.unidadeId === unidadeId);
+  }
+  return false;
 }
 
 /** Gestor de CC (perfil gerente_cc_corporativo, rebatizado de "Gerente de CC

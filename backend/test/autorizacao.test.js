@@ -56,20 +56,40 @@ test('caso 2 (lógica de escopo) — podeAcessarCc (Gestor de CC) só autoriza o
   assert.equal(podeAcessarCc(usuario, 'textil', '0010116'), false, 'mesmo código de CC em outra unidade não deveria ser autorizado');
 });
 
-test('caso 2 (integração) — Gestor de CC não acessa rotas de orçamento por unidade (só existem rotas por unidade hoje)', async () => {
-  // Nota de escopo: as rotas de orçamento hoje são por unidade_id
-  // (routes/orcamentos.js), não por cc_codigo — o lançamento CC a CC ainda
-  // não existe (pendência documentada em 2026-08-16: só a camada de
-  // autorização e o painel de admin foram construídos nesta leva). Por isso
-  // este teste confirma o comportamento atual (403 em qualquer unidade, já
-  // que gerente_cc_corporativo nunca satisfaz podeAcessarUnidade) e não
-  // "escrita rejeitada num CC específico" — isso só será testável quando
-  // existir uma rota de orçamento por CC.
+test('caso 2 (integração) — Gestor de CC abre a unidade do seu CC, mas não uma unidade sem vínculo nenhum', async () => {
+  // Corrigido em 2026-08-16: o orçamento ainda é um único bloco JSONB por
+  // unidade (não fatiado por CC), então o Gestor de CC precisa abrir a
+  // unidade inteira pra editar o próprio CC — podeAcessarUnidade libera se
+  // ele tiver pelo menos 1 CC vinculado ali. A barreira real contra
+  // escrever num CC alheio é validarEscritaCcCustos (routes/orcamentos.js),
+  // testada abaixo.
   const gerenteCc = await seedUsuario({ perfil: 'gerente_cc_corporativo', ccs: [{ unidadeId: 'textil', codigo: '00401' }] });
   const cookie = cookieDeSessao(gerenteCc.id);
 
-  const resp = await fetch(`${baseUrl}/api/orcamentos/textil`, { headers: { cookie } });
-  assert.equal(resp.status, 403);
+  const comAcesso = await fetch(`${baseUrl}/api/orcamentos/textil`, { headers: { cookie } });
+  assert.equal(comAcesso.status, 200, 'deveria conseguir abrir a unidade do seu CC');
+
+  const semAcesso = await fetch(`${baseUrl}/api/orcamentos/agricola`, { headers: { cookie } });
+  assert.equal(semAcesso.status, 403, 'não deveria conseguir abrir uma unidade sem nenhum CC vinculado');
+});
+
+test('caso 2 (escrita) — Gestor de CC não consegue gravar custos.linhas de um CC que não é o dele', async () => {
+  const gerenteCc = await seedUsuario({ perfil: 'gerente_cc_corporativo', ccs: [{ unidadeId: 'textil', codigo: '00401' }] });
+  const cookie = cookieDeSessao(gerenteCc.id);
+
+  const escritaProprioCc = await fetch(`${baseUrl}/api/orcamentos/textil`, {
+    method: 'PUT',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ dados: { custos: { linhas: { '00401|71101001': { tipo: 'valor', valores: Array(12).fill('100') } } } } }),
+  });
+  assert.equal(escritaProprioCc.status, 200, 'deveria conseguir gravar uma linha do próprio CC');
+
+  const escritaCcAlheio = await fetch(`${baseUrl}/api/orcamentos/textil`, {
+    method: 'PUT',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ dados: { custos: { linhas: { '00402|71101001': { tipo: 'valor', valores: Array(12).fill('100') } } } } }),
+  });
+  assert.equal(escritaCcAlheio.status, 403, 'não deveria conseguir gravar uma linha de outro CC (00402 não é dele)');
 });
 
 test('caso 6 — usuário desativado não autentica, mesmo com sessão ainda não expirada', async () => {

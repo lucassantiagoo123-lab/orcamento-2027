@@ -3174,6 +3174,7 @@ export default function OrcamentoARA({ usuario }) {
         </div>
       ) : role === 'gerente' ? (
         <VisaoGerente
+          usuario={usuario}
           unidadesVisiveis={unidadesVisiveis}
           salvarRascunhoAgora={salvarRascunhoAgora} salvandoRascunho={salvandoRascunho} ultimoSalvoEm={ultimoSalvoEm}
           unidadeAtual={unidadeAtual} setUnidadeAtual={setUnidadeAtual} unidadeObj={unidadeObj}
@@ -3336,6 +3337,7 @@ function PainelGovernancaCorporativo() {
 
 function VisaoGerente(props) {
   const {
+    usuario,
     unidadesVisiveis, salvarRascunhoAgora, salvandoRascunho, ultimoSalvoEm,
     unidadeAtual, setUnidadeAtual, unidadeObj, aba, setAba, dados, dre, checks, tudoOk,
     updateProduto, updateDeducao, premissasMacro,
@@ -3478,6 +3480,7 @@ function VisaoGerente(props) {
         {aba === 'custos' && (
           <AbaCustos
             refUnidade={referenciaDaUnidade(unidadeAtual)}
+            unidadeId={unidadeAtual} usuario={usuario}
             linhas={dados.custos.linhas} updateLinha={updateLinha} dre={dre}
             detalhes={dados.custos.detalhes} addDetalhe={addDetalhe} updateDetalhe={updateDetalhe} removeDetalhe={removeDetalhe}
             funcionarios={dados.custos.funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
@@ -4352,14 +4355,37 @@ function QuadroPessoal({ ccCodigo, funcionarios, addFuncionario, updateFuncionar
   );
 }
 
-function AbaCustos({ refUnidade, linhas, updateLinha, dre, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote }) {
-  const [ccSel, setCcSel] = useState(refUnidade.ccs[0].codigo);
+function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote }) {
+  // Gestor de CC (perfil gerente_cc_corporativo) só vê/edita os CCs que
+  // lhe foram atribuídos nesta unidade (usuario.ccsPermitidos, de
+  // /auth/me) — pedido de 2026-08-16 ("os CCs ainda estão aparecendo
+  // quando não selecionados"). Gestor da Unidade e Admin FP&A continuam
+  // vendo todos os CCs da unidade, sem filtro (isto é só UX; a proteção de
+  // verdade contra escrita fora do escopo é no backend, ver
+  // routes/orcamentos.js).
+  const ccsVisiveis = usuario?.perfil === 'gerente_cc_corporativo'
+    ? refUnidade.ccs.filter(cc => (usuario.ccsPermitidos || []).some(p => p.unidadeId === unidadeId && p.codigo === cc.codigo))
+    : refUnidade.ccs;
+
+  const [ccSel, setCcSel] = useState(ccsVisiveis[0]?.codigo);
   const [pacotesAbertos, setPacotesAbertos] = useState({});
   const [contaAberta, setContaAberta] = useState(null);
   const [filtroConta, setFiltroConta] = useState('');
   const [filtroPacoteId, setFiltroPacoteId] = useState('todos');
 
-  const ccAtual = refUnidade.ccs.find(c => c.codigo === ccSel);
+  if (ccsVisiveis.length === 0) {
+    return (
+      <div>
+        <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>3. Custos e Despesas — por conta analítica (OBZ)</h3>
+        <p style={{ fontSize: 12.5, color: '#7A8088' }}>
+          Nenhum Centro de Custo atribuído a você nesta unidade ainda. Fale com o Admin FP&A para vincular seu(s) CC(s)
+          na tela de Administração.
+        </p>
+      </div>
+    );
+  }
+
+  const ccAtual = ccsVisiveis.find(c => c.codigo === ccSel) || ccsVisiveis[0];
   const origemAlvo = ccAtual.tipo === 'producao' ? 'Custo' : 'Despesa';
 
   function chaveLinha(contaCodigo) { return `${ccSel}|${contaCodigo}`; }
@@ -4411,7 +4437,7 @@ function AbaCustos({ refUnidade, linhas, updateLinha, dre, detalhes, addDetalhe,
       </p>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {refUnidade.ccs.map(cc => (
+        {ccsVisiveis.map(cc => (
           <button key={cc.codigo} onClick={() => { setCcSel(cc.codigo); setContaAberta(null); }}
             style={{
               fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 16, cursor: 'pointer',
@@ -4577,7 +4603,7 @@ function AbaCustos({ refUnidade, linhas, updateLinha, dre, detalhes, addDetalhe,
       {detalhes.map(d => (
         <div key={d.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 10, marginBottom: 10, background: COR.claro }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr 1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-            <Selecao value={d.cc} onChange={v => updateDetalhe(d.id, 'cc', v)} opcoes={refUnidade.ccs.map(c => ({ id: c.codigo, nome: c.nome }))} />
+            <Selecao value={d.cc} onChange={v => updateDetalhe(d.id, 'cc', v)} opcoes={ccsVisiveis.map(c => ({ id: c.codigo, nome: c.nome }))} />
             <Selecao value={d.pacote} onChange={v => updateDetalhe(d.id, 'pacote', v)} opcoes={refUnidade.pacotes} />
             <CampoTexto value={d.dono} onChange={v => updateDetalhe(d.id, 'dono', v)} placeholder="Dono do pacote" />
             <Selecao value={d.nivelServico} onChange={v => updateDetalhe(d.id, 'nivelServico', v)} opcoes={NIVEIS_SERVICO} />

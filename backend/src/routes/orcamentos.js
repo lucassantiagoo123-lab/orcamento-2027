@@ -33,6 +33,38 @@ function exigirLancamentoHabilitado(req, res, next) {
 
 const ANO_ATUAL = 2027;
 
+/** Gestor de CC (corrigido em 2026-08-16): só pode gravar linhas de Custos e
+ * Despesas do(s) seu(s) CC(s) — o orçamento é um único bloco JSONB por
+ * unidade (não fatiado por CC), então isto é a única barreira real contra
+ * ele escrever num CC alheio, já que podeAcessarUnidade agora libera a
+ * unidade inteira pra ele (ver middleware/authorize.js). Retorna null se
+ * está tudo dentro do escopo, ou uma mensagem de erro se achou algo fora.
+ * Pendência conhecida, não escondida: isto valida só custos.linhas/
+ * detalhes/funcionarios (a única parte do formulário organizada por CC) —
+ * Receita, CAPEX, Kgiro etc. continuam de unidade inteira, sem filtro por
+ * CC, porque não têm essa granularidade no modelo de dados hoje. */
+function validarEscritaCcCustos(usuario, unidadeId, dadosNovos) {
+  if (usuario.perfil !== 'gerente_cc_corporativo') return null;
+  const ccsPermitidos = new Set(
+    (usuario.ccsPermitidos || []).filter((c) => c.unidadeId === unidadeId).map((c) => c.codigo)
+  );
+  const custos = dadosNovos?.custos || {};
+
+  for (const chave of Object.keys(custos.linhas || {})) {
+    const ccCodigo = chave.split('|')[0];
+    if (!ccsPermitidos.has(ccCodigo)) {
+      return `Sem acesso ao CC ${ccCodigo} (custos.linhas).`;
+    }
+  }
+  for (const d of custos.detalhes || []) {
+    if (d.cc && !ccsPermitidos.has(d.cc)) return `Sem acesso ao CC ${d.cc} (detalhamento de pacote).`;
+  }
+  for (const f of custos.funcionarios || []) {
+    if (f.ccCodigo && !ccsPermitidos.has(f.ccCodigo)) return `Sem acesso ao CC ${f.ccCodigo} (funcionário).`;
+  }
+  return null;
+}
+
 // Unidades sem registro (Corporativo, ARA EI, ARA Energia) caem num ref
 // vazio — cpv/despesas/depreciação dão 0 (nenhum CC bate), em vez de
 // quebrar a rota. Essas unidades só mostram painel de referência no
@@ -61,6 +93,9 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirLancamento
   try {
     const { dados, motivo } = req.body;
     if (!dados) return res.status(400).json({ erro: 'dados_obrigatorio' });
+
+    const erroEscopo = validarEscritaCcCustos(req.usuario, req.params.unidadeId, dados);
+    if (erroEscopo) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroEscopo });
 
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
 
