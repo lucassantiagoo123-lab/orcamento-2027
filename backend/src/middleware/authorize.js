@@ -10,12 +10,20 @@
 export function podeAcessarUnidade(usuario, unidadeId) {
   if (usuario.perfil === 'admin_fpa') return true;
   if (usuario.perfil === 'gerente_unidade') return usuario.unidadesPermitidas.includes(unidadeId);
-  return false; // gerente_cc_corporativo não acessa por unidade, só por CC dentro do Corporativo
+  return false; // Gestor de CC não acessa a unidade inteira, só o seu CC (ver podeAcessarCc)
 }
 
-export function podeAcessarCc(usuario, ccCodigo) {
+/** Gestor de CC (perfil gerente_cc_corporativo, rebatizado de "Gerente de CC
+ * — Corporativo" em 2026-08-16) — hoje pode estar vinculado a qualquer
+ * unidade, não só Corporativo, então precisa bater unidade E código (o
+ * mesmo código de CC se repete entre Têxtil/Agrícola/Resorts, que
+ * reaproveitam a mesma lista de CCs). Concessões temporárias (seção 4.4)
+ * continuam com unidadeId: null — valem em qualquer unidade. */
+export function podeAcessarCc(usuario, unidadeId, ccCodigo) {
   if (usuario.perfil === 'admin_fpa') return true;
-  if (usuario.perfil === 'gerente_cc_corporativo') return usuario.ccsPermitidos.includes(ccCodigo);
+  if (usuario.perfil === 'gerente_cc_corporativo') {
+    return usuario.ccsPermitidos.some((c) => c.codigo === ccCodigo && (c.unidadeId === null || c.unidadeId === unidadeId));
+  }
   return false;
 }
 
@@ -31,12 +39,14 @@ export function exigirUnidade(param = 'unidadeId') {
   };
 }
 
-/** Idem, para cc_codigo dentro do Corporativo. */
-export function exigirCc(param = 'ccCodigo') {
+/** Idem, para cc_codigo — exige também o unidade_id da rota (ver nota em
+ * podeAcessarCc sobre colisão de código de CC entre unidades). */
+export function exigirCc(unidadeParam = 'unidadeId', ccParam = 'ccCodigo') {
   return (req, res, next) => {
-    const ccCodigo = req.params[param];
-    if (!podeAcessarCc(req.usuario, ccCodigo)) {
-      return res.status(403).json({ erro: 'fora_de_escopo', mensagem: `Sem acesso ao CC ${ccCodigo}.` });
+    const unidadeId = req.params[unidadeParam];
+    const ccCodigo = req.params[ccParam];
+    if (!podeAcessarCc(req.usuario, unidadeId, ccCodigo)) {
+      return res.status(403).json({ erro: 'fora_de_escopo', mensagem: `Sem acesso ao CC ${ccCodigo} em ${unidadeId}.` });
     }
     next();
   };

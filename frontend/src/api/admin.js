@@ -9,10 +9,12 @@ export const vincularUnidade = (usuarioId, unidadeId) =>
 export const desvincularUnidade = (usuarioId, unidadeId) =>
   apiFetch(`/api/admin/usuarios/${usuarioId}/unidades/${unidadeId}`, { method: 'DELETE' });
 
-export const vincularCc = (usuarioId, ccCodigo) =>
-  apiFetch(`/api/admin/usuarios/${usuarioId}/ccs`, { method: 'POST', body: { ccCodigo } });
-export const desvincularCc = (usuarioId, ccCodigo) =>
-  apiFetch(`/api/admin/usuarios/${usuarioId}/ccs/${ccCodigo}`, { method: 'DELETE' });
+// Gestor de CC (pedido de 2026-08-16): 1 CC só — definirCcUsuario substitui
+// qualquer vínculo anterior em vez de acumular.
+export const definirCcUsuario = (usuarioId, unidadeId, ccCodigo) =>
+  apiFetch(`/api/admin/usuarios/${usuarioId}/ccs`, { method: 'POST', body: { unidadeId, ccCodigo } });
+export const removerCcUsuario = (usuarioId) =>
+  apiFetch(`/api/admin/usuarios/${usuarioId}/ccs`, { method: 'DELETE' });
 
 export const listarConcessoes = (apenasAtivas = false) =>
   apiFetch(`/api/admin/concessoes${apenasAtivas ? '?ativas=true' : ''}`);

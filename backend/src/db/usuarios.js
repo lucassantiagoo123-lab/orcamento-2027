@@ -12,7 +12,7 @@ export async function buscarUsuarioComEscopo(usuarioId) {
 
   const [unidades, ccs, concessoes] = await Promise.all([
     pool.query(`SELECT unidade_id FROM usuario_unidade WHERE usuario_id = $1`, [usuarioId]),
-    pool.query(`SELECT cc_codigo FROM usuario_cc_corporativo WHERE usuario_id = $1`, [usuarioId]),
+    pool.query(`SELECT unidade_id, cc_codigo FROM usuario_cc_corporativo WHERE usuario_id = $1`, [usuarioId]),
     pool.query(
       `SELECT cc_codigo FROM concessao_acesso_temporaria
        WHERE usuario_id = $1 AND revogado_em IS NULL AND now() BETWEEN valido_de AND valido_ate`,
@@ -23,8 +23,16 @@ export async function buscarUsuarioComEscopo(usuarioId) {
   return {
     ...usuario,
     unidadesPermitidas: unidades.rows.map((r) => r.unidade_id),
+    // ccsPermitidos: [{unidadeId, codigo}] — Gestor de CC (pedido de
+    // 2026-08-16, antes "Gerente de CC — Corporativo") agora vale para
+    // qualquer unidade, então o CC sozinho não basta mais para identificar o
+    // vínculo (Agrícola/Resorts reaproveitam os mesmos códigos da Têxtil).
+    // Concessões temporárias (seção 4.4) continuam sem unidade própria —
+    // unidadeId: null aqui significa "vale em qualquer unidade" (ver
+    // podeAcessarCc em middleware/authorize.js).
     ccsPermitidos: [
-      ...new Set([...ccs.rows.map((r) => r.cc_codigo), ...concessoes.rows.map((r) => r.cc_codigo)]),
+      ...ccs.rows.map((r) => ({ unidadeId: r.unidade_id, codigo: r.cc_codigo })),
+      ...concessoes.rows.map((r) => ({ unidadeId: null, codigo: r.cc_codigo })),
     ],
   };
 }

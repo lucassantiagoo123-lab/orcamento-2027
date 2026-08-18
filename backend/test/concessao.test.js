@@ -12,7 +12,7 @@ before(async () => {
   await resetarBanco();
   ({ baseUrl, fechar } = await iniciarServidorTeste());
   admin = await seedUsuario({ perfil: 'admin_fpa' });
-  gerenteCc = await seedUsuario({ perfil: 'gerente_cc_corporativo', ccs: ['0010116'] }); // seu CC de origem
+  gerenteCc = await seedUsuario({ perfil: 'gerente_cc_corporativo', ccs: [{ unidadeId: 'corporativo', codigo: '0010116' }] }); // seu CC de origem
 });
 
 after(async () => {
@@ -24,7 +24,10 @@ async function ccsPermitidos(usuarioId) {
   const cookie = cookieDeSessao(usuarioId);
   const r = await fetch(`${baseUrl}/auth/me`, { headers: { cookie } });
   const body = await r.json();
-  return body.ccsPermitidos;
+  // ccsPermitidos agora é [{unidadeId, codigo}] (pedido de 2026-08-16) —
+  // concessões continuam sem unidade própria (unidadeId: null, valem em
+  // qualquer unidade), por isso os testes checam só o código aqui.
+  return body.ccsPermitidos.map((c) => c.codigo);
 }
 
 test('concessão dentro da validade aparece em ccsPermitidos', async () => {

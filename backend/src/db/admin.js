@@ -9,12 +9,15 @@ export async function listarUsuarios() {
   );
   const [unidades, ccs] = await Promise.all([
     pool.query(`SELECT usuario_id, unidade_id FROM usuario_unidade`),
-    pool.query(`SELECT usuario_id, cc_codigo FROM usuario_cc_corporativo`),
+    pool.query(`SELECT usuario_id, unidade_id, cc_codigo FROM usuario_cc_corporativo`),
   ]);
   return usuarios.map((u) => ({
     ...u,
     unidades: unidades.rows.filter((r) => r.usuario_id === u.id).map((r) => r.unidade_id),
-    ccs: ccs.rows.filter((r) => r.usuario_id === u.id).map((r) => r.cc_codigo),
+    // ccs: [{unidadeId, codigo}] — Gestor de CC (pedido de 2026-08-16) tem
+    // no máximo 1 vínculo (ver definirCcUsuario), mas o formato de lista
+    // fica pronto caso essa regra mude no futuro.
+    ccs: ccs.rows.filter((r) => r.usuario_id === u.id).map((r) => ({ unidadeId: r.unidade_id, codigo: r.cc_codigo })),
   }));
 }
 
@@ -49,14 +52,28 @@ export async function desvincularUnidade(usuarioId, unidadeId) {
   await pool.query(`DELETE FROM usuario_unidade WHERE usuario_id = $1 AND unidade_id = $2`, [usuarioId, unidadeId]);
 }
 
-export async function vincularCc(usuarioId, ccCodigo) {
-  await pool.query(
-    `INSERT INTO usuario_cc_corporativo (usuario_id, cc_codigo) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-    [usuarioId, ccCodigo]
-  );
+/** Define o único CC do Gestor de CC (perfil gerente_cc_corporativo) —
+ * "cada Gestor de CC precisa ter acesso apenas ao seu CC" (pedido de
+ * 2026-08-16). Substitui qualquer vínculo anterior em vez de acumular. */
+export async function definirCcUsuario(usuarioId, unidadeId, ccCodigo) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM usuario_cc_corporativo WHERE usuario_id = $1`, [usuarioId]);
+    await client.query(
+      `INSERT INTO usuario_cc_corporativo (usuario_id, unidade_id, cc_codigo) VALUES ($1, $2, $3)`,
+      [usuarioId, unidadeId, ccCodigo]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
-export async function desvincularCc(usuarioId, ccCodigo) {
-  await pool.query(`DELETE FROM usuario_cc_corporativo WHERE usuario_id = $1 AND cc_codigo = $2`, [usuarioId, ccCodigo]);
+export async function removerCcUsuario(usuarioId) {
+  await pool.query(`DELETE FROM usuario_cc_corporativo WHERE usuario_id = $1`, [usuarioId]);
 }
 
 // --- Concessões temporárias (seção 4.4) ---

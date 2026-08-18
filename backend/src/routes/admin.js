@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { exigirPerfil } from '../middleware/authorize.js';
 import {
   listarUsuarios, criarUsuario, atualizarUsuario,
-  vincularUnidade, desvincularUnidade, vincularCc, desvincularCc,
+  vincularUnidade, desvincularUnidade, definirCcUsuario, removerCcUsuario,
   listarConcessoes, criarConcessao, revogarConcessao,
 } from '../db/admin.js';
 import { definirSenha } from '../db/usuarios.js';
@@ -15,6 +15,11 @@ export const adminRouter = Router();
 adminRouter.use(exigirPerfil('admin_fpa'));
 
 const PERFIS_VALIDOS = ['admin_fpa', 'gerente_unidade', 'gerente_cc_corporativo'];
+// Rebatizado de "Gerente de CC (Corporativo)" para "Gestor de CC" em
+// 2026-08-16 — id interno gerente_cc_corporativo mantido (evita migrar o
+// CHECK constraint do enum em produção), mas agora vale para qualquer
+// unidade, não só Corporativo.
+const UNIDADES_VALIDAS = ['textil', 'agricola', 'resorts', 'ei', 'energia', 'corporativo'];
 
 adminRouter.get('/usuarios', async (req, res, next) => {
   try {
@@ -80,7 +85,7 @@ adminRouter.post('/usuarios/:id/senha', async (req, res, next) => {
 adminRouter.post('/usuarios/:id/unidades', async (req, res, next) => {
   try {
     const { unidadeId } = req.body;
-    if (!unidadeId) return res.status(400).json({ erro: 'unidadeId_obrigatorio' });
+    if (!unidadeId || !UNIDADES_VALIDAS.includes(unidadeId)) return res.status(400).json({ erro: 'unidadeId_invalido' });
     await vincularUnidade(req.params.id, unidadeId);
     res.status(204).end();
   } catch (err) { next(err); }
@@ -92,17 +97,20 @@ adminRouter.delete('/usuarios/:id/unidades/:unidadeId', async (req, res, next) =
   } catch (err) { next(err); }
 });
 
+/** Gestor de CC (pedido de 2026-08-16): 1 CC só, dentro de 1 unidade — este
+ * POST substitui qualquer vínculo anterior em vez de acumular. */
 adminRouter.post('/usuarios/:id/ccs', async (req, res, next) => {
   try {
-    const { ccCodigo } = req.body;
+    const { unidadeId, ccCodigo } = req.body;
+    if (!unidadeId || !UNIDADES_VALIDAS.includes(unidadeId)) return res.status(400).json({ erro: 'unidadeId_invalido' });
     if (!ccCodigo) return res.status(400).json({ erro: 'ccCodigo_obrigatorio' });
-    await vincularCc(req.params.id, ccCodigo);
+    await definirCcUsuario(req.params.id, unidadeId, ccCodigo);
     res.status(204).end();
   } catch (err) { next(err); }
 });
-adminRouter.delete('/usuarios/:id/ccs/:ccCodigo', async (req, res, next) => {
+adminRouter.delete('/usuarios/:id/ccs', async (req, res, next) => {
   try {
-    await desvincularCc(req.params.id, req.params.ccCodigo);
+    await removerCcUsuario(req.params.id);
     res.status(204).end();
   } catch (err) { next(err); }
 });

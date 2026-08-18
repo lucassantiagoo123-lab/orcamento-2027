@@ -25,15 +25,22 @@ CREATE TABLE usuarios (
 -- caso real observado no lançamento — Gerente + Diretor por unidade)
 CREATE TABLE usuario_unidade (
   usuario_id  UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
-  unidade_id  TEXT NOT NULL,   -- 'textil' | 'agricola' | 'resorts' | 'ei' | 'energia'
+  unidade_id  TEXT NOT NULL,   -- 'textil' | 'agricola' | 'resorts' | 'ei' | 'energia' | 'corporativo'
   PRIMARY KEY (usuario_id, unidade_id)
 );
 
--- Vínculo Gerente de CC (Corporativo) -> CC(s)
+-- Vínculo Gestor de CC -> CC. Rebatizado de "Gerente de CC (Corporativo)"
+-- para "Gestor de CC" em 2026-08-16: deixou de ser exclusivo do Corporativo
+-- e passou a valer para qualquer unidade (Têxtil, Agrícola, Resorts,
+-- Corporativo etc.) — por isso ganhou unidade_id. Nome da tabela mantido
+-- (usuario_cc_corporativo) para não exigir rename em produção; o
+-- significado é genérico agora. Cada usuário tem no máximo 1 CC (aplicado
+-- na aplicação, não aqui — ver db/admin.js definirCcUsuario).
 CREATE TABLE usuario_cc_corporativo (
   usuario_id  UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
-  cc_codigo   TEXT NOT NULL,    -- código do CC, conforme CCS_CORPORATIVO / Base_Corporativo
-  PRIMARY KEY (usuario_id, cc_codigo)
+  unidade_id  TEXT NOT NULL DEFAULT 'corporativo',  -- unidade a que o CC pertence
+  cc_codigo   TEXT NOT NULL,    -- código do CC dentro da unidade (CCS_TEXTIL / CCS_CORPORATIVO / ...)
+  PRIMARY KEY (usuario_id, unidade_id, cc_codigo)
 );
 
 -- Concessões temporárias de acesso (item 9.3 — "salvo autorização do FP&A")

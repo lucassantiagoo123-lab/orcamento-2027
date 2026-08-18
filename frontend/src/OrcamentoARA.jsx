@@ -17,7 +17,7 @@ import { legacyStorage } from './legacyStorage.js';
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
   gerente_unidade: 'Gestor da Unidade',
-  gerente_cc_corporativo: 'Gerente de CC — Corporativo',
+  gerente_cc_corporativo: 'Gestor de CC', // rebatizado em 2026-08-16 — não é mais só Corporativo
 };
 
 // Únicas unidades com lançamento de orçamento habilitado no backend hoje —
@@ -358,7 +358,7 @@ const PREMISSAS_MACRO_REF = [
 
 // ---- Centros de Custo — Consulta CTT010 (colunas B/E), nível de área ----
 // PROPOSTO — a confirmar: granularidade (área vs subárea) e classificação Custo x Despesa
-const CCS_TEXTIL = [
+export const CCS_TEXTIL = [
   { codigo: '00401', nome: 'Malharia', tipo: 'producao' },
   { codigo: '00402', nome: 'Beneficiamento', tipo: 'producao' },
   { codigo: '00403', nome: 'Produção', tipo: 'producao' },
@@ -1083,7 +1083,7 @@ const PLANO_CONTAS_RESORTS = {
 // repetido em todas as linhas, enquanto os nomes de despesa mudam) — tratada aqui como uma lista
 // de referência geral de despesas do Corporativo, não uma classificação C.C. × Conta. Pendência
 // sinalizada na tela; segue sujeita à correção do FP&A quando o De/Para oficial existir.
-const CCS_CORPORATIVO = [
+export const CCS_CORPORATIVO = [
   { codigo: "0000102", nome: "Financeiro" },
   { codigo: "02", nome: "GSC (Arthur)" },
   { codigo: "0000104", nome: "Riscos, Auditoria e Compliance" },
@@ -2475,18 +2475,19 @@ export default function OrcamentoARA({ usuario }) {
   const podeAlternarParaFpa = usuario.perfil === 'admin_fpa';
   const [role, setRole] = useState(podeAlternarParaFpa ? 'fpa' : 'gerente');
 
-  // Unidades que este usuário pode ver/editar. admin_fpa vê todas; gerente
-  // de unidade só as suas (usuario.unidadesPermitidas, vindo de /auth/me).
-  // Isto é só UX — a proteção de verdade é no backend (exigirUnidade em toda
-  // rota), então nem uma manipulação do estado aqui abriria acesso real.
-  // gerente_cc_corporativo não tem unidade em usuario_unidade (vínculo é por
-  // CC, não por unidade) — mas ainda pode ver o painel de referência do
-  // Corporativo (PainelGovernancaCorporativo é só leitura; a granularidade
-  // por CC dentro dele ainda não existe na interface, ver nota em VisaoGerente).
+  // Unidades que este usuário pode ver/editar. admin_fpa vê todas; os demais
+  // só as suas (usuario.unidadesPermitidas, vindo de /auth/me). Isto é só
+  // UX — a proteção de verdade é no backend (exigirUnidade em toda rota),
+  // então nem uma manipulação do estado aqui abriria acesso real.
+  // Gestor de CC (rebatizado de "Gerente de CC — Corporativo" em
+  // 2026-08-16) agora pode estar vinculado a qualquer unidade, não só
+  // Corporativo — usa a mesma unidadesPermitidas dos demais perfis. Só vê o
+  // painel/formulário inteiro da unidade (a granularidade por CC dentro
+  // dela ainda não existe na interface — ver nota em VisaoGerente); a
+  // proteção real por CC específico é a de podeAcessarCc no backend, que
+  // ainda não tem rota de orçamento por CC para aplicar de verdade.
   const unidadesVisiveis = podeAlternarParaFpa
     ? UNIDADES
-    : usuario.perfil === 'gerente_cc_corporativo'
-    ? UNIDADES.filter(u => u.id === 'corporativo')
     : UNIDADES.filter(u => usuario.unidadesPermitidas.includes(u.id));
 
   const [unidadeAtual, setUnidadeAtual] = useState(unidadesVisiveis[0]?.id || UNIDADES[0].id);

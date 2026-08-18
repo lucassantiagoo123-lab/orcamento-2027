@@ -53,7 +53,14 @@ export async function seedUsuario({ nome = 'Usuário de Teste', perfil, ativo = 
     await pool.query(`INSERT INTO usuario_unidade (usuario_id, unidade_id) VALUES ($1,$2)`, [usuario.id, u]);
   }
   for (const cc of ccs) {
-    await pool.query(`INSERT INTO usuario_cc_corporativo (usuario_id, cc_codigo) VALUES ($1,$2)`, [usuario.id, cc]);
+    // Aceita string solta (compat — assume 'corporativo', uso histórico dos
+    // testes) ou {unidadeId, codigo} (formato correto pós 2026-08-16).
+    const unidadeId = typeof cc === 'string' ? 'corporativo' : cc.unidadeId;
+    const codigo = typeof cc === 'string' ? cc : cc.codigo;
+    await pool.query(
+      `INSERT INTO usuario_cc_corporativo (usuario_id, unidade_id, cc_codigo) VALUES ($1,$2,$3)`,
+      [usuario.id, unidadeId, codigo]
+    );
   }
   return usuario;
 }

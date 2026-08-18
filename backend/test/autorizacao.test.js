@@ -42,21 +42,30 @@ test('caso 1 — Gerente da Unidade Têxtil não lê nem escreve dados de outra 
   assert.equal(escritaAlheia.status, 403, 'não deveria conseguir escrever em outra unidade');
 });
 
-test('caso 2 (lógica de escopo) — podeAcessarCc só autoriza CCs vinculados ao gerente_cc_corporativo', () => {
-  const usuario = { perfil: 'gerente_cc_corporativo', ccsPermitidos: ['0010116', '0010118'] };
-  assert.equal(podeAcessarCc(usuario, '0010116'), true);
-  assert.equal(podeAcessarCc(usuario, '0010104'), false, 'CC fora da lista do gerente não deveria ser autorizado');
+test('caso 2 (lógica de escopo) — podeAcessarCc (Gestor de CC) só autoriza o CC vinculado, na unidade certa', () => {
+  // Pedido de 2026-08-16: Gestor de CC agora é multi-unidade (não só
+  // Corporativo) — ccsPermitidos carrega {unidadeId, codigo} por vínculo, e
+  // podeAcessarCc passa a exigir os dois (evita colisão de código de CC
+  // entre unidades, ex.: Agrícola/Resorts reaproveitam os códigos da Têxtil).
+  const usuario = {
+    perfil: 'gerente_cc_corporativo',
+    ccsPermitidos: [{ unidadeId: 'corporativo', codigo: '0010116' }],
+  };
+  assert.equal(podeAcessarCc(usuario, 'corporativo', '0010116'), true);
+  assert.equal(podeAcessarCc(usuario, 'corporativo', '0010104'), false, 'CC fora da lista do gestor não deveria ser autorizado');
+  assert.equal(podeAcessarCc(usuario, 'textil', '0010116'), false, 'mesmo código de CC em outra unidade não deveria ser autorizado');
 });
 
-test('caso 2 (integração) — gerente_cc_corporativo não acessa rotas de orçamento por unidade (só existem rotas por unidade hoje)', async () => {
+test('caso 2 (integração) — Gestor de CC não acessa rotas de orçamento por unidade (só existem rotas por unidade hoje)', async () => {
   // Nota de escopo: as rotas de orçamento hoje são por unidade_id
-  // (routes/orcamentos.js), não por cc_codigo — porque o lançamento por CC do
-  // Corporativo ainda não está habilitado (pendência de De/Para documentada
-  // no CLAUDE.md). Por isso este teste confirma o comportamento atual (403
-  // em qualquer unidade, já que gerente_cc_corporativo nunca satisfaz
-  // podeAcessarUnidade) e não "escrita rejeitada num CC específico" — isso
-  // só será testável quando existir uma rota /api/orcamentos-corporativo/:ccCodigo.
-  const gerenteCc = await seedUsuario({ perfil: 'gerente_cc_corporativo', ccs: ['0010116'] });
+  // (routes/orcamentos.js), não por cc_codigo — o lançamento CC a CC ainda
+  // não existe (pendência documentada em 2026-08-16: só a camada de
+  // autorização e o painel de admin foram construídos nesta leva). Por isso
+  // este teste confirma o comportamento atual (403 em qualquer unidade, já
+  // que gerente_cc_corporativo nunca satisfaz podeAcessarUnidade) e não
+  // "escrita rejeitada num CC específico" — isso só será testável quando
+  // existir uma rota de orçamento por CC.
+  const gerenteCc = await seedUsuario({ perfil: 'gerente_cc_corporativo', ccs: [{ unidadeId: 'textil', codigo: '00401' }] });
   const cookie = cookieDeSessao(gerenteCc.id);
 
   const resp = await fetch(`${baseUrl}/api/orcamentos/textil`, { headers: { cookie } });

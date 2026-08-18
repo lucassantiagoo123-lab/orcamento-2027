@@ -5,17 +5,32 @@
 import React, { useEffect, useState } from 'react';
 import {
   listarUsuarios, criarUsuario, atualizarUsuario, vincularUnidade, desvincularUnidade,
-  vincularCc, desvincularCc, listarConcessoes, criarConcessao, revogarConcessao,
+  definirCcUsuario, removerCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
+import { CCS_TEXTIL, CCS_CORPORATIVO } from './OrcamentoARA.jsx';
 
 const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9D9D9', claro: '#F7F7F7' };
-const UNIDADES_IDS = ['textil', 'agricola', 'resorts', 'ei', 'energia'];
+const UNIDADES_IDS = ['textil', 'agricola', 'resorts', 'ei', 'energia', 'corporativo'];
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
   gerente_unidade: 'Gestor da Unidade',
-  gerente_cc_corporativo: 'Gerente de CC — Corporativo',
+  gerente_cc_corporativo: 'Gestor de CC',
+};
+// Rebatizado de "Gerente de CC — Corporativo" para "Gestor de CC" em
+// 2026-08-16: deixou de ser exclusivo do Corporativo — agora escolhe 1
+// unidade (inclusive Corporativo) e, dentro dela, 1 CC. Reaproveita as
+// mesmas listas de CC já usadas no orçamento (Agrícola/Resorts reaproveitam
+// a lista da Têxtil, mesma decisão já tomada para o formulário de orçamento
+// — CLAUDE.md, "pendência de dado-fonte"). EI/Energia ainda não têm CC.
+const CCS_POR_UNIDADE = {
+  textil: CCS_TEXTIL,
+  agricola: CCS_TEXTIL,
+  resorts: CCS_TEXTIL,
+  corporativo: CCS_CORPORATIVO,
+  ei: [],
+  energia: [],
 };
 
 export default function AdminPanel({ voltar }) {
@@ -105,7 +120,7 @@ function SecaoUsuarios({ usuarios, onMudou }) {
         <thead>
           <tr>
             <th style={th}>Nome</th><th style={th}>E-mail</th><th style={th}>Perfil</th>
-            <th style={th}>Unidades</th><th style={th}>CCs (Corporativo)</th><th style={th}>Senha</th><th style={th}>Ativo</th>
+            <th style={th}>Unidades</th><th style={th}>Centro de Custo</th><th style={th}>Senha</th><th style={th}>Ativo</th>
           </tr>
         </thead>
         <tbody>
@@ -119,7 +134,6 @@ function SecaoUsuarios({ usuarios, onMudou }) {
 const campo = { fontSize: 12.5, padding: '6px 8px', borderRadius: 6, border: `1px solid ${COR.borda}` };
 
 function LinhaUsuario({ usuario, onMudou }) {
-  const [ccNovo, setCcNovo] = useState('');
   const [editandoSenha, setEditandoSenha] = useState(false);
   const [senhaNova, setSenhaNova] = useState('');
   const [erroSenha, setErroSenha] = useState(null);
@@ -180,15 +194,21 @@ function LinhaUsuario({ usuario, onMudou }) {
     else await vincularUnidade(usuario.id, unidadeId);
     onMudou();
   }
-  async function addCc(e) {
-    e.preventDefault();
-    if (!ccNovo.trim()) return;
-    await vincularCc(usuario.id, ccNovo.trim());
-    setCcNovo('');
+  // Gestor de CC (pedido de 2026-08-16): a unidade é seleção única — trocar
+  // de unidade limpa o CC anterior, já que ele pertencia à unidade antiga.
+  async function selecionarUnidadeGestorCc(unidadeId) {
+    const atual = usuario.unidades[0];
+    if (atual === unidadeId) return;
+    if (atual) await desvincularUnidade(usuario.id, atual);
+    if (usuario.ccs.length > 0) await removerCcUsuario(usuario.id);
+    await vincularUnidade(usuario.id, unidadeId);
     onMudou();
   }
-  async function removeCc(cc) {
-    await desvincularCc(usuario.id, cc);
+  async function selecionarCc(ccCodigo) {
+    const unidadeId = usuario.unidades[0];
+    if (!unidadeId) return;
+    if (!ccCodigo) { await removerCcUsuario(usuario.id); onMudou(); return; }
+    await definirCcUsuario(usuario.id, unidadeId, ccCodigo);
     onMudou();
   }
 
@@ -215,7 +235,7 @@ function LinhaUsuario({ usuario, onMudou }) {
         </select>
       </td>
       <td style={td}>
-        {usuario.perfil === 'gerente_unidade' ? (
+        {usuario.perfil === 'gerente_unidade' && (
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {UNIDADES_IDS.map((id) => (
               <button key={id} onClick={() => toggleUnidade(id)} style={{
@@ -225,23 +245,35 @@ function LinhaUsuario({ usuario, onMudou }) {
               }}>{id}</button>
             ))}
           </div>
-        ) : <span style={{ color: '#B5BAC0' }}>—</span>}
+        )}
+        {usuario.perfil === 'gerente_cc_corporativo' && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {UNIDADES_IDS.map((id) => (
+              <button key={id} onClick={() => selecionarUnidadeGestorCc(id)} style={{
+                ...botaoSecundario, padding: '3px 8px', fontSize: 10.5,
+                background: usuario.unidades.includes(id) ? COR.azul : '#fff',
+                color: usuario.unidades.includes(id) ? '#fff' : COR.azul,
+              }}>{id}</button>
+            ))}
+          </div>
+        )}
+        {usuario.perfil === 'admin_fpa' && <span style={{ color: '#B5BAC0' }}>—</span>}
       </td>
       <td style={td}>
         {usuario.perfil === 'gerente_cc_corporativo' ? (
-          <>
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
-              {usuario.ccs.map((cc) => (
-                <span key={cc} style={{ fontSize: 10.5, background: COR.claro, borderRadius: 12, padding: '2px 8px', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-                  {cc} <button onClick={() => removeCc(cc)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#C00000', fontWeight: 700 }}>×</button>
-                </span>
-              ))}
-            </div>
-            <form onSubmit={addCc} style={{ display: 'flex', gap: 4 }}>
-              <input placeholder="código do CC" value={ccNovo} onChange={(e) => setCcNovo(e.target.value)} style={{ ...campo, width: 90 }} />
-              <button type="submit" style={{ ...botaoSecundario, padding: '4px 8px' }}>+</button>
-            </form>
-          </>
+          (() => {
+            const unidadeId = usuario.unidades[0];
+            if (!unidadeId) return <span style={{ color: '#B5BAC0', fontSize: 11 }}>Selecione a unidade primeiro</span>;
+            const opcoes = CCS_POR_UNIDADE[unidadeId] || [];
+            if (opcoes.length === 0) return <span style={{ color: '#B5BAC0', fontSize: 11 }}>Sem CCs cadastrados nesta unidade</span>;
+            const ccAtual = usuario.ccs.find((c) => c.unidadeId === unidadeId)?.codigo || '';
+            return (
+              <select value={ccAtual} onChange={(e) => selecionarCc(e.target.value)} style={campo}>
+                <option value="">Centro de Custo…</option>
+                {opcoes.map((cc) => <option key={cc.codigo} value={cc.codigo}>{cc.codigo} — {cc.nome}</option>)}
+              </select>
+            );
+          })()
         ) : <span style={{ color: '#B5BAC0' }}>—</span>}
       </td>
       <td style={td}>
