@@ -2803,8 +2803,10 @@ export default function OrcamentoARA({ usuario }) {
     const atual = dados.custos.linhas[chave] || novaLinhaVazia();
     atualizar(['custos', 'linhas'], { ...dados.custos.linhas, [chave]: { ...atual, [campo]: valor } });
   }
+  // origem: 'novo' — pedido de 2026-08-17, "Novo Headcount a ser inserido
+  // manualmente" (ver QuadroPessoal/ehExistente).
   function addFuncionario(ccCodigo) {
-    atualizar(['custos', 'funcionarios'], [...dados.custos.funcionarios, { id: uid(), nome: '', salario: '', ccCodigo, mesAdmissao: '' }]);
+    atualizar(['custos', 'funcionarios'], [...dados.custos.funcionarios, { id: uid(), nome: '', cargo: '', salario: '', ccCodigo, mesAdmissao: '', origem: 'novo' }]);
   }
   function updateFuncionario(id, campo, valor) {
     atualizar(['custos', 'funcionarios'], dados.custos.funcionarios.map(f => f.id === id ? { ...f, [campo]: valor } : f));
@@ -2815,8 +2817,10 @@ export default function OrcamentoARA({ usuario }) {
   function updatePremissaPessoal(campo, valor) {
     atualizar(['custos', 'premissasPessoal'], { ...dados.custos.premissasPessoal, [campo]: valor });
   }
+  // origem: 'existente' — pedido de 2026-08-17, "Headcount Existente
+  // [...] calculado com base no template importado".
   function importarFuncionariosLote(ccCodigo, lista) {
-    const novos = lista.map(f => ({ id: uid(), nome: f.nome, salario: f.salario, ccCodigo, mesAdmissao: f.mesAdmissao }));
+    const novos = lista.map(f => ({ id: uid(), nome: f.nome, cargo: f.cargo || '', salario: f.salario, ccCodigo, mesAdmissao: f.mesAdmissao || '', origem: 'existente' }));
     atualizar(['custos', 'funcionarios'], [...dados.custos.funcionarios, ...novos]);
   }
   function addLinhaFinanciamento() {
@@ -3713,27 +3717,41 @@ const formatarQtdLeitura = (v) => Number(v).toLocaleString('pt-BR', { maximumFra
 
 // Folha de pessoal, versão leitura — lista de funcionários (nome, salário,
 // admissão) + a folha calculada mês a mês (mesma fórmula do editor).
-function FolhaPessoalLeitura({ funcionarios, folha }) {
+// Espelho leitura de QuadroPessoal (pedido de 2026-08-17) — separa Headcount
+// Existente (Data-base 31/08/2026, importado) e Novo Headcount (manual),
+// cada um com nome/cargo/salário e a folha calculada mês a mês.
+function FolhaPessoalLeitura({ funcionarios, premissasPessoal }) {
+  const existentes = funcionarios.filter(ehExistente);
+  const novos = funcionarios.filter(f => !ehExistente(f));
+  const folhaExistente = computeFolhaPessoalAnual(existentes, premissasPessoal);
+  const folhaNovo = computeFolhaPessoalAnual(novos, premissasPessoal);
+
+  function ListaLeitura(lista, mostrarAdmissao) {
+    if (lista.length === 0) return <div style={{ fontSize: 11, color: '#8A8F96', marginBottom: 8 }}>Nenhum registro.</div>;
+    return (
+      <div style={{ marginBottom: 10 }}>
+        {lista.map(f => (
+          <div key={f.id} style={{ fontSize: 11, padding: '4px 2px', borderBottom: `1px solid ${COR.borda}`, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <span>{f.nome || '(sem nome)'}{f.cargo ? ` — ${f.cargo}` : ''}{mostrarAdmissao && f.mesAdmissao ? ` — admissão ${f.mesAdmissao}` : ''}</span>
+            <span style={{ fontWeight: 700, color: COR.azul, flexShrink: 0 }}>{formatBRL(parseNum(f.salario))}/mês</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div>
-      {funcionarios.length === 0 ? (
-        <div style={{ fontSize: 11.5, color: '#8A8F96', marginBottom: 8 }}>Nenhum funcionário lançado neste CC.</div>
-      ) : (
-        <div style={{ marginBottom: 10 }}>
-          {funcionarios.map(f => (
-            <div key={f.id} style={{ fontSize: 11, padding: '4px 2px', borderBottom: `1px solid ${COR.borda}`, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-              <span>{f.nome || '(sem nome)'}{f.mesAdmissao ? ` — admissão ${f.mesAdmissao}` : ''}</span>
-              <span style={{ fontWeight: 700, color: COR.azul, flexShrink: 0 }}>{formatBRL(parseNum(f.salario))}/mês</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ overflowX: 'auto' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>Headcount Existente (Data-base 31/08/2026)</div>
+      {ListaLeitura(existentes, false)}
+      <div style={{ fontSize: 11, fontWeight: 700, color: COR.azul, marginTop: 10, marginBottom: 4 }}>Novo Headcount</div>
+      {ListaLeitura(novos, true)}
+      <div style={{ overflowX: 'auto', marginTop: 6 }}>
         <table>
           <CabecalhoMensalLeitura />
           <tbody>
-            <LinhaCalculadaMensal label="Salários" valoresMensal={folha.salariosMes} />
-            <LinhaCalculadaMensal label="Folha calculada (total, com encargos)" valoresMensal={folha.totalMes} />
+            <LinhaCalculadaMensal label="Folha — Headcount Existente" valoresMensal={folhaExistente.mensal.map(m => m.total)} />
+            <LinhaCalculadaMensal label="Folha — Novo Headcount" valoresMensal={folhaNovo.mensal.map(m => m.total)} />
           </tbody>
         </table>
       </div>
@@ -3799,7 +3817,7 @@ function CustosLeituraVersao({ refUnidade, dados, dre }) {
             {pacoteAberto && (
               <div style={{ padding: 8 }}>
                 {g.id === 'pessoal' ? (
-                  <FolhaPessoalLeitura funcionarios={funcionariosCC} folha={folhaAtual} />
+                  <FolhaPessoalLeitura funcionarios={funcionariosCC} premissasPessoal={premissasPessoal} />
                 ) : (
                   g.contas.map(c => (
                     <LinhaContaLeitura
@@ -4729,14 +4747,18 @@ function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBruta
   );
 }
 
+// Pedido de 2026-08-17: template passa a alimentar só o Headcount Existente
+// (Data-base 31/08/2026) — sem Data de Admissão, porque quem já está na
+// base é ativo o ano inteiro de 2027 por definição (não "admite" de novo).
+// Ganhou a coluna Cargo.
 function baixarTemplateFuncionarios() {
   const dadosTemplate = [
-    ['Nome', 'Salário', 'Data de Admissão'],
-    ['João da Silva (exemplo)', 3500, '2027-01-01'],
-    ['Maria Souza (exemplo)', 4200, '2027-04-01'],
+    ['Nome', 'Cargo', 'Salário'],
+    ['João da Silva (exemplo)', 'Analista Financeiro', 3500],
+    ['Maria Souza (exemplo)', 'Coordenadora de RH', 4200],
   ];
   const ws = XLSX.utils.aoa_to_sheet(dadosTemplate);
-  ws['!cols'] = [{ wch: 32 }, { wch: 14 }, { wch: 18 }];
+  ws['!cols'] = [{ wch: 32 }, { wch: 24 }, { wch: 14 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Funcionarios');
   XLSX.writeFile(wb, 'template_importacao_funcionarios.xlsx');
@@ -4764,29 +4786,17 @@ function ImportarFuncionariosExcel({ onImportarLote }) {
         linhasBrutas.forEach((linha, idx) => {
           const numLinha = idx + 2; // linha 1 é o cabeçalho
           const nome = String(linha['Nome'] || '').trim();
+          const cargo = String(linha['Cargo'] || '').trim();
           const salario = parseNum(linha['Salário']);
-          const dataRaw = linha['Data de Admissão'];
 
           if (!nome) novosErros.push({ linha: numLinha, campo: 'Nome', erro: 'Vazio' });
           if (!salario || salario <= 0) novosErros.push({ linha: numLinha, campo: 'Salário', erro: 'Vazio, zero ou inválido' });
 
-          let mesAdmissao = '';
-          let dataOk = true;
-          if (!dataRaw) {
-            novosErros.push({ linha: numLinha, campo: 'Data de Admissão', erro: 'Vazia' });
-            dataOk = false;
-          } else {
-            const data = dataRaw instanceof Date ? dataRaw : new Date(dataRaw);
-            if (isNaN(data.getTime())) {
-              novosErros.push({ linha: numLinha, campo: 'Data de Admissão', erro: 'Formato inválido' });
-              dataOk = false;
-            } else if (data.getFullYear() === 2027) {
-              mesAdmissao = MESES[data.getMonth()];
-            } // admissão antes de 2027: mesAdmissao vazio = ativo o ano inteiro
-          }
-
-          if (nome && salario > 0 && dataOk) {
-            validos.push({ nome, salario: String(salario), mesAdmissao });
+          // Pedido de 2026-08-17: importação alimenta o Headcount Existente
+          // (Data-base 31/08/2026) — ativo o ano inteiro de 2027 por
+          // definição, sem coluna de Data de Admissão no template.
+          if (nome && salario > 0) {
+            validos.push({ nome, cargo, salario: String(salario), mesAdmissao: '' });
           }
         });
         setErros(novosErros);
@@ -4846,46 +4856,112 @@ function ImportarFuncionariosExcel({ onImportarLote }) {
   );
 }
 
+// Pedido de 2026-08-17: "separe Headcount Existente (Data-base 31/08/2026)
+// calculado com base no template importado e Novo Headcount a ser inserido
+// manualmente [...] Os percentuais de encargos e benefícios incidirão sob
+// os dois grupos". A separação é só de composição/origem do headcount — as
+// premissas de encargos/benefícios continuam um conjunto só (abaixo),
+// aplicadas por igual aos dois grupos (computeFolhaPessoalMes já soma todos
+// os funcionários do CC antes de aplicar % — nenhuma mudança de cálculo
+// necessária, só de agrupamento/exibição).
+// origem: 'existente' (importado via template) | 'novo' (Adicionar
+// funcionário manual). Registros de antes desta mudança não têm o campo —
+// tratados como 'existente' por padrão (a composição herdada da base atual,
+// não uma contratação nova planejada).
+function ehExistente(f) { return f.origem !== 'novo'; }
+
 function QuadroPessoal({ ccCodigo, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, folha, onImportarLote }) {
+  const existentes = funcionarios.filter(ehExistente);
+  const novos = funcionarios.filter(f => !ehExistente(f));
+  const folhaExistente = computeFolhaPessoalAnual(existentes, premissasPessoal);
+  const folhaNovo = computeFolhaPessoalAnual(novos, premissasPessoal);
+
+  function LinhaFuncionario(f, i, mostrarAdmissao) {
+    return (
+      <tr key={f.id} style={{ background: i % 2 ? COR.claro : COR.branco }}>
+        <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
+          <CampoTexto value={f.nome} onChange={v => updateFuncionario(f.id, 'nome', v)} placeholder="Nome do funcionário" />
+        </td>
+        <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
+          <CampoTexto value={f.cargo || ''} onChange={v => updateFuncionario(f.id, 'cargo', v)} placeholder="Cargo" />
+        </td>
+        <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
+          <CampoNumero value={f.salario} onChange={v => updateFuncionario(f.id, 'salario', v)} prefixo="R$" placeholder="0,00" />
+        </td>
+        {mostrarAdmissao && (
+          <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
+            <Selecao value={f.mesAdmissao} onChange={v => updateFuncionario(f.id, 'mesAdmissao', v)} opcoes={MESES.map(m => ({ id: m, nome: m }))} />
+          </td>
+        )}
+        <td style={{ padding: 3, border: `1px solid ${COR.borda}`, textAlign: 'center' }}>
+          <button onClick={() => removeFuncionario(f.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={13} /></button>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div>
-      <div style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
-        Lista de funcionários deste CC (nome e salário atual, conforme repasse do DP) — encargos, 13º e benefícios são calculados automaticamente pelas premissas padronizadas da unidade, abaixo.
+      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 4 }}>Headcount Existente (Data-base 31/08/2026)</h5>
+      <div style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
+        Composição atual do quadro, importada via template — ativos o ano inteiro de 2027 (sem mês de admissão; quem já está na base não "admite" de novo).
+        Nome/cargo/salário continuam editáveis aqui depois da importação, se precisar corrigir algo.
       </div>
+      <table style={{ width: '100%', marginBottom: 8 }}>
+        <thead>
+          <tr>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left' }}>Funcionário</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Cargo</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Salário atual</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 30 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {existentes.length === 0 ? (
+            <tr><td colSpan={4} style={{ padding: '8px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#8A8F96' }}>Nenhum funcionário importado ainda.</td></tr>
+          ) : existentes.map((f, i) => LinhaFuncionario(f, i, false))}
+        </tbody>
+      </table>
+      <ImportarFuncionariosExcel onImportarLote={onImportarLote} />
 
+      <h5 style={{ fontSize: 11.5, color: COR.azul, marginTop: 18, marginBottom: 4 }}>Novo Headcount</h5>
+      <div style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
+        Contratações planejadas para 2027, lançadas manualmente — com mês de admissão (define os meses em que entram na folha).
+      </div>
       <table style={{ width: '100%', marginBottom: 10 }}>
         <thead>
           <tr>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left' }}>Funcionário</th>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Salário atual</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Cargo</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Salário previsto</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Mês de admissão</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 30 }}></th>
           </tr>
         </thead>
         <tbody>
-          {funcionarios.map((f, i) => (
-            <tr key={f.id} style={{ background: i % 2 ? COR.claro : COR.branco }}>
-              <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-                <CampoTexto value={f.nome} onChange={v => updateFuncionario(f.id, 'nome', v)} placeholder="Nome do funcionário" />
-              </td>
-              <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-                <CampoNumero value={f.salario} onChange={v => updateFuncionario(f.id, 'salario', v)} prefixo="R$" placeholder="0,00" />
-              </td>
-              <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-                <Selecao value={f.mesAdmissao} onChange={v => updateFuncionario(f.id, 'mesAdmissao', v)} opcoes={MESES.map(m => ({ id: m, nome: m }))} />
-              </td>
-              <td style={{ padding: 3, border: `1px solid ${COR.borda}`, textAlign: 'center' }}>
-                <button onClick={() => removeFuncionario(f.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={13} /></button>
-              </td>
-            </tr>
-          ))}
+          {novos.length === 0 ? (
+            <tr><td colSpan={5} style={{ padding: '8px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#8A8F96' }}>Nenhuma contratação planejada ainda.</td></tr>
+          ) : novos.map((f, i) => LinhaFuncionario(f, i, true))}
         </tbody>
       </table>
-      <ImportarFuncionariosExcel onImportarLote={onImportarLote} />
-      <Botao variante="fantasma" icone={Plus} onClick={addFuncionario}>Adicionar funcionário</Botao>
+      <Botao variante="fantasma" icone={Plus} onClick={addFuncionario}>Adicionar funcionário (Novo Headcount)</Botao>
 
-      <h5 style={{ fontSize: 11.5, color: COR.azul, marginTop: 16, marginBottom: 8 }}>Premissas de encargos e benefícios — padronizadas para a unidade</h5>
-      <p style={{ fontSize: 10.5, color: '#8A8F96', marginBottom: 8 }}>Valem para todos os CCs desta unidade. Sem valor pré-definido — preencher conforme definição de RH/Controladoria.</p>
+      <div style={{ marginTop: 16 }}>
+        <TabelaMensal
+          linhas={[]}
+          onChangeCelula={() => {}}
+          linhasCalculadas={[
+            { key: 'existente', label: 'Folha — Headcount Existente', valoresMensal: folhaExistente.mensal.map(m => m.total), totalValor: folhaExistente.totalAnual, cor: COR.texto },
+            { key: 'novo', label: 'Folha — Novo Headcount', valoresMensal: folhaNovo.mensal.map(m => m.total), totalValor: folhaNovo.totalAnual, cor: COR.texto },
+          ]}
+        />
+      </div>
+
+      <h5 style={{ fontSize: 11.5, color: COR.azul, marginTop: 18, marginBottom: 8 }}>Premissas de encargos e benefícios — padronizadas para a unidade</h5>
+      <p style={{ fontSize: 10.5, color: '#8A8F96', marginBottom: 8 }}>
+        Valem para todos os CCs desta unidade, e incidem sobre os dois grupos acima (Headcount Existente e Novo Headcount) — não há premissa
+        separada por grupo. Sem valor pré-definido — preencher conforme definição de RH/Controladoria.
+      </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
         <div>
           <Rotulo>INSS</Rotulo>
@@ -4924,7 +5000,7 @@ function QuadroPessoal({ ccCodigo, funcionarios, addFuncionario, updateFuncionar
         13º salário é provisionado mês a mês por competência (1/12 do salário, acima). No fluxo de caixa (aba Revisão, Análise e Envio), o pagamento é reconhecido metade em novembro e metade em dezembro.
       </p>
 
-      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Folha calculada — {ccCodigo}, mês a mês</h5>
+      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Folha calculada — {ccCodigo}, mês a mês (Existente + Novo Headcount)</h5>
       <TabelaMensal
         linhas={[]}
         onChangeCelula={() => {}}
