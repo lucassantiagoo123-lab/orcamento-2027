@@ -8,12 +8,15 @@ import {
   CCS_PLACEHOLDER_AGRICOLA_RESORTS,
   PLANO_CONTAS_AGRICOLA, TODAS_CONTAS_AGRICOLA,
   PLANO_CONTAS_RESORTS, TODAS_CONTAS_RESORTS,
+  CCS_CORPORATIVO, PLANO_CONTAS_CORPORATIVO, TODAS_CONTAS_CORPORATIVO,
 } from './constantesAgricolaResorts.js';
 
 export const UNIDADES_ORCAMENTO = {
   textil: { ccs: CCS_TEXTIL, todasContas: TODAS_CONTAS, planoContas: PLANO_CONTAS },
   agricola: { ccs: CCS_PLACEHOLDER_AGRICOLA_RESORTS, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA },
   resorts: { ccs: CCS_PLACEHOLDER_AGRICOLA_RESORTS, todasContas: TODAS_CONTAS_RESORTS, planoContas: PLANO_CONTAS_RESORTS },
+  // Habilitada em 2026-08-16 — ver nota completa em constantesAgricolaResorts.js.
+  corporativo: { ccs: CCS_CORPORATIVO, todasContas: TODAS_CONTAS_CORPORATIVO, planoContas: PLANO_CONTAS_CORPORATIVO },
 };
 
 export function buscarReferencia(unidadeId) {

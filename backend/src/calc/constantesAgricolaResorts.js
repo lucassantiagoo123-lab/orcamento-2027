@@ -518,12 +518,6 @@ export const PLANO_CONTAS_RESORTS = {
 };
 
 
-// Fonte oficial: Base_Corporativo.xlsx. A coluna de Centros de Custo é confiável (20 CCs).
-// A coluna de Contas Analíticas NÃO vem pareada por CC no arquivo-fonte (mesmo código de conta
-// repetido em todas as linhas, enquanto os nomes de despesa mudam) — tratada aqui como uma lista
-// de referência geral de despesas do Corporativo, não uma classificação C.C. × Conta. Pendência
-// sinalizada na tela; segue sujeita à correção do FP&A quando o De/Para oficial existir.
-
 export const TODAS_CONTAS_AGRICOLA = {};
 Object.entries(PLANO_CONTAS_AGRICOLA).forEach(([pacoteId, contas]) => {
   contas.forEach((c) => { TODAS_CONTAS_AGRICOLA[c.codigo] = { ...c, pacoteId }; });
@@ -532,4 +526,96 @@ Object.entries(PLANO_CONTAS_AGRICOLA).forEach(([pacoteId, contas]) => {
 export const TODAS_CONTAS_RESORTS = {};
 Object.entries(PLANO_CONTAS_RESORTS).forEach(([pacoteId, contas]) => {
   contas.forEach((c) => { TODAS_CONTAS_RESORTS[c.codigo] = { ...c, pacoteId }; });
+});
+
+// ---------------------------------------------------------------------------
+// Corporativo — fonte oficial: Base_Corporativo.xlsx. A coluna de Centros de
+// Custo é confiável (20 CCs, ver CCS_CORPORATIVO). A coluna de Contas
+// Analíticas NÃO vem pareada por CC no arquivo-fonte (mesmo código de conta
+// repetido em toda linha, só o nome da despesa muda). Decisão de 2026-08-16
+// ("cada CC precisa conter todas as contas analíticas [...] mesma visão e
+// layout da Têxtil, interpretando e separando a conta analítica por
+// pacote"): todo CC recebe o mesmo plano de contas completo — as 21 contas
+// reais da planilha (nenhuma inventada), agrupadas por pacote (agrupamento
+// interpretado por mim, a planilha não separa por pacote). Espelho exato de
+// frontend/src/OrcamentoARA.jsx (mesmos códigos sintéticos CORP01..CORP21).
+// tipo: 'despesa' em todos os CCs — Corporativo não tem CC de produção.
+// ---------------------------------------------------------------------------
+export const CCS_CORPORATIVO = [
+  { codigo: "0000102", nome: "Financeiro", tipo: 'despesa' },
+  { codigo: "02", nome: "GSC (Arthur)", tipo: 'despesa' },
+  { codigo: "0000104", nome: "Riscos, Auditoria e Compliance", tipo: 'despesa' },
+  { codigo: "0000199", nome: "Conselho", tipo: 'despesa' },
+  { codigo: "0010103", nome: "Contabilidade/Fiscal", tipo: 'despesa' },
+  { codigo: "0010104", nome: "Departamento Pessoal", tipo: 'despesa' },
+  { codigo: "0010105", nome: "TI GSP (SISTEMAS)", tipo: 'despesa' },
+  { codigo: "0010107", nome: "COMPRAS", tipo: 'despesa' },
+  { codigo: "0010109", nome: "NOVOS NEGÓCIOS", tipo: 'despesa' },
+  { codigo: "0010110", nome: "AUDITORIA INTERNA", tipo: 'despesa' },
+  { codigo: "0010111", nome: "Gestão de Pessoas", tipo: 'despesa' },
+  { codigo: "0010112", nome: "Estratégia e Projetos", tipo: 'despesa' },
+  { codigo: "0010114", nome: "Jurídico", tipo: 'despesa' },
+  { codigo: "0010115", nome: "Escritório", tipo: 'despesa' },
+  { codigo: "0010116", nome: "Controladoria", tipo: 'despesa' },
+  { codigo: "0010117", nome: "TI GSI INFRA", tipo: 'despesa' },
+  { codigo: "0010118", nome: "FP&A", tipo: 'despesa' },
+  { codigo: "0010119", nome: "SECRETARIA DE GOVERNANÇA", tipo: 'despesa' },
+  { codigo: "0010120", nome: "INOVAÇÃO E TECNOLOGIA", tipo: 'despesa' },
+  { codigo: "0020102", nome: "MARKETING", tipo: 'despesa' },
+];
+
+export const PACOTES_CORPORATIVO = [
+  { id: 'pessoal', nome: "Pessoal", ref: 'Base_Corporativo.xlsx (2 contas)' },
+  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Base_Corporativo.xlsx (4 contas)' },
+  { id: 'locacao_utilidades', nome: "Locação, Ocupação e Utilidades", ref: 'Base_Corporativo.xlsx (4 contas)' },
+  { id: 'administrativo', nome: "Administrativo", ref: 'Base_Corporativo.xlsx (6 contas)' },
+  { id: 'manutencao', nome: "Manutenção", ref: 'Base_Corporativo.xlsx (1 conta)' },
+  { id: 'comercial', nome: "Comercial e Marketing", ref: 'Base_Corporativo.xlsx (1 conta)' },
+  { id: 'viagens', nome: "Viagens", ref: 'Base_Corporativo.xlsx (2 contas)' },
+  { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Base_Corporativo.xlsx (1 conta)' },
+];
+
+export const PLANO_CONTAS_CORPORATIVO = {
+  pessoal: [
+    { codigo: 'CORP01', nome: "Salários /Despesas com o pessoal", origem: 'Despesa' },
+    { codigo: 'CORP13', nome: "Cursos e treinamentos", origem: 'Despesa' },
+  ],
+  servicos: [
+    { codigo: 'CORP02', nome: "Assessorias e Consultorias", origem: 'Despesa' },
+    { codigo: 'CORP03', nome: "Consultórias PJs", origem: 'Despesa' },
+    { codigo: 'CORP04', nome: "Projetos", origem: 'Despesa' },
+    { codigo: 'CORP08', nome: "Honorários Advocatícios", origem: 'Despesa' },
+  ],
+  locacao_utilidades: [
+    { codigo: 'CORP05', nome: "Aluguel e Condomínio", origem: 'Despesa' },
+    { codigo: 'CORP09', nome: "Telefonia e Internet", origem: 'Despesa' },
+    { codigo: 'CORP10', nome: "Locação de Software", origem: 'Despesa' },
+    { codigo: 'CORP20', nome: "Locação de equipamentos", origem: 'Despesa' },
+  ],
+  administrativo: [
+    { codigo: 'CORP06', nome: "Material de expediente", origem: 'Despesa' },
+    { codigo: 'CORP11', nome: "Material de Informática", origem: 'Despesa' },
+    { codigo: 'CORP15', nome: "Eventos e Confratenizações", origem: 'Despesa' },
+    { codigo: 'CORP16', nome: "Caixa Fundo fixo", origem: 'Despesa' },
+    { codigo: 'CORP17', nome: "Despesas Diversas", origem: 'Despesa' },
+    { codigo: 'CORP19', nome: "Material de Copa/Cozinha e limpeza", origem: 'Despesa' },
+  ],
+  manutencao: [
+    { codigo: 'CORP07', nome: "Reformas e Manutenção", origem: 'Despesa' },
+  ],
+  comercial: [
+    { codigo: 'CORP12', nome: "Propaganda e Publicidade", origem: 'Despesa' },
+  ],
+  viagens: [
+    { codigo: 'CORP14', nome: "Combustível/Alimentação/Transporte", origem: 'Despesa' },
+    { codigo: 'CORP18', nome: "Passagem e Hospedagem", origem: 'Despesa' },
+  ],
+  impostos: [
+    { codigo: 'CORP21', nome: "Impostos e taxas", origem: 'Despesa' },
+  ],
+};
+
+export const TODAS_CONTAS_CORPORATIVO = {};
+Object.entries(PLANO_CONTAS_CORPORATIVO).forEach(([pacoteId, contas]) => {
+  contas.forEach((c) => { TODAS_CONTAS_CORPORATIVO[c.codigo] = { ...c, pacoteId }; });
 });

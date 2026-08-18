@@ -26,7 +26,7 @@ const PERFIL_LABEL = {
 // REFERENCIA_POR_UNIDADE). Corporativo continua painel de referência
 // (pendência diferente — falta De/Para conta×CC); ARA EI segue de fora,
 // sem plano de contas nenhum ainda.
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'resorts'];
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'resorts', 'corporativo'];
 
 const COR = {
   azul: '#0C4391',
@@ -1083,27 +1083,30 @@ const PLANO_CONTAS_RESORTS = {
 // repetido em todas as linhas, enquanto os nomes de despesa mudam) — tratada aqui como uma lista
 // de referência geral de despesas do Corporativo, não uma classificação C.C. × Conta. Pendência
 // sinalizada na tela; segue sujeita à correção do FP&A quando o De/Para oficial existir.
+// tipo: 'despesa' em todos — Corporativo é 100% back-office, sem CC de
+// produção (não existe CPV aqui, só Despesas Operacionais), decisão de
+// 2026-08-16 ao habilitar o lançamento completo desta unidade.
 export const CCS_CORPORATIVO = [
-  { codigo: "0000102", nome: "Financeiro" },
-  { codigo: "02", nome: "GSC (Arthur)" },
-  { codigo: "0000104", nome: "Riscos, Auditoria e Compliance" },
-  { codigo: "0000199", nome: "Conselho" },
-  { codigo: "0010103", nome: "Contabilidade/Fiscal" },
-  { codigo: "0010104", nome: "Departamento Pessoal" },
-  { codigo: "0010105", nome: "TI GSP (SISTEMAS)" },
-  { codigo: "0010107", nome: "COMPRAS" },
-  { codigo: "0010109", nome: "NOVOS NEGÓCIOS" },
-  { codigo: "0010110", nome: "AUDITORIA INTERNA" },
-  { codigo: "0010111", nome: "Gestão de Pessoas" },
-  { codigo: "0010112", nome: "Estratégia e Projetos" },
-  { codigo: "0010114", nome: "Jurídico" },
-  { codigo: "0010115", nome: "Escritório" },
-  { codigo: "0010116", nome: "Controladoria" },
-  { codigo: "0010117", nome: "TI GSI INFRA" },
-  { codigo: "0010118", nome: "FP&A" },
-  { codigo: "0010119", nome: "SECRETARIA DE GOVERNANÇA" },
-  { codigo: "0010120", nome: "INOVAÇÃO E TECNOLOGIA" },
-  { codigo: "0020102", nome: "MARKETING" },
+  { codigo: "0000102", nome: "Financeiro", tipo: 'despesa' },
+  { codigo: "02", nome: "GSC (Arthur)", tipo: 'despesa' },
+  { codigo: "0000104", nome: "Riscos, Auditoria e Compliance", tipo: 'despesa' },
+  { codigo: "0000199", nome: "Conselho", tipo: 'despesa' },
+  { codigo: "0010103", nome: "Contabilidade/Fiscal", tipo: 'despesa' },
+  { codigo: "0010104", nome: "Departamento Pessoal", tipo: 'despesa' },
+  { codigo: "0010105", nome: "TI GSP (SISTEMAS)", tipo: 'despesa' },
+  { codigo: "0010107", nome: "COMPRAS", tipo: 'despesa' },
+  { codigo: "0010109", nome: "NOVOS NEGÓCIOS", tipo: 'despesa' },
+  { codigo: "0010110", nome: "AUDITORIA INTERNA", tipo: 'despesa' },
+  { codigo: "0010111", nome: "Gestão de Pessoas", tipo: 'despesa' },
+  { codigo: "0010112", nome: "Estratégia e Projetos", tipo: 'despesa' },
+  { codigo: "0010114", nome: "Jurídico", tipo: 'despesa' },
+  { codigo: "0010115", nome: "Escritório", tipo: 'despesa' },
+  { codigo: "0010116", nome: "Controladoria", tipo: 'despesa' },
+  { codigo: "0010117", nome: "TI GSI INFRA", tipo: 'despesa' },
+  { codigo: "0010118", nome: "FP&A", tipo: 'despesa' },
+  { codigo: "0010119", nome: "SECRETARIA DE GOVERNANÇA", tipo: 'despesa' },
+  { codigo: "0010120", nome: "INOVAÇÃO E TECNOLOGIA", tipo: 'despesa' },
+  { codigo: "0020102", nome: "MARKETING", tipo: 'despesa' },
 ];
 
 const CONTAS_REFERENCIA_CORPORATIVO = [
@@ -1129,6 +1132,74 @@ const CONTAS_REFERENCIA_CORPORATIVO = [
   "Locação de equipamentos",
   "Impostos e taxas",
 ];
+
+// Plano de contas do Corporativo para lançamento de orçamento — decisão de
+// 2026-08-16: "cada CC precisa conter todas as contas analíticas [...]
+// mesma visão e layout da Têxtil, interpretando e separando a conta
+// analítica por pacote". Como a planilha-fonte (Base_Corporativo.xlsx) não
+// pareia conta × CC (mesmo código de conta repetido em toda linha — ver
+// nota acima de CCS_CORPORATIVO), a solução aqui é literal ao pedido: as 21
+// contas de CONTAS_REFERENCIA_CORPORATIVO (as únicas 21 reais, nenhuma
+// inventada) valem para todos os 20 CCs igualmente, agrupadas por pacote
+// (agrupamento interpretado por mim — não vem da planilha, que não separa
+// por pacote). Códigos CORP01..CORP21 são sintéticos (a fonte não trazia
+// código de conta nenhum, só o nome) — servem só de identificador estável
+// para a chave CC|Conta do formulário, mesmo padrão do resto do app.
+export const PACOTES_CORPORATIVO = [
+  { id: 'pessoal', nome: "Pessoal", ref: 'Base_Corporativo.xlsx (2 contas)' },
+  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Base_Corporativo.xlsx (4 contas)' },
+  { id: 'locacao_utilidades', nome: "Locação, Ocupação e Utilidades", ref: 'Base_Corporativo.xlsx (4 contas)' },
+  { id: 'administrativo', nome: "Administrativo", ref: 'Base_Corporativo.xlsx (6 contas)' },
+  { id: 'manutencao', nome: "Manutenção", ref: 'Base_Corporativo.xlsx (1 conta)' },
+  { id: 'comercial', nome: "Comercial e Marketing", ref: 'Base_Corporativo.xlsx (1 conta)' },
+  { id: 'viagens', nome: "Viagens", ref: 'Base_Corporativo.xlsx (2 contas)' },
+  { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Base_Corporativo.xlsx (1 conta)' },
+];
+
+export const PLANO_CONTAS_CORPORATIVO = {
+  pessoal: [
+    { codigo: 'CORP01', nome: "Salários /Despesas com o pessoal", origem: 'Despesa' },
+    { codigo: 'CORP13', nome: "Cursos e treinamentos", origem: 'Despesa' },
+  ],
+  servicos: [
+    { codigo: 'CORP02', nome: "Assessorias e Consultorias", origem: 'Despesa' },
+    { codigo: 'CORP03', nome: "Consultórias PJs", origem: 'Despesa' },
+    { codigo: 'CORP04', nome: "Projetos", origem: 'Despesa' },
+    { codigo: 'CORP08', nome: "Honorários Advocatícios", origem: 'Despesa' },
+  ],
+  locacao_utilidades: [
+    { codigo: 'CORP05', nome: "Aluguel e Condomínio", origem: 'Despesa' },
+    { codigo: 'CORP09', nome: "Telefonia e Internet", origem: 'Despesa' },
+    { codigo: 'CORP10', nome: "Locação de Software", origem: 'Despesa' },
+    { codigo: 'CORP20', nome: "Locação de equipamentos", origem: 'Despesa' },
+  ],
+  administrativo: [
+    { codigo: 'CORP06', nome: "Material de expediente", origem: 'Despesa' },
+    { codigo: 'CORP11', nome: "Material de Informática", origem: 'Despesa' },
+    { codigo: 'CORP15', nome: "Eventos e Confratenizações", origem: 'Despesa' },
+    { codigo: 'CORP16', nome: "Caixa Fundo fixo", origem: 'Despesa' },
+    { codigo: 'CORP17', nome: "Despesas Diversas", origem: 'Despesa' },
+    { codigo: 'CORP19', nome: "Material de Copa/Cozinha e limpeza", origem: 'Despesa' },
+  ],
+  manutencao: [
+    { codigo: 'CORP07', nome: "Reformas e Manutenção", origem: 'Despesa' },
+  ],
+  comercial: [
+    { codigo: 'CORP12', nome: "Propaganda e Publicidade", origem: 'Despesa' },
+  ],
+  viagens: [
+    { codigo: 'CORP14', nome: "Combustível/Alimentação/Transporte", origem: 'Despesa' },
+    { codigo: 'CORP18', nome: "Passagem e Hospedagem", origem: 'Despesa' },
+  ],
+  impostos: [
+    { codigo: 'CORP21', nome: "Impostos e taxas", origem: 'Despesa' },
+  ],
+};
+
+const TODAS_CONTAS_CORPORATIVO = {};
+Object.entries(PLANO_CONTAS_CORPORATIVO).forEach(([pacoteId, contas]) => {
+  contas.forEach(c => { TODAS_CONTAS_CORPORATIVO[c.codigo] = { ...c, pacoteId }; });
+});
 
 const NIVEIS_SERVICO = ['Essencial', 'Padrão', 'Redutível'];
 
@@ -1171,6 +1242,11 @@ const REFERENCIA_POR_UNIDADE = {
   textil: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS, todasContas: TODAS_CONTAS, pacotes: PACOTES_TEXTIL },
   agricola: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
   resorts: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
+  // Decisão de 2026-08-16: Corporativo usa os 20 CCs reais (CCS_CORPORATIVO,
+  // fonte confiável) — diferente de Agrícola/Resorts, que usam CC
+  // placeholder. Todo CC recebe o mesmo plano de contas completo, ver nota
+  // em PLANO_CONTAS_CORPORATIVO.
+  corporativo: { ccs: CCS_CORPORATIVO, planoContas: PLANO_CONTAS_CORPORATIVO, todasContas: TODAS_CONTAS_CORPORATIVO, pacotes: PACOTES_CORPORATIVO },
 };
 // ---------------------------------------------------------------------------
 // Estrutura de Receita de Agrícola e Resorts — extraída de
@@ -3412,13 +3488,15 @@ function VisaoGerente(props) {
 
       {/* Decisão de 2026-08-09: Agrícola e Resorts saíram do painel de
           referência e ganharam o formulário completo, com CC placeholder
-          (ver REFERENCIA_POR_UNIDADE). Corporativo continua só referência —
-          pendência diferente (falta De/Para conta×CC, sem solução de
-          placeholder ainda). ARA EI nem aparece aqui — sem plano de contas
-          nenhum, não está em UNIDADES_COM_LANCAMENTO_HABILITADO no backend. */}
-      {unidadeAtual === 'corporativo' ? (
-        <PainelGovernancaCorporativo />
-      ) : unidadeAtual === 'ei' ? (
+          (ver REFERENCIA_POR_UNIDADE). Corporativo seguiu o mesmo caminho em
+          2026-08-16: usa os 20 CCs reais (CCS_CORPORATIVO, fonte confiável),
+          mas como as contas analíticas não vêm pareadas por CC na planilha-
+          fonte (pendência de dado documentada), cada CC recebe o mesmo plano
+          de contas completo (PLANO_CONTAS_CORPORATIVO/PACOTES_CORPORATIVO) —
+          decisão explícita do usuário, não suposição. ARA EI nem aparece
+          aqui — sem plano de contas nenhum, não está em
+          UNIDADES_COM_LANCAMENTO_HABILITADO no backend. */}
+      {unidadeAtual === 'ei' ? (
         <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 16, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
           <AlertTriangle size={18} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>

@@ -12,13 +12,15 @@ import { buscarReferencia } from '../calc/registroUnidades.js';
 export const orcamentosRouter = Router();
 
 // ARA Agrícola e ARA Resorts habilitadas em 2026-08-09, usando um CC
-// placeholder (ver calc/constantesAgricolaResorts.js) até a planilha real. O
-// Corporativo continua painel de referência (falta De/Para de conta×CC —
-// pendência diferente, sem solução de placeholder por enquanto); ARA EI
-// segue de fora também (nem plano de contas ela tem ainda).
+// placeholder (ver calc/constantesAgricolaResorts.js) até a planilha real.
+// Corporativo habilitado em 2026-08-16, com os 20 CCs reais e todo CC
+// recebendo o mesmo plano de contas completo (decisão do usuário — falta
+// De/Para conta×CC na fonte, mas o pedido foi explícito: "cada CC precisa
+// conter todas as contas analíticas"). ARA EI segue de fora — nem plano de
+// contas ela tem ainda.
 // Isto é reforçado aqui, no servidor, e não só escondido na UI — mesma regra
 // da seção 4 aplicada a uma pendência de dado, não só a escopo de usuário.
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'resorts'];
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'resorts', 'corporativo'];
 
 function exigirLancamentoHabilitado(req, res, next) {
   const { unidadeId } = req.params;
