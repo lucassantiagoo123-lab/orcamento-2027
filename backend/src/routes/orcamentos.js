@@ -4,12 +4,19 @@
 // do vínculo real do usuário no banco — nunca confia no que vem da URL.
 import { Router } from 'express';
 import { exigirUnidade, exigirPerfil } from '../middleware/authorize.js';
-import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, aprovar, listarVersoes } from '../db/orcamentos.js';
+import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
 import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
+import { notificarEnvioParaFpa } from '../email/notificacoes.js';
 
 export const orcamentosRouter = Router();
+
+// Só pra mensagem do e-mail de notificação — não é usado em nenhum cálculo.
+const NOME_UNIDADE = {
+  textil: 'ARA Têxtil', agricola: 'ARA Agrícola', resorts: 'ARA Resorts',
+  corporativo: 'Corporativo', ei: 'ARA EI', energia: 'Escritório de Investimentos',
+};
 
 // ARA Agrícola e ARA Resorts habilitadas em 2026-08-09, usando um CC
 // placeholder (ver calc/constantesAgricolaResorts.js) até a planilha real.
@@ -149,11 +156,38 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirLancamento
 orcamentosRouter.post('/:unidadeId/enviar', exigirUnidade('unidadeId'), exigirLancamentoHabilitado, async (req, res, next) => {
   try {
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
+    // Pedido de 2026-08-16: trava reenvio até um admin_fpa liberar — o
+    // frontend já desabilita o botão, isto é a barreira de verdade.
+    if (atual.aguardando_liberacao) {
+      return res.status(409).json({
+        erro: 'aguardando_liberacao_fpa',
+        mensagem: 'Este orçamento já foi enviado e está aguardando liberação do FP&A para permitir um novo envio.',
+      });
+    }
     const ref = buscarReferencia(req.params.unidadeId) || REF_VAZIA;
     const dre = computeDRE(atual.dados, ref);
     const totais = { receitaLiquida: dre.receitaLiquida, ebitda: dre.ebitda, lucroLiquido: dre.lucroLiquido };
     const { orcamento, versao } = await registrarEnvio(atual.id, atual.dados, req.usuario.id, req.body.comentario, totais);
     res.json({ orcamento, versao });
+
+    // Depois da resposta — best-effort, não atrasa nem derruba o envio se o
+    // e-mail falhar (ver notificacoes.js, tudo try/catch lá dentro).
+    notificarEnvioParaFpa({
+      unidadeNome: NOME_UNIDADE[req.params.unidadeId] || req.params.unidadeId,
+      autorNome: req.usuario.nome,
+      comentario: req.body.comentario,
+      totais,
+    }).catch((err) => console.error('[email] notificarEnvioParaFpa falhou:', err.message));
+  } catch (err) { next(err); }
+});
+
+/** Admin FP&A libera o botão "Enviar versão" de novo, depois de revisar o
+ * envio anterior (pedido de 2026-08-16). */
+orcamentosRouter.post('/:unidadeId/liberar-reenvio', exigirUnidade('unidadeId'), exigirPerfil('admin_fpa'), async (req, res, next) => {
+  try {
+    const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
+    const orcamento = await liberarReenvio(atual.id);
+    res.json({ orcamento });
   } catch (err) { next(err); }
 });
 

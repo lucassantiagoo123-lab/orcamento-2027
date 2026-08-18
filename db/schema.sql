@@ -87,6 +87,10 @@ CREATE TABLE orcamentos (
   status        TEXT NOT NULL DEFAULT 'nao_iniciado'
                   CHECK (status IN ('nao_iniciado','em_elaboracao','em_revisao','em_analise','enviado','aprovado')),
   bloqueado     BOOLEAN NOT NULL DEFAULT false,  -- true após aprovação (ver seção 4.5)
+  -- true logo após um envio (POST /:unidadeId/enviar) até um admin_fpa
+  -- liberar (POST /:unidadeId/liberar-reenvio) — pedido de 2026-08-16, o
+  -- botão "Enviar versão" fica bloqueado enquanto isto for true.
+  aguardando_liberacao BOOLEAN NOT NULL DEFAULT false,
   atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
   atualizado_por UUID REFERENCES usuarios(id)
 );

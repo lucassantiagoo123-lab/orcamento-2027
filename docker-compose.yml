@@ -35,6 +35,14 @@ services:
       AZURE_CLIENT_ID: ""
       AZURE_CLIENT_SECRET: ""
       AZURE_REDIRECT_URI: "http://localhost:8080/auth/callback"
+      # Notificação por e-mail ao FP&A (pedido de 2026-08-16) — vazio aqui,
+      # sem SMTP, o servidor sobe normal e só loga que não enviou (ver
+      # backend/.env.example para as instruções).
+      SMTP_HOST: ""
+      SMTP_PORT: "587"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: ""
       PORT: "3000"
       FRONTEND_ORIGIN: "http://localhost:8080"
       NODE_ENV: development

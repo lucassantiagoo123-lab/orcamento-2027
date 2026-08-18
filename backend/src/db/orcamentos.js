@@ -77,8 +77,10 @@ export async function registrarEnvio(orcamentoId, dados, usuarioId, comentario, 
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [orcamentoId, JSON.stringify(dados), usuarioId, comentario || null, JSON.stringify(totais || {})]
     );
+    // aguardando_liberacao = true (pedido de 2026-08-16): trava novo envio
+    // até um admin_fpa liberar — ver liberarReenvio abaixo.
     const orcamento = await client.query(
-      `UPDATE orcamentos SET status = 'enviado', dados = $2, atualizado_em = now(), atualizado_por = $3
+      `UPDATE orcamentos SET status = 'enviado', dados = $2, aguardando_liberacao = true, atualizado_em = now(), atualizado_por = $3
        WHERE id = $1 RETURNING *`,
       [orcamentoId, JSON.stringify(dados), usuarioId]
     );
@@ -90,6 +92,18 @@ export async function registrarEnvio(orcamentoId, dados, usuarioId, comentario, 
   } finally {
     client.release();
   }
+}
+
+/** Admin FP&A libera o botão "Enviar versão" de novo, depois de revisar o
+ * envio (pedido de 2026-08-16). Não muda status/bloqueado — só a trava de
+ * reenvio; a aprovação formal (seção 4.5) continua sendo o `aprovar`
+ * abaixo, ação separada. */
+export async function liberarReenvio(orcamentoId) {
+  const { rows } = await pool.query(
+    `UPDATE orcamentos SET aguardando_liberacao = false, atualizado_em = now() WHERE id = $1 RETURNING *`,
+    [orcamentoId]
+  );
+  return rows[0];
 }
 
 export async function aprovar(orcamentoId, usuarioId) {

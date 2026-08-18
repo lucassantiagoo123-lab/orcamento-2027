@@ -62,3 +62,12 @@ export async function definirSenha(usuarioId, senhaHash) {
 export async function registrarLogin(usuarioId) {
   await pool.query(`UPDATE usuarios SET ultimo_login = now() WHERE id = $1`, [usuarioId]);
 }
+
+/** E-mails de todos os admin_fpa ativos — usado pela notificação de envio
+ * (pedido de 2026-08-16, ver src/email/notificacoes.js). */
+export async function listarEmailsAdminFpa() {
+  const { rows } = await pool.query(
+    `SELECT email FROM usuarios WHERE perfil = 'admin_fpa' AND ativo = true`
+  );
+  return rows.map((r) => r.email);
+}

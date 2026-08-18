@@ -30,6 +30,18 @@ export const config = {
     clientSecret: process.env.AZURE_CLIENT_SECRET || '',
     redirectUri: process.env.AZURE_REDIRECT_URI || '',
   },
+
+  // E-mail (pedido de 2026-08-16: notificar o FP&A por e-mail a cada envio
+  // de versão). Mesmo padrão de tolerância do SSO: sem SMTP_HOST/USER/PASS,
+  // o servidor sobe normal, só que src/email/notificacoes.js loga um aviso e
+  // não manda nada em vez de quebrar — ver emailConfigurado abaixo.
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: Number(process.env.SMTP_PORT || 587),
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+  },
 };
 
 // SSO configurado = os três campos essenciais preenchidos. Enquanto o App
@@ -37,4 +49,10 @@ export const config = {
 // responde 503 em vez de tentar montar um client OIDC quebrado.
 export const ssoConfigurado = Boolean(
   config.azure.tenantId && config.azure.clientId && config.azure.clientSecret
+);
+
+// E-mail configurado = host/usuário/senha preenchidos. Enquanto o TI não
+// passar as credenciais SMTP (Office 365, SendGrid, etc.), isto é false.
+export const emailConfigurado = Boolean(
+  config.smtp.host && config.smtp.user && config.smtp.pass
 );

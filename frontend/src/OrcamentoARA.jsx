@@ -10,9 +10,10 @@ import {
   Building2, ChevronDown, ChevronRight, Plus, Trash2, Clock, ShieldCheck,
   Users, Loader2, Info,
 } from 'lucide-react';
-import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes } from './api/orcamentos.js';
+import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi } from './api/orcamentos.js';
 import { logout } from './api/auth.js';
 import { legacyStorage } from './legacyStorage.js';
+import { ApiError } from './api/client.js';
 
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
@@ -2573,6 +2574,7 @@ export default function OrcamentoARA({ usuario }) {
   const [dados, setDados] = useState(emptyFormData());
   const [versoes, setVersoes] = useState([]);
   const [statusUnidades, setStatusUnidades] = useState({});
+  const [aguardandoLiberacaoPorUnidade, setAguardandoLiberacaoPorUnidade] = useState({});
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState(null);
@@ -2594,14 +2596,21 @@ export default function OrcamentoARA({ usuario }) {
 
   const unidadeObj = UNIDADES.find(u => u.id === unidadeAtual);
 
+  // Pedido de 2026-08-16: "travar novo envio até FP&A liberar" — vem do
+  // banco (orcamentos.aguardando_liberacao), separado de dados.meta.status
+  // (que fica dentro do JSONB e o gestor controla).
+  const [aguardandoLiberacao, setAguardandoLiberacao] = useState(false);
+
   const carregarUnidade = useCallback(async (idUnidade) => {
     setCarregando(true);
     setErro(null);
     try {
       const r = await getOrcamento(idUnidade);
       setDados(r.orcamento.dados);
+      setAguardandoLiberacao(r.orcamento.aguardando_liberacao || false);
     } catch (e) {
       setDados(emptyFormData());
+      setAguardandoLiberacao(false);
     }
     try {
       setVersoes(await listarVersoes(idUnidade));
@@ -2616,15 +2625,19 @@ export default function OrcamentoARA({ usuario }) {
   const carregarFPA = useCallback(async () => {
     setCarregando(true);
     const mapa = {};
+    const mapaAguardando = {};
     for (const u of UNIDADES) {
       try {
         const r = await getOrcamento(u.id);
         mapa[u.id] = r.orcamento.dados;
+        mapaAguardando[u.id] = r.orcamento.aguardando_liberacao || false;
       } catch (e) {
         mapa[u.id] = emptyFormData();
+        mapaAguardando[u.id] = false;
       }
     }
     setStatusUnidades(mapa);
+    setAguardandoLiberacaoPorUnidade(mapaAguardando);
     // backlog/etapas: ver legacyStorage.js — pendência real, não sincroniza
     // entre usuários ainda (não têm tabela no schema da especificação).
     try {
@@ -2854,6 +2867,7 @@ export default function OrcamentoARA({ usuario }) {
       // não montamos mais o snapshot aqui no cliente.
       const { orcamento, versao } = await enviarVersaoApi(unidadeAtual, comentarioEnvio.trim());
       setDados(orcamento.dados);
+      setAguardandoLiberacao(orcamento.aguardando_liberacao || false);
       setVersoes(await listarVersoes(unidadeAtual));
 
       // Backlog (histórico consolidado do FP&A entre unidades) ainda é
@@ -2875,9 +2889,24 @@ export default function OrcamentoARA({ usuario }) {
 
       setComentarioEnvio('');
     } catch (e) {
-      setErro('Falha ao enviar a versão. Tente novamente em instantes.');
+      // 409 aguardando_liberacao_fpa vem com mensagem específica do backend
+      // (ApiError.message já traz body.mensagem) — as outras falhas caem no
+      // texto genérico de sempre.
+      setErro(e instanceof ApiError && e.status === 409 ? e.message : 'Falha ao enviar a versão. Tente novamente em instantes.');
+      if (e instanceof ApiError && e.status === 409) setAguardandoLiberacao(true);
     }
     setEnviando(false);
+  }
+
+  // Admin FP&A libera o botão "Enviar versão" de uma unidade (pedido de
+  // 2026-08-16) — usado em VisaoFPA, dentro do drill de cada unidade.
+  async function liberarReenvioUnidade(idUnidade) {
+    try {
+      const { orcamento } = await liberarReenvioApi(idUnidade);
+      setAguardandoLiberacaoPorUnidade(prev => ({ ...prev, [idUnidade]: orcamento.aguardando_liberacao || false }));
+    } catch (e) {
+      setErro('Não foi possível liberar o reenvio. Tente novamente.');
+    }
   }
 
   async function abrirDrill(idUnidade) {
@@ -3256,7 +3285,7 @@ export default function OrcamentoARA({ usuario }) {
           unidadesVisiveis={unidadesVisiveis}
           salvarRascunhoAgora={salvarRascunhoAgora} salvandoRascunho={salvandoRascunho} ultimoSalvoEm={ultimoSalvoEm}
           unidadeAtual={unidadeAtual} setUnidadeAtual={setUnidadeAtual} unidadeObj={unidadeObj}
-          aba={aba} setAba={setAba} dados={dados} dre={dre} checks={checks} tudoOk={tudoOk}
+          aba={aba} setAba={setAba} dados={dados} dre={dre} checks={checks} tudoOk={tudoOk} aguardandoLiberacao={aguardandoLiberacao}
           updateProduto={updateProduto} updateDeducao={updateDeducao}
           premissasMacro={premissasMacro}
           addObjetivo={addObjetivo} updateObjetivo={updateObjetivo} removeObjetivo={removeObjetivo}
@@ -3278,7 +3307,8 @@ export default function OrcamentoARA({ usuario }) {
         />
       ) : (
         <VisaoFPA
-          statusUnidades={statusUnidades} backlog={backlog} unidadeDrill={unidadeDrill} abrirDrill={abrirDrill}
+          statusUnidades={statusUnidades} aguardandoLiberacaoPorUnidade={aguardandoLiberacaoPorUnidade} liberarReenvioUnidade={liberarReenvioUnidade}
+          backlog={backlog} unidadeDrill={unidadeDrill} abrirDrill={abrirDrill}
           versoesDrill={versoesDrill} exportarExcel={exportarExcel} solicitarResumoExecutivo={solicitarResumoExecutivo}
           etapasProcesso={etapasProcesso} atualizarEtapa={atualizarEtapa}
           premissasMacro={premissasMacro} updatePremissaMacroGlobal={updatePremissaMacroGlobal}
@@ -3417,7 +3447,7 @@ function VisaoGerente(props) {
   const {
     usuario,
     unidadesVisiveis, salvarRascunhoAgora, salvandoRascunho, ultimoSalvoEm,
-    unidadeAtual, setUnidadeAtual, unidadeObj, aba, setAba, dados, dre, checks, tudoOk,
+    unidadeAtual, setUnidadeAtual, unidadeObj, aba, setAba, dados, dre, checks, tudoOk, aguardandoLiberacao,
     updateProduto, updateDeducao, premissasMacro,
     addObjetivo, updateObjetivo, removeObjetivo, addIniciativa, updateIniciativa, removeIniciativa,
     updateLinha, addDetalhe, updateDetalhe, removeDetalhe,
@@ -3591,6 +3621,7 @@ function VisaoGerente(props) {
             dados={dados} dre={dre} autorNome={autorNome} setAutorNome={setAutorNome}
             comentarioEnvio={comentarioEnvio} setComentarioEnvio={setComentarioEnvio}
             enviarVersao={enviarVersao} enviando={enviando} tudoOk={tudoOk} erro={erro}
+            aguardandoLiberacao={aguardandoLiberacao}
             sensibilidades={dados.sensibilidades} updateCenarioSensibilidade={updateCenarioSensibilidade}
           />
         )}
@@ -5682,7 +5713,7 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
   );
 }
 
-function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, sensibilidades, updateCenarioSensibilidade }) {
+function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade }) {
   const [ifrs18, setIfrs18] = useState(false);
   const fd = computeFluxoIndiretoMensal(dados, dre, refUnidade);
   const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade);
@@ -5836,9 +5867,15 @@ function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentari
           Existem checagens de Auditoria pendentes. Corrija-as antes de enviar (painel à direita).
         </div>
       )}
+      {/* Pedido de 2026-08-16: trava reenvio até o FP&A liberar. */}
+      {aguardandoLiberacao && (
+        <div style={{ background: '#E9F0FB', border: `1px solid ${COR.azul}`, color: COR.azul, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+          Este orçamento já foi enviado e está aguardando liberação do FP&A para permitir um novo envio.
+        </div>
+      )}
 
-      <Botao variante="laranja" icone={Send} onClick={enviarVersao} disabled={!tudoOk || enviando}>
-        {enviando ? 'Enviando…' : 'Enviar versão'}
+      <Botao variante="laranja" icone={Send} onClick={enviarVersao} disabled={!tudoOk || enviando || aguardandoLiberacao}>
+        {enviando ? 'Enviando…' : aguardandoLiberacao ? 'Aguardando liberação do FP&A' : 'Enviar versão'}
       </Botao>
     </div>
   );
@@ -5848,7 +5885,7 @@ function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentari
 // Visão FP&A Corporativo
 // ---------------------------------------------------------------------------
 
-function VisaoFPA({ statusUnidades, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, buscarBoletimFocus, buscandoFocus, erroFocus }) {
+function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, buscarBoletimFocus, buscandoFocus, erroFocus }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
 
@@ -5973,6 +6010,20 @@ function VisaoFPA({ statusUnidades, backlog, unidadeDrill, abrirDrill, versoesDr
                       <span style={{ fontSize: 12.5, color: '#7A8088' }}>Autor: {d?.meta?.autor || '—'}</span>
                       <span style={{ fontSize: 12.5, color: '#7A8088' }}>Atualizado: {formatData(d?.meta?.atualizadoEm)}</span>
                       <span style={{ fontSize: 13.5, fontWeight: 700, color: COR.azul }}>{formatBRL(t.lucroLiquido)}</span>
+                      {/* Pedido de 2026-08-16: não é <button> aninhado de
+                          propósito — a linha inteira já é um <button> (abre
+                          o drill), então isto é um span clicável com
+                          stopPropagation em vez de outro <button>. */}
+                      {aguardandoLiberacaoPorUnidade?.[u.id] && (
+                        <span
+                          role="button" tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); liberarReenvioUnidade(u.id); }}
+                          style={{
+                            fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 14, cursor: 'pointer',
+                            border: `1.5px solid ${COR.azul}`, color: COR.azul, background: '#E9F0FB',
+                          }}
+                        >Liberar novo envio</span>
+                      )}
                       {aberto ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     </div>
                   </button>

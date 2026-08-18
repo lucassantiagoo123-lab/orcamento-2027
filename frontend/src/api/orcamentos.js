@@ -25,6 +25,12 @@ export function aprovar(unidadeId) {
   return apiFetch(`/api/orcamentos/${unidadeId}/aprovar`, { method: 'POST' });
 }
 
+// Admin FP&A libera o botão "Enviar versão" de novo (pedido de 2026-08-16 —
+// depois de um envio, fica travado até essa ação).
+export function liberarReenvio(unidadeId) {
+  return apiFetch(`/api/orcamentos/${unidadeId}/liberar-reenvio`, { method: 'POST' });
+}
+
 // Mapeia { versoes: [{ id, autor_nome, comentario, totais, enviado_em }] }
 // (formato da API) para { id, timestamp, autor, comentario, totais } (formato
 // que o protótipo já usa em VisaoFPA/AbaRevisao) — evita reescrever quem

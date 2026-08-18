@@ -1,4 +1,4 @@
-import { config, ssoConfigurado } from './config.js';
+import { config, ssoConfigurado, emailConfigurado } from './config.js';
 import { criarApp } from './app.js';
 import { rodarMigracoes } from './db/migrate.js';
 
@@ -17,6 +17,12 @@ rodarMigracoes()
         console.warn(
           'AVISO: SSO Entra ID não configurado (sem App Registration ainda) — /auth/login e /auth/callback retornam 503. ' +
           'Preencha AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET em .env quando o TI concluir o registro.'
+        );
+      }
+      if (!emailConfigurado) {
+        console.warn(
+          'AVISO: SMTP não configurado — notificação por e-mail ao FP&A (envio de versão) não vai sair, só fica no log. ' +
+          'Preencha SMTP_HOST/SMTP_USER/SMTP_PASS em .env quando tiver as credenciais.'
         );
       }
     });
