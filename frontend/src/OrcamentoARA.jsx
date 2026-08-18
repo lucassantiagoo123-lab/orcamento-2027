@@ -2091,12 +2091,16 @@ function runAuditoria(data, dre, ref) {
     detalhe: deducaoForaFaixa ? 'Há mês com soma de deduções fora da faixa' : 'Todos os meses dentro da faixa',
   });
 
+  // Pedido de 2026-08-16: deixou de bloquear o envio — aparece como
+  // pendência informativa na Auditoria, mas obrigatorio:false (mesmo padrão
+  // do Balanço/FC Financiamentos abaixo).
   const cg = data.capitalGiro;
   const cgCompleto = ['prazoRecebimento', 'prazoPagamento', 'giroEstoque'].every(k => (cg[k] || []).some(v => v !== ''));
   checks.push({
     label: 'Capital de giro: três prazos com ao menos um mês preenchido (dias corridos)',
     ok: cgCompleto,
     detalhe: cgCompleto ? 'Recebimento, pagamento e giro de estoque informados' : 'Faltam prazos a preencher',
+    obrigatorio: false,
   });
 
   const valoresNegativos = (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || (p.precos || []).some(v => parseNum(v) < 0))
