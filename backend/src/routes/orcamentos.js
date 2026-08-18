@@ -65,6 +65,25 @@ function validarEscritaCcCustos(usuario, unidadeId, dadosNovos) {
   return null;
 }
 
+/** Gestor de CC (pedido de 2026-08-16: "acesso apenas à seção Custos e
+ * Despesas [...] a visão completa é só do Gestor da Unidade e do Admin") —
+ * como o PUT substitui o documento inteiro (não faz merge por seção), a
+ * única forma de garantir isso de verdade é comparar o que veio com o que
+ * já estava salvo: qualquer seção fora de 'custos' que tenha mudado é
+ * rejeitada. dadosAntes vem do próprio buscarOuCriarOrcamento já chamado
+ * na rota — não gera consulta extra. */
+function validarSoCustosAlterado(usuario, dadosAntes, dadosNovos) {
+  if (usuario.perfil !== 'gerente_cc_corporativo') return null;
+  const chaves = new Set([...Object.keys(dadosAntes || {}), ...Object.keys(dadosNovos || {})]);
+  for (const chave of chaves) {
+    if (chave === 'custos') continue;
+    if (JSON.stringify(dadosAntes?.[chave]) !== JSON.stringify(dadosNovos?.[chave])) {
+      return `Gestor de CC só pode alterar a seção Custos e Despesas (tentativa de mudar "${chave}").`;
+    }
+  }
+  return null;
+}
+
 // Unidades sem registro (Corporativo, ARA EI, ARA Energia) caem num ref
 // vazio — cpv/despesas/depreciação dão 0 (nenhum CC bate), em vez de
 // quebrar a rota. Essas unidades só mostram painel de referência no
@@ -94,10 +113,12 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirLancamento
     const { dados, motivo } = req.body;
     if (!dados) return res.status(400).json({ erro: 'dados_obrigatorio' });
 
-    const erroEscopo = validarEscritaCcCustos(req.usuario, req.params.unidadeId, dados);
-    if (erroEscopo) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroEscopo });
-
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
+
+    const erroEscopoCc = validarEscritaCcCustos(req.usuario, req.params.unidadeId, dados);
+    if (erroEscopoCc) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroEscopoCc });
+    const erroSecao = validarSoCustosAlterado(req.usuario, atual.dados, dados);
+    if (erroSecao) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroSecao });
 
     // Seção 4.5 — bloqueio pós-aprovação: só admin_fpa escreve depois de
     // aprovado, e precisa justificar (motivo vai para log_alteracoes.motivo).

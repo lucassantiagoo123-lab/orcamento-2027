@@ -2491,7 +2491,12 @@ export default function OrcamentoARA({ usuario }) {
     : UNIDADES.filter(u => usuario.unidadesPermitidas.includes(u.id));
 
   const [unidadeAtual, setUnidadeAtual] = useState(unidadesVisiveis[0]?.id || UNIDADES[0].id);
-  const [aba, setAba] = useState('estrategicas');
+  // Gestor de CC (pedido de 2026-08-16): "acesso apenas à seção Custos e
+  // Despesas [...] a visão completa das seções é só do Gestor da Unidade e
+  // do Admin". Trava a aba inicial em 'custos' — a barra de abas abaixo
+  // (VisaoGerente) já nem mostra as outras pra este perfil, então não tem
+  // como setAba sair daqui através da UI.
+  const [aba, setAba] = useState(usuario.perfil === 'gerente_cc_corporativo' ? 'custos' : 'estrategicas');
   const [dados, setDados] = useState(emptyFormData());
   const [versoes, setVersoes] = useState([]);
   const [statusUnidades, setStatusUnidades] = useState({});
@@ -3440,7 +3445,10 @@ function VisaoGerente(props) {
       ) : (
         <>
       <div style={{ display: 'flex', gap: 2, borderBottom: `2px solid ${COR.borda}`, marginBottom: 18, flexWrap: 'wrap' }}>
-        {ABAS.map(a => (
+        {/* Gestor de CC (pedido de 2026-08-16): só Custos e Despesas — a
+            visão completa das seções é exclusiva de Gestor da Unidade e
+            Admin FP&A. */}
+        {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos') : ABAS).map(a => (
           <button
             key={a.id} onClick={() => setAba(a.id)}
             style={{

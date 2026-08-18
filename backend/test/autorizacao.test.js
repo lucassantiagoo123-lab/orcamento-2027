@@ -77,19 +77,51 @@ test('caso 2 (escrita) — Gestor de CC não consegue gravar custos.linhas de um
   const gerenteCc = await seedUsuario({ perfil: 'gerente_cc_corporativo', ccs: [{ unidadeId: 'textil', codigo: '00401' }] });
   const cookie = cookieDeSessao(gerenteCc.id);
 
+  // O PUT substitui o documento inteiro (não faz merge por seção) — o
+  // frontend real sempre manda o `dados` completo (buscado antes por GET),
+  // então o teste precisa fazer o mesmo pra não disparar
+  // validarSoCustosAlterado (que rejeitaria um payload parcial mesmo sem
+  // nenhuma tentativa de mexer fora de custos).
+  const atual = await (await fetch(`${baseUrl}/api/orcamentos/textil`, { headers: { cookie } })).json();
+
+  const dadosComLinhaPropria = {
+    ...atual.orcamento.dados,
+    custos: { ...atual.orcamento.dados.custos, linhas: { '00401|71101001': { tipo: 'valor', valores: Array(12).fill('100') } } },
+  };
   const escritaProprioCc = await fetch(`${baseUrl}/api/orcamentos/textil`, {
     method: 'PUT',
     headers: { cookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ dados: { custos: { linhas: { '00401|71101001': { tipo: 'valor', valores: Array(12).fill('100') } } } } }),
+    body: JSON.stringify({ dados: dadosComLinhaPropria }),
   });
   assert.equal(escritaProprioCc.status, 200, 'deveria conseguir gravar uma linha do próprio CC');
 
+  const dadosComLinhaAlheia = {
+    ...atual.orcamento.dados,
+    custos: { ...atual.orcamento.dados.custos, linhas: { '00402|71101001': { tipo: 'valor', valores: Array(12).fill('100') } } },
+  };
   const escritaCcAlheio = await fetch(`${baseUrl}/api/orcamentos/textil`, {
     method: 'PUT',
     headers: { cookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ dados: { custos: { linhas: { '00402|71101001': { tipo: 'valor', valores: Array(12).fill('100') } } } } }),
+    body: JSON.stringify({ dados: dadosComLinhaAlheia }),
   });
   assert.equal(escritaCcAlheio.status, 403, 'não deveria conseguir gravar uma linha de outro CC (00402 não é dele)');
+});
+
+test('caso 2 (escrita) — Gestor de CC não consegue alterar seção fora de Custos e Despesas', async () => {
+  const gerenteCc = await seedUsuario({ perfil: 'gerente_cc_corporativo', ccs: [{ unidadeId: 'textil', codigo: '00401' }] });
+  const cookie = cookieDeSessao(gerenteCc.id);
+  const atual = await (await fetch(`${baseUrl}/api/orcamentos/textil`, { headers: { cookie } })).json();
+
+  const dadosComReceitaAlterada = {
+    ...atual.orcamento.dados,
+    receita: { ...atual.orcamento.dados.receita, justificativaGeral: 'tentativa de mexer fora do escopo' },
+  };
+  const resp = await fetch(`${baseUrl}/api/orcamentos/textil`, {
+    method: 'PUT',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ dados: dadosComReceitaAlterada }),
+  });
+  assert.equal(resp.status, 403, 'Gestor de CC só pode alterar a seção Custos e Despesas');
 });
 
 test('caso 6 — usuário desativado não autentica, mesmo com sessão ainda não expirada', async () => {
