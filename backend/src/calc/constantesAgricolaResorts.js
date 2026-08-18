@@ -595,7 +595,7 @@ export const PLANO_CONTAS_CORPORATIVO = {
   administrativo: [
     { codigo: 'CORP06', nome: "Material de expediente", origem: 'Despesa' },
     { codigo: 'CORP11', nome: "Material de Informática", origem: 'Despesa' },
-    { codigo: 'CORP15', nome: "Eventos e Confratenizações", origem: 'Despesa' },
+    { codigo: 'CORP15', nome: "Eventos e Confraternizações", origem: 'Despesa' },
     { codigo: 'CORP16', nome: "Caixa Fundo fixo", origem: 'Despesa' },
     { codigo: 'CORP17', nome: "Despesas Diversas", origem: 'Despesa' },
     { codigo: 'CORP19', nome: "Material de Copa/Cozinha e limpeza", origem: 'Despesa' },
