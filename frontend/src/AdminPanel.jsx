@@ -124,6 +124,34 @@ function LinhaUsuario({ usuario, onMudou }) {
   const [senhaNova, setSenhaNova] = useState('');
   const [erroSenha, setErroSenha] = useState(null);
   const [salvandoSenha, setSalvandoSenha] = useState(false);
+  const [nome, setNome] = useState(usuario.nome);
+  const [email, setEmail] = useState(usuario.email);
+  const [erroPerfilBasico, setErroPerfilBasico] = useState(null);
+
+  async function salvarNome() {
+    const valor = nome.trim();
+    if (!valor || valor === usuario.nome) { setNome(usuario.nome); return; }
+    setErroPerfilBasico(null);
+    try {
+      await atualizarUsuario(usuario.id, { nome: valor });
+      onMudou();
+    } catch (err) {
+      setErroPerfilBasico(err instanceof ApiError ? err.message : 'Falha ao salvar o nome.');
+      setNome(usuario.nome);
+    }
+  }
+  async function salvarEmail() {
+    const valor = email.trim().toLowerCase();
+    if (!valor || valor === usuario.email) { setEmail(usuario.email); return; }
+    setErroPerfilBasico(null);
+    try {
+      await atualizarUsuario(usuario.id, { email: valor });
+      onMudou();
+    } catch (err) {
+      setErroPerfilBasico(err instanceof ApiError ? err.message : 'Falha ao salvar o e-mail.');
+      setEmail(usuario.email);
+    }
+  }
 
   async function handleDefinirSenha(e) {
     e.preventDefault();
@@ -166,8 +194,21 @@ function LinhaUsuario({ usuario, onMudou }) {
 
   return (
     <tr style={{ opacity: usuario.ativo ? 1 : 0.5 }}>
-      <td style={td}>{usuario.nome}</td>
-      <td style={td}>{usuario.email}</td>
+      <td style={td}>
+        <input
+          value={nome} onChange={(e) => setNome(e.target.value)}
+          onBlur={salvarNome} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+          style={{ ...campo, width: 130 }}
+        />
+      </td>
+      <td style={td}>
+        <input
+          type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+          onBlur={salvarEmail} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+          style={{ ...campo, width: 190 }}
+        />
+        {erroPerfilBasico && <div style={{ color: '#C00000', fontSize: 10.5, marginTop: 3 }}>{erroPerfilBasico}</div>}
+      </td>
       <td style={td}>
         <select value={usuario.perfil} onChange={(e) => mudarPerfil(e.target.value)} style={campo}>
           {Object.entries(PERFIL_LABEL).map(([id, label]) => <option key={id} value={id}>{label}</option>)}

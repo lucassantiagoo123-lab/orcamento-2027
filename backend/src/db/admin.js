@@ -26,13 +26,15 @@ export async function criarUsuario({ nome, email, perfil }) {
   return rows[0];
 }
 
-export async function atualizarUsuario(id, { perfil, ativo }) {
+export async function atualizarUsuario(id, { perfil, ativo, nome, email }) {
   const { rows } = await pool.query(
     `UPDATE usuarios SET
        perfil = COALESCE($2, perfil),
-       ativo = COALESCE($3, ativo)
+       ativo = COALESCE($3, ativo),
+       nome = COALESCE($4, nome),
+       email = COALESCE($5, email)
      WHERE id = $1 RETURNING *`,
-    [id, perfil ?? null, ativo ?? null]
+    [id, perfil ?? null, ativo ?? null, nome ?? null, email ? email.toLowerCase() : null]
   );
   return rows[0];
 }

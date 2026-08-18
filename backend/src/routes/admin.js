@@ -36,19 +36,30 @@ adminRouter.post('/usuarios', async (req, res, next) => {
   }
 });
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 adminRouter.patch('/usuarios/:id', async (req, res, next) => {
   try {
-    const { perfil, ativo } = req.body;
+    const { perfil, ativo, nome, email } = req.body;
     if (perfil !== undefined && !PERFIS_VALIDOS.includes(perfil)) {
       return res.status(400).json({ erro: 'perfil_invalido' });
+    }
+    if (nome !== undefined && !nome.trim()) {
+      return res.status(400).json({ erro: 'nome_invalido' });
+    }
+    if (email !== undefined && !EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ erro: 'email_invalido' });
     }
     // Seção 6, teste 6: usuário desativado perde acesso na hora — não exige
     // nada além disto, porque authenticate.js já busca `ativo` do banco a
     // cada request (não confia em nada cacheado na sessão).
-    const usuario = await atualizarUsuario(req.params.id, { perfil, ativo });
+    const usuario = await atualizarUsuario(req.params.id, { perfil, ativo, nome, email });
     if (!usuario) return res.status(404).json({ erro: 'usuario_nao_encontrado' });
     res.json({ usuario });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ erro: 'email_ja_cadastrado' });
+    next(err);
+  }
 });
 
 /** Admin define/reseta a senha de qualquer usuário — não há autocadastro
