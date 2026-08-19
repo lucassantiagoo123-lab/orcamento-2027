@@ -3746,6 +3746,7 @@ function VisaoGerente(props) {
         {aba === 'revisao' && (
           <AbaRevisao
             refUnidade={referenciaDaUnidade(unidadeAtual)}
+            unidadeId={unidadeAtual} versoes={versoes}
             dados={dados} dre={dre} autorNome={autorNome} setAutorNome={setAutorNome}
             comentarioEnvio={comentarioEnvio} setComentarioEnvio={setComentarioEnvio}
             enviarVersao={enviarVersao} enviando={enviando} tudoOk={tudoOk} erro={erro}
@@ -6569,7 +6570,7 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
   );
 }
 
-function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade }) {
+function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade }) {
   const [ifrs18, setIfrs18] = useState(false);
   const fd = computeFluxoIndiretoMensal(dados, dre, refUnidade);
   const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade);
@@ -6733,6 +6734,169 @@ function AbaRevisao({ refUnidade, dados, dre, autorNome, setAutorNome, comentari
       <Botao variante="laranja" icone={Send} onClick={enviarVersao} disabled={!tudoOk || enviando || aguardandoLiberacao}>
         {enviando ? 'Enviando…' : aguardandoLiberacao ? 'Aguardando liberação do FP&A' : 'Enviar versão'}
       </Botao>
+
+      {/* Pedido de 2026-08-19: "ao final da seção... análise de variações
+          entre versões... macro e micro contas (analíticas)". Só quem
+          abre esta aba já é Gestor da Unidade ou Admin FP&A (Gestor de CC
+          nem vê a Revisão — ver ABAS/VisaoGerente), então não precisa de
+          gate de perfil adicional aqui dentro. */}
+      <AnaliseVariacoes dados={dados} dre={dre} refUnidade={refUnidade} unidadeId={unidadeId} versoes={versoes} />
+    </div>
+  );
+}
+
+// "Análise de Variações entre Versões" (pedido de 2026-08-19) — compara a
+// versão atual (em edição, ainda não necessariamente enviada) com uma
+// versão já enviada, escolhida num seletor. Macro = linhas da DRE
+// (cascata); micro = contas analíticas de Custos e Despesas (CC × Conta) —
+// mesma terminologia usada no resto do app ("conta analítica" sempre quer
+// dizer uma linha de Custos e Despesas, ver AbaCustos/LinhaConta).
+function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes }) {
+  const [versaoSelId, setVersaoSelId] = useState('');
+  const [versaoSel, setVersaoSel] = useState(null);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState(null);
+
+  async function selecionarVersao(id) {
+    setVersaoSelId(id);
+    setVersaoSel(null);
+    setErro(null);
+    if (!id) return;
+    setCarregando(true);
+    try {
+      const v = await buscarVersaoApi(unidadeId, id);
+      setVersaoSel(v);
+    } catch (e) {
+      setErro('Não foi possível carregar essa versão. Tente novamente.');
+    }
+    setCarregando(false);
+  }
+
+  function linhasMacro(dreA) {
+    return [
+      { label: 'Receita Bruta', valor: dreA.receitaBruta },
+      { label: '(-) Deduções', valor: -dreA.deducoes },
+      { label: '(=) Receita Líquida', valor: dreA.receitaLiquida },
+      { label: '(-) CPV', valor: -dreA.cpv },
+      { label: '(=) Lucro Bruto', valor: dreA.lucroBruto },
+      { label: '(-) Despesas Operacionais', valor: -dreA.despesasSemDA },
+      { label: '(=) EBITDA', valor: dreA.ebitda },
+      { label: '(-) Depreciação e Amortização', valor: -dreA.depreciacao },
+      { label: '(+/-) Resultado Financeiro', valor: dreA.resultadoFinanceiro },
+      { label: '(+/-) Outras Receitas e Despesas', valor: dreA.outras },
+      { label: '(-) IRCSL', valor: -dreA.ircsl },
+      { label: '(=) Lucro Líquido', valor: dreA.lucroLiquido },
+    ];
+  }
+
+  const dreVersao = versaoSel ? computeDRE(versaoSel.dados, refUnidade) : null;
+  const macroAtual = linhasMacro(dre);
+  const macroVersao = dreVersao ? linhasMacro(dreVersao) : null;
+
+  const microLinhas = useMemo(() => {
+    if (!versaoSel || !dreVersao) return [];
+    const linhasAtuais = dados.custos.linhas || {};
+    const linhasVersao = versaoSel.dados.custos?.linhas || {};
+    const chaves = new Set([...Object.keys(linhasAtuais), ...Object.keys(linhasVersao)]);
+    const linhas = [];
+    chaves.forEach((chave) => {
+      const [ccCodigo, contaCodigo] = chave.split('|');
+      const totalAtual = valorLinhaAnual(linhasAtuais[chave], dre.receitaBrutaMes, dre.receitaLiquidaMes);
+      const totalVersao = valorLinhaAnual(linhasVersao[chave], dreVersao.receitaBrutaMes, dreVersao.receitaLiquidaMes);
+      const diff = totalAtual - totalVersao;
+      if (Math.abs(diff) < 0.01) return;
+      const cc = refUnidade.ccs.find((c) => c.codigo === ccCodigo);
+      const conta = refUnidade.todasContas[contaCodigo];
+      linhas.push({ chave, ccNome: cc?.nome || ccCodigo, contaNome: conta?.nome || contaCodigo, totalAtual, totalVersao, diff });
+    });
+    return linhas.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+  }, [versaoSel, dreVersao, dados, dre, refUnidade]);
+
+  function linhaDiff(label, atual, versao, i) {
+    const diff = atual - versao;
+    const diffPct = versao !== 0 ? (diff / Math.abs(versao)) * 100 : (diff !== 0 ? null : 0);
+    const cor = diff > 0 ? COR.verde : diff < 0 ? COR.vermelho : '#8A8F96';
+    return (
+      <tr key={label} style={{ background: i % 2 ? COR.claro : COR.branco }}>
+        <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: i % 2 ? COR.claro : COR.branco }}>{label}</td>
+        <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{formatBRL(atual)}</td>
+        <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{formatBRL(versao)}</td>
+        <td style={{ fontSize: 11, fontWeight: 700, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right', color: cor }}>{diff > 0 ? '+' : ''}{formatBRL(diff)}</td>
+        <td style={{ fontSize: 11, fontWeight: 700, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right', color: cor }}>{diffPct === null ? '—' : `${diffPct > 0 ? '+' : ''}${diffPct.toFixed(1)}%`}</td>
+      </tr>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 30, borderTop: `2px solid ${COR.borda}`, paddingTop: 20 }}>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>Análise de Variações entre Versões</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Compara a versão atual (em edição) com uma versão já enviada — macro (DRE) e micro (contas analíticas de Custos e Despesas).
+      </p>
+
+      <div style={{ maxWidth: 420, marginBottom: 16 }}>
+        <Rotulo>Comparar com a versão enviada</Rotulo>
+        <Selecao
+          value={versaoSelId} onChange={selecionarVersao}
+          opcoes={[
+            { id: '', nome: versoes.length === 0 ? 'Nenhuma versão enviada ainda' : 'Selecione uma versão…' },
+            ...versoes.map((v) => ({ id: v.id, nome: `${formatData(v.timestamp)} — ${v.autor}${v.comentario ? ' — ' + v.comentario : ''}` })),
+          ]}
+        />
+      </div>
+
+      {carregando && <p style={{ fontSize: 12, color: '#7A8088' }}>Carregando versão…</p>}
+      {erro && <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12 }}>{erro}</div>}
+
+      {macroVersao && (
+        <>
+          <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 10, marginBottom: 4 }}>Macro — DRE</h4>
+          <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
+            Atual vs. versão enviada em {formatData(versaoSel.enviado_em)} por {versaoSel.autor_nome}.
+          </p>
+          <div style={{ overflowX: 'auto', marginBottom: 20 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '6px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Linha</th>
+                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 100 }}>Atual</th>
+                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 100 }}>Versão enviada</th>
+                  <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 100 }}>Diferença (R$)</th>
+                  <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 80 }}>Diferença (%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {macroAtual.map((linha, i) => linhaDiff(linha.label, linha.valor, macroVersao[i].valor, i))}
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Micro — Contas analíticas (Custos e Despesas)</h4>
+          <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
+            Só contas com diferença — {microLinhas.length} conta(s) mudou(mudaram) entre as duas versões, ordenadas pela maior variação.
+          </p>
+          {microLinhas.length === 0 ? (
+            <p style={{ fontSize: 11.5, color: '#8A8F96' }}>Nenhuma diferença nas contas analíticas entre a versão atual e a selecionada.</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '6px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>CC — Conta</th>
+                    <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 100 }}>Atual</th>
+                    <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 100 }}>Versão enviada</th>
+                    <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 100 }}>Diferença (R$)</th>
+                    <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 80 }}>Diferença (%)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {microLinhas.map((l, i) => linhaDiff(`${l.ccNome} — ${l.contaNome}`, l.totalAtual, l.totalVersao, i))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
