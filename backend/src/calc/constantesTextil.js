@@ -28,15 +28,28 @@ export const DEDUCOES_REF = [
   { id: 'cancelamentos', nome: 'Cancelamentos', pctRef: 3.00 },
 ];
 
+// Nível de subárea (14 CCs) — fonte: extrato CTT010 fornecido pelo usuário
+// em 2026-08-19 (código, descrição, responsável), resolvendo a pendência
+// registrada desde a Fase 1 ("granularidade do CC: usando nível de área —
+// confirmar se deve descer ao nível de subárea"). Substitui o nível de área
+// anterior (8 CCs, códigos 00401/00402/... — histórico, não usar mais).
+// tipo: prefixo 001./002. = despesa (apoio/comercial), 004. = produção —
+// mesma lógica de classificação da lista anterior.
 export const CCS_TEXTIL = [
-  { codigo: '00401', nome: 'Malharia', tipo: 'producao' },
-  { codigo: '00402', nome: 'Beneficiamento', tipo: 'producao' },
-  { codigo: '00403', nome: 'Produção', tipo: 'producao' },
-  { codigo: '00001', nome: 'Diretoria', tipo: 'despesa' },
-  { codigo: '00101', nome: 'Administração', tipo: 'despesa' },
-  { codigo: '00201', nome: 'Comercial', tipo: 'despesa' },
-  { codigo: '00301', nome: 'Logística', tipo: 'despesa', obs: 'inativo no Protheus — confirmar' },
-  { codigo: '00999', nome: 'Apoio Geral', tipo: 'despesa' },
+  { codigo: '001.0101', nome: 'Administração - Apoio', tipo: 'despesa' },
+  { codigo: '001.0105', nome: 'Tecnologia da Informação', tipo: 'despesa' },
+  { codigo: '001.0109', nome: 'Logística', tipo: 'despesa' },
+  { codigo: '002.0101', nome: 'Vendas', tipo: 'despesa' },
+  { codigo: '002.0102', nome: 'Marketing', tipo: 'despesa' },
+  { codigo: '002.0103', nome: 'Fashion', tipo: 'despesa' },
+  { codigo: '004.0101', nome: 'Malharia', tipo: 'producao' },
+  { codigo: '004.0199', nome: 'Manutenção Malharia', tipo: 'producao' },
+  { codigo: '004.0201', nome: 'Beneficiamento', tipo: 'producao' },
+  { codigo: '004.0299', nome: 'Manutenção Beneficiamento', tipo: 'producao' },
+  { codigo: '004.0301', nome: 'Apoio Produção', tipo: 'producao' },
+  { codigo: '004.0302', nome: 'Qualidade Processo & Produto', tipo: 'producao' },
+  { codigo: '004.0303', nome: 'Infra Estrutura', tipo: 'producao' },
+  { codigo: '004.0304', nome: 'ETE', tipo: 'producao' },
 ];
 
 export const PACOTES_TEXTIL = [

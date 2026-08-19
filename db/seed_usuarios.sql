@@ -80,8 +80,8 @@ INSERT INTO usuarios (nome, email, perfil) VALUES
 -- vínculo documenta a responsabilidade distinta da pessoa, sem alterar (nem
 -- restringir) o escopo de acesso que o perfil admin_fpa já concede.
 
-INSERT INTO usuario_cc_corporativo (usuario_id, cc_codigo)
-SELECT id, cc.codigo
+INSERT INTO usuario_cc_corporativo (usuario_id, unidade_id, cc_codigo)
+SELECT id, 'corporativo', cc.codigo
 FROM usuarios
 JOIN LATERAL (VALUES
   ('alexander.forsberg@grupoara.com.br', '0000102'),  -- Financeiro
@@ -105,3 +105,48 @@ JOIN LATERAL (VALUES
   ('lucas.santiago@grupoara.com.br',     '0010116'),  -- Controladoria
   ('lucas.santiago@grupoara.com.br',     '0010118')   -- FP&A
 ) AS cc(email, codigo) ON cc.email = usuarios.email;
+
+-- ---------------------------------------------------------------------------
+-- Gerentes de CC — ARA Têxtil
+-- Fonte: extrato CTT010 fornecido pelo usuário em 2026-08-19 (código,
+-- descrição, responsável) — CCs conforme CCS_TEXTIL (OrcamentoARA.jsx,
+-- nível de subárea, 14 CCs). Convenção de e-mail própria desta unidade:
+-- nome.sobrenome@aratextil.com.br (diferente do domínio grupoara.com.br
+-- usado nas demais listas deste arquivo).
+-- ---------------------------------------------------------------------------
+INSERT INTO usuarios (nome, email, perfil) VALUES
+  ('Patrícia Marques',   'patricia.marques@aratextil.com.br',   'gerente_cc_corporativo'),
+  ('Antônio Santos',     'antonio.santos@aratextil.com.br',     'gerente_cc_corporativo'),
+  ('Érico Freire',       'erico.freire@aratextil.com.br',       'gerente_cc_corporativo'),
+  ('Waldécio Souza',     'waldecio.souza@aratextil.com.br',     'gerente_cc_corporativo'),
+  ('Vinícius Araújo',    'vinicius.araujo@aratextil.com.br',    'gerente_cc_corporativo'),
+  ('Jefferson Oliveira', 'jefferson.oliveira@aratextil.com.br', 'gerente_cc_corporativo')
+ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO usuario_unidade (usuario_id, unidade_id)
+SELECT id, 'textil' FROM usuarios WHERE email IN (
+  'patricia.marques@aratextil.com.br', 'antonio.santos@aratextil.com.br', 'erico.freire@aratextil.com.br',
+  'waldecio.souza@aratextil.com.br', 'vinicius.araujo@aratextil.com.br', 'jefferson.oliveira@aratextil.com.br'
+)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO usuario_cc_corporativo (usuario_id, unidade_id, cc_codigo)
+SELECT id, 'textil', cc.codigo
+FROM usuarios
+JOIN LATERAL (VALUES
+  ('patricia.marques@aratextil.com.br',   '001.0101'),  -- Administração - Apoio
+  ('patricia.marques@aratextil.com.br',   '001.0105'),  -- Tecnologia da Informação
+  ('patricia.marques@aratextil.com.br',   '004.0301'),  -- Apoio Produção
+  ('antonio.santos@aratextil.com.br',     '001.0109'),  -- Logística
+  ('erico.freire@aratextil.com.br',       '002.0101'),  -- Vendas
+  ('erico.freire@aratextil.com.br',       '002.0102'),  -- Marketing
+  ('erico.freire@aratextil.com.br',       '002.0103'),  -- Fashion
+  ('waldecio.souza@aratextil.com.br',     '004.0101'),  -- Malharia
+  ('waldecio.souza@aratextil.com.br',     '004.0199'),  -- Manutenção Malharia
+  ('waldecio.souza@aratextil.com.br',     '004.0303'),  -- Infra Estrutura
+  ('waldecio.souza@aratextil.com.br',     '004.0304'),  -- ETE
+  ('vinicius.araujo@aratextil.com.br',    '004.0201'),  -- Beneficiamento
+  ('vinicius.araujo@aratextil.com.br',    '004.0299'),  -- Manutenção Beneficiamento
+  ('jefferson.oliveira@aratextil.com.br', '004.0302')   -- Qualidade Processo & Produto
+) AS cc(email, codigo) ON cc.email = usuarios.email
+ON CONFLICT DO NOTHING;

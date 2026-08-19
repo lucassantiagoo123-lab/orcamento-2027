@@ -357,16 +357,46 @@ const PREMISSAS_MACRO_REF = [
   { id: 'reajuste_salarial', nome: 'Reajuste salarial/dissídio', unidade: '% a.a.' },
 ];
 
-// ---- Centros de Custo — Consulta CTT010 (colunas B/E), nível de área ----
-// PROPOSTO — a confirmar: granularidade (área vs subárea) e classificação Custo x Despesa
+// ---- Centros de Custo — Consulta CTT010, nível de subárea (14 CCs) ----
+// Fonte: extrato CTT010 fornecido pelo usuário em 2026-08-19 (código,
+// descrição, responsável) — resolve a pendência registrada desde a Fase 1
+// ("granularidade do CC: usando nível de área — confirmar se deve descer ao
+// nível de subárea"). Substitui o nível de área anterior (8 CCs, códigos
+// 00401/00402/... — ver CCS_PLACEHOLDER_AGRICOLA_RESORTS logo abaixo, que
+// preserva essa lista antiga como placeholder pra Agrícola/Resorts, já que
+// elas apontavam pra este mesmo array antes desta mudança).
+// tipo: prefixo 001./002. = despesa (apoio/comercial), 004. = produção.
 export const CCS_TEXTIL = [
-  { codigo: '00401', nome: 'Malharia', tipo: 'producao' },
+  { codigo: '001.0101', nome: 'Administração - Apoio', tipo: 'despesa' },
+  { codigo: '001.0105', nome: 'Tecnologia da Informação', tipo: 'despesa' },
+  { codigo: '001.0109', nome: 'Logística', tipo: 'despesa' },
+  { codigo: '002.0101', nome: 'Vendas', tipo: 'despesa' },
+  { codigo: '002.0102', nome: 'Marketing', tipo: 'despesa' },
+  { codigo: '002.0103', nome: 'Fashion', tipo: 'despesa' },
+  { codigo: '004.0101', nome: 'Malharia', tipo: 'producao' },
+  { codigo: '004.0199', nome: 'Manutenção Malharia', tipo: 'producao' },
+  { codigo: '004.0201', nome: 'Beneficiamento', tipo: 'producao' },
+  { codigo: '004.0299', nome: 'Manutenção Beneficiamento', tipo: 'producao' },
+  { codigo: '004.0301', nome: 'Apoio Produção', tipo: 'producao' },
+  { codigo: '004.0302', nome: 'Qualidade Processo & Produto', tipo: 'producao' },
+  { codigo: '004.0303', nome: 'Infra Estrutura', tipo: 'producao' },
+  { codigo: '004.0304', nome: 'ETE', tipo: 'producao' },
+];
+
+// Decisão de 2026-08-09 (Agrícola/Resorts sem CC oficial — ver nota no
+// arquivo espelho backend/src/calc/constantesAgricolaResorts.js): antes,
+// Agrícola/Resorts apontavam direto pra CCS_TEXTIL (mesma referência!) —
+// agora que CCS_TEXTIL virou o nível de subárea real da Têxtil (2026-08-19),
+// essa lista antiga (nível de área, 8 CCs) precisou virar um array próprio
+// pra não vazar CC da Têxtil pra Agrícola/Resorts.
+export const CCS_PLACEHOLDER_AGRICOLA_RESORTS = [
+  { codigo: '00401', nome: 'Malharia', tipo: 'producao' }, // nome herdado da Têxtil — ajustar ao subir a planilha real
   { codigo: '00402', nome: 'Beneficiamento', tipo: 'producao' },
   { codigo: '00403', nome: 'Produção', tipo: 'producao' },
   { codigo: '00001', nome: 'Diretoria', tipo: 'despesa' },
   { codigo: '00101', nome: 'Administração', tipo: 'despesa' },
   { codigo: '00201', nome: 'Comercial', tipo: 'despesa' },
-  { codigo: '00301', nome: 'Logística', tipo: 'despesa', obs: 'inativo no Protheus — confirmar' },
+  { codigo: '00301', nome: 'Logística', tipo: 'despesa' },
   { codigo: '00999', nome: 'Apoio Geral', tipo: 'despesa' },
 ];
 
@@ -1234,15 +1264,17 @@ Object.entries(PLANO_CONTAS_RESORTS).forEach(([pacoteId, contas]) => {
 });
 
 // Decisão de 2026-08-09: Agrícola e Resorts habilitadas com lançamento
-// completo, usando os mesmos 8 CCs genéricos da Têxtil como PLACEHOLDER —
-// a matriz de governança não traz CC oficial pra essas duas ainda. Trocar
-// por CCS_TEXTIL.slice() próprio de cada unidade quando a planilha real
-// chegar (por enquanto compartilham a mesma referência, então editar uma
-// mudaria as duas — cuidado se for editar isto à mão antes de separar).
+// completo, usando 8 CCs genéricos como PLACEHOLDER (CCS_PLACEHOLDER_
+// AGRICOLA_RESORTS, ver definição acima) — a matriz de governança não traz
+// CC oficial pra essas duas ainda. Trocar por uma lista própria de cada
+// unidade quando a planilha real chegar. Até 2026-08-19 esse placeholder
+// era uma referência direta a CCS_TEXTIL (editar uma mudava as duas); agora
+// é um array separado, já que CCS_TEXTIL virou o CC real (nível de
+// subárea) da própria Têxtil.
 const REFERENCIA_POR_UNIDADE = {
   textil: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS, todasContas: TODAS_CONTAS, pacotes: PACOTES_TEXTIL },
-  agricola: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
-  resorts: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
+  agricola: { ccs: CCS_PLACEHOLDER_AGRICOLA_RESORTS, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
+  resorts: { ccs: CCS_PLACEHOLDER_AGRICOLA_RESORTS, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
   // Decisão de 2026-08-16: Corporativo usa os 20 CCs reais (CCS_CORPORATIVO,
   // fonte confiável) — diferente de Agrícola/Resorts, que usam CC
   // placeholder. Todo CC recebe o mesmo plano de contas completo, ver nota

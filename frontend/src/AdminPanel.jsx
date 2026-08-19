@@ -9,7 +9,7 @@ import {
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
-import { CCS_TEXTIL, CCS_CORPORATIVO } from './OrcamentoARA.jsx';
+import { CCS_TEXTIL, CCS_PLACEHOLDER_AGRICOLA_RESORTS, CCS_CORPORATIVO } from './OrcamentoARA.jsx';
 
 const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9D9D9', claro: '#F7F7F7' };
 const UNIDADES_IDS = ['textil', 'agricola', 'resorts', 'ei', 'energia', 'corporativo'];
@@ -22,14 +22,15 @@ const PERFIL_LABEL = {
 // 2026-08-16: deixou de ser exclusivo do Corporativo — agora escolhe 1
 // unidade (inclusive Corporativo) e, dentro dela, marca 1 ou mais CCs
 // (checklist — "um gestor pode ser gestor de mais de um CC", correção do
-// mesmo dia). Reaproveita as mesmas listas de CC já usadas no orçamento
-// (Agrícola/Resorts reaproveitam a lista da Têxtil, mesma decisão já tomada
-// para o formulário de orçamento — CLAUDE.md, "pendência de dado-fonte").
-// EI/Energia ainda não têm CC.
+// mesmo dia). Reaproveita as mesmas listas de CC já usadas no orçamento.
+// Têxtil ganhou o CC real em 2026-08-19 (nível de subárea, 14 CCs,
+// CCS_TEXTIL) — Agrícola/Resorts continuam no placeholder genérico
+// (CCS_PLACEHOLDER_AGRICOLA_RESORTS — CLAUDE.md, "pendência de
+// dado-fonte", ainda sem CC oficial pra elas). EI/Energia ainda não têm CC.
 const CCS_POR_UNIDADE = {
   textil: CCS_TEXTIL,
-  agricola: CCS_TEXTIL,
-  resorts: CCS_TEXTIL,
+  agricola: CCS_PLACEHOLDER_AGRICOLA_RESORTS,
+  resorts: CCS_PLACEHOLDER_AGRICOLA_RESORTS,
   corporativo: CCS_CORPORATIVO,
   ei: [],
   energia: [],
