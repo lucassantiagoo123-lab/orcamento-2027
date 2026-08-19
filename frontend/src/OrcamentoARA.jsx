@@ -2038,22 +2038,36 @@ function computePlano5Y(dre, anos) {
   return resultado;
 }
 
-function runAuditoria(data, dre, ref) {
+// unidadeId opcional (default undefined = comportamento antigo, todas as
+// checagens) — usado pra excluir checagens estruturalmente inaplicáveis ao
+// Corporativo (pedido de 2026-08-19: "os check de auditoria não
+// funcionam... não precisa de pendências de estrutura"). Corporativo não
+// tem Receita (unidade de back-office, ver aviso na aba 2) nem CC de
+// produção (só 'despesa', ver CCS_CORPORATIVO) — as checagens de Receita e
+// de CPV nunca teriam como passar ali, então em vez de aparecer
+// permanentemente vermelhas (dando a impressão de "auditoria quebrada"),
+// somem da lista pra essa unidade.
+function runAuditoria(data, dre, ref, unidadeId) {
   const checks = [];
-  if (data.receita.linhas) {
-    const linhasReceitaValidas = Object.values(data.receita.linhas).filter(l => valorLinhaAnual(l, null, null) > 0);
-    checks.push({
-      label: 'Receita: ao menos uma linha (Hospedagem, A&B, etc.) com valor lançado',
-      ok: linhasReceitaValidas.length > 0,
-      detalhe: `${linhasReceitaValidas.length} de ${Object.keys(data.receita.linhas).length} linha(s) preenchida(s)`,
-    });
-  } else {
-    const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
-    checks.push({
-      label: 'Receita: ao menos um produto com volume e preço em algum mês',
-      ok: produtosValidos.length > 0,
-      detalhe: `${produtosValidos.length} de ${(data.receita.produtos || []).length} produto(s) preenchido(s)`,
-    });
+  const temReceita = unidadeId !== 'corporativo';
+  const temCcProducao = ref.ccs.some(c => c.tipo === 'producao');
+
+  if (temReceita) {
+    if (data.receita.linhas) {
+      const linhasReceitaValidas = Object.values(data.receita.linhas).filter(l => valorLinhaAnual(l, null, null) > 0);
+      checks.push({
+        label: 'Receita: ao menos uma linha (Hospedagem, A&B, etc.) com valor lançado',
+        ok: linhasReceitaValidas.length > 0,
+        detalhe: `${linhasReceitaValidas.length} de ${Object.keys(data.receita.linhas).length} linha(s) preenchida(s)`,
+      });
+    } else {
+      const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
+      checks.push({
+        label: 'Receita: ao menos um produto com volume e preço em algum mês',
+        ok: produtosValidos.length > 0,
+        detalhe: `${produtosValidos.length} de ${(data.receita.produtos || []).length} produto(s) preenchido(s)`,
+      });
+    }
   }
 
   const justContextoOk = !!(data.estrategicas?.contexto || '').trim();
@@ -2063,31 +2077,35 @@ function runAuditoria(data, dre, ref) {
     detalhe: justContextoOk ? 'Preenchido' : 'Pendente de preenchimento',
   });
 
-  const justReceitaOk = !!(data.receita.justificativaGeral || '').trim();
-  checks.push({
-    label: 'Justificativa geral da receita preenchida (campo obrigatório)',
-    ok: justReceitaOk,
-    detalhe: justReceitaOk ? 'Preenchida' : 'Pendente de preenchimento',
-  });
+  if (temReceita) {
+    const justReceitaOk = !!(data.receita.justificativaGeral || '').trim();
+    checks.push({
+      label: 'Justificativa geral da receita preenchida (campo obrigatório)',
+      ok: justReceitaOk,
+      detalhe: justReceitaOk ? 'Preenchida' : 'Pendente de preenchimento',
+    });
 
-  const justDeducoesOk = !!(data.receita.deducoesJustificativa || '').trim();
-  checks.push({
-    label: 'Justificativa das deduções preenchida (campo obrigatório)',
-    ok: justDeducoesOk,
-    detalhe: justDeducoesOk ? 'Preenchida' : 'Pendente de preenchimento',
-  });
+    const justDeducoesOk = !!(data.receita.deducoesJustificativa || '').trim();
+    checks.push({
+      label: 'Justificativa das deduções preenchida (campo obrigatório)',
+      ok: justDeducoesOk,
+      detalhe: justDeducoesOk ? 'Preenchida' : 'Pendente de preenchimento',
+    });
+  }
 
   const linhasCustos = Object.entries(data.custos.linhas || {});
 
-  const linhasProducao = linhasCustos.filter(([chave]) => {
-    const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
-    return cc?.tipo === 'producao';
-  }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
-  checks.push({
-    label: 'CPV: ao menos uma linha analítica lançada em CC de produção',
-    ok: linhasProducao.length > 0,
-    detalhe: `${linhasProducao.length} linha(s) analítica(s) com valor em CC de produção`,
-  });
+  if (temCcProducao) {
+    const linhasProducao = linhasCustos.filter(([chave]) => {
+      const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
+      return cc?.tipo === 'producao';
+    }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
+    checks.push({
+      label: 'CPV: ao menos uma linha analítica lançada em CC de produção',
+      ok: linhasProducao.length > 0,
+      detalhe: `${linhasProducao.length} linha(s) analítica(s) com valor em CC de produção`,
+    });
+  }
 
   // Pedido de 2026-08-16: retirada do quadro de auditoria (não é mais nem
   // pendência informativa, nem bloqueio de envio).
@@ -2116,13 +2134,15 @@ function runAuditoria(data, dre, ref) {
     detalhe: inadForaFaixa ? 'Há mês com inadimplência fora da faixa' : 'Todos os meses dentro da faixa',
   });
 
-  const somaDeducoesMensal = MESES.map((_, m) => (data.receita.deducoes || []).reduce((acc, d) => acc + parseNum(d.pcts?.[m]), 0));
-  const deducaoForaFaixa = somaDeducoesMensal.some(v => v < 0 || v > 40);
-  checks.push({
-    label: 'Deduções sobre receita dentro de faixa plausível (0% a 40%) em todos os meses',
-    ok: !deducaoForaFaixa,
-    detalhe: deducaoForaFaixa ? 'Há mês com soma de deduções fora da faixa' : 'Todos os meses dentro da faixa',
-  });
+  if (temReceita) {
+    const somaDeducoesMensal = MESES.map((_, m) => (data.receita.deducoes || []).reduce((acc, d) => acc + parseNum(d.pcts?.[m]), 0));
+    const deducaoForaFaixa = somaDeducoesMensal.some(v => v < 0 || v > 40);
+    checks.push({
+      label: 'Deduções sobre receita dentro de faixa plausível (0% a 40%) em todos os meses',
+      ok: !deducaoForaFaixa,
+      detalhe: deducaoForaFaixa ? 'Há mês com soma de deduções fora da faixa' : 'Todos os meses dentro da faixa',
+    });
+  }
 
   // Pedido de 2026-08-16: deixou de bloquear o envio — aparece como
   // pendência informativa na Auditoria, mas obrigatorio:false (mesmo padrão
@@ -2150,14 +2170,18 @@ function runAuditoria(data, dre, ref) {
   // não do gestor da unidade — por isso obrigatorio:false aqui: aparece como
   // pendência informativa na Auditoria, mas NÃO bloqueia o botão de Enviar
   // (ver tudoOk no componente principal, que filtra por obrigatorio !== false).
-  const bal = data.balanco;
-  const balancoBaseOk = bal.caixaInicial !== '' && bal.imobilizadoInicial !== '';
-  checks.push({
-    label: 'Balanço Patrimonial: caixa e imobilizado iniciais informados',
-    ok: balancoBaseOk,
-    detalhe: balancoBaseOk ? 'Saldos de abertura informados' : 'Faltam saldos de abertura (caixa e/ou imobilizado) — responsabilidade do FP&A, não bloqueia envio',
-    obrigatorio: false,
-  });
+  // Corporativo (pedido de 2026-08-19, "não precisa de pendências de
+  // estrutura"): nem aparece — some da lista, não só obrigatorio:false.
+  if (unidadeId !== 'corporativo') {
+    const bal = data.balanco;
+    const balancoBaseOk = bal.caixaInicial !== '' && bal.imobilizadoInicial !== '';
+    checks.push({
+      label: 'Balanço Patrimonial: caixa e imobilizado iniciais informados',
+      ok: balancoBaseOk,
+      detalhe: balancoBaseOk ? 'Saldos de abertura informados' : 'Faltam saldos de abertura (caixa e/ou imobilizado) — responsabilidade do FP&A, não bloqueia envio',
+      obrigatorio: false,
+    });
+  }
 
   return checks;
 }
@@ -2794,7 +2818,7 @@ export default function OrcamentoARA({ usuario }) {
 
   const refUnidadeAtual = referenciaDaUnidade(unidadeAtual);
   const dre = useMemo(() => computeDRE(dados, refUnidadeAtual), [dados, refUnidadeAtual]);
-  const checks = useMemo(() => runAuditoria(dados, dre, refUnidadeAtual), [dados, dre, refUnidadeAtual]);
+  const checks = useMemo(() => runAuditoria(dados, dre, refUnidadeAtual, unidadeAtual), [dados, dre, refUnidadeAtual, unidadeAtual]);
   // Só checks obrigatorio !== false bloqueiam o envio — Balanço Patrimonial
   // é responsabilidade do FP&A, aparece na auditoria mas não trava o gestor.
   const tudoOk = checks.filter(c => c.obrigatorio !== false).every(c => c.ok);
@@ -3631,7 +3655,22 @@ function VisaoGerente(props) {
           />
         )}
         {aba === 'receita' && (
-          dados.receita.linhas ? (
+          // Pedido de 2026-08-19: Corporativo mantém a aba (mesma
+          // estrutura das demais unidades), mas com um aviso em vez do
+          // formulário — não é omissão de dado, é escopo mesmo: unidade de
+          // back-office não fatura.
+          unidadeAtual === 'corporativo' ? (
+            <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 16, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <Info size={18} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>Orçamento do Corporativo não contempla Receitas</div>
+                <div style={{ fontSize: 11.5, color: COR.texto }}>
+                  O Corporativo é uma unidade de back-office (Financeiro, RH, TI, Jurídico, FP&amp;A etc.) — não fatura, então esta seção fica sem
+                  lançamento. O orçamento do Corporativo é só Custos e Despesas.
+                </div>
+              </div>
+            </div>
+          ) : dados.receita.linhas ? (
             <AbaReceitaResorts
               linhas={dados.receita.linhas} deducoes={dados.receita.deducoes}
               deducoesJustificativa={dados.receita.deducoesJustificativa} justificativaGeral={dados.receita.justificativaGeral}
@@ -3689,9 +3728,14 @@ function VisaoGerente(props) {
         <div style={{ flex: '1 1 360px', minWidth: 300 }}>
           <PainelAuditoria checks={checks} />
         </div>
-        <div style={{ flex: '1 1 360px', minWidth: 300 }}>
-          <PainelPendencias />
-        </div>
+        {/* Pedido de 2026-08-19: Corporativo não precisa deste painel — o
+            conteúdo é fixo (texto sobre CC/pacotes/Protheus da Têxtil),
+            sem sentido nenhum pra outra unidade. */}
+        {unidadeAtual !== 'corporativo' && (
+          <div style={{ flex: '1 1 360px', minWidth: 300 }}>
+            <PainelPendencias />
+          </div>
+        )}
         <div style={{ flex: '1 1 300px', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Excel</Botao>
@@ -3907,6 +3951,7 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre }) {
                         onToggle={() => setContaAberta(prev => prev === chaveLinha(c.codigo) ? null : chaveLinha(c.codigo))}
                         total={totalConta(c.codigo)}
                         receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                        ocultarClassificacao={unidadeId === 'corporativo'}
                       />
                     )
                   ))
@@ -4644,7 +4689,7 @@ function LinhaCalculadaMensal({ label, valoresMensal, formatarCelula, formatarTo
   );
 }
 
-function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBrutaMes, receitaLiquidaMes }) {
+function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao }) {
   const valoresMensaisCalc = MESES.map((_, m) => valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes));
   const incoerente = linhaIncoerente(linha);
 
@@ -4664,27 +4709,29 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
           {incoerente && <AlertTriangle size={13} color={COR.vermelho} style={{ flexShrink: 0 }} />}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}
-          >
-            <button
-              onClick={() => onUpdate('classificacao', 'fixo')}
-              style={{
-                fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '2px 8px', border: 'none', cursor: 'pointer',
-                background: linha.classificacao === 'fixo' ? COR.azul : COR.branco,
-                color: linha.classificacao === 'fixo' ? COR.branco : '#8A8F96',
-              }}
-            >Fixo</button>
-            <button
-              onClick={() => onUpdate('classificacao', 'variavel')}
-              style={{
-                fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '2px 8px', border: 'none', cursor: 'pointer',
-                background: linha.classificacao === 'variavel' ? COR.laranja : COR.branco,
-                color: linha.classificacao === 'variavel' ? COR.branco : '#8A8F96',
-              }}
-            >Variável</button>
-          </div>
+          {!ocultarClassificacao && (
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}
+            >
+              <button
+                onClick={() => onUpdate('classificacao', 'fixo')}
+                style={{
+                  fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '2px 8px', border: 'none', cursor: 'pointer',
+                  background: linha.classificacao === 'fixo' ? COR.azul : COR.branco,
+                  color: linha.classificacao === 'fixo' ? COR.branco : '#8A8F96',
+                }}
+              >Fixo</button>
+              <button
+                onClick={() => onUpdate('classificacao', 'variavel')}
+                style={{
+                  fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '2px 8px', border: 'none', cursor: 'pointer',
+                  background: linha.classificacao === 'variavel' ? COR.laranja : COR.branco,
+                  color: linha.classificacao === 'variavel' ? COR.branco : '#8A8F96',
+                }}
+              >Variável</button>
+            </div>
+          )}
           <span style={{ fontSize: 11, fontWeight: 700, color: total > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(total)}</span>
         </div>
       </button>
@@ -4877,7 +4924,7 @@ function LinhaContaViagens({ conta, viagens, aberta, onToggle, onUpdateViagens, 
 // analítica e por premissas"). Mostra as mesmas linhas de premissa que o
 // editor mostra (quantidade/valor unit., ou base/%, ou valor direto), só
 // que via LinhaCalculadaMensal (sem <input>) em vez de GradeMensalLinha.
-function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBrutaMes, receitaLiquidaMes }) {
+function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao }) {
   const valoresMensaisCalc = MESES.map((_, m) => valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes));
   const formatarPct = (v) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
   return (
@@ -4895,7 +4942,7 @@ function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBruta
           <span style={{ fontSize: 11.5, color: COR.texto, fontWeight: aberta ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conta.nome.toLowerCase()}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <span style={{ fontSize: 9.5, fontWeight: 700, color: '#8A8F96' }}>{linha.classificacao === 'variavel' ? 'Variável' : 'Fixo'}</span>
+          {!ocultarClassificacao && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#8A8F96' }}>{linha.classificacao === 'variavel' ? 'Variável' : 'Fixo'}</span>}
           <span style={{ fontSize: 11, fontWeight: 700, color: total > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(total)}</span>
         </div>
       </button>
@@ -5329,8 +5376,12 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
         <span style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul }}>Total anual — {ccAtual.nome}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ fontSize: 11, color: '#7A8088' }}>Fixo: <b style={{ color: COR.azul }}>{formatBRL(todasContasCC.filter(c => (linhas[chaveLinha(c.codigo)]?.classificacao || 'fixo') === 'fixo').reduce((acc, c) => acc + totalConta(c.codigo), 0))}</b></span>
-          <span style={{ fontSize: 11, color: '#7A8088' }}>Variável: <b style={{ color: COR.laranja }}>{formatBRL(todasContasCC.filter(c => linhas[chaveLinha(c.codigo)]?.classificacao === 'variavel').reduce((acc, c) => acc + totalConta(c.codigo), 0))}</b></span>
+          {unidadeId !== 'corporativo' && (
+            <>
+              <span style={{ fontSize: 11, color: '#7A8088' }}>Fixo: <b style={{ color: COR.azul }}>{formatBRL(todasContasCC.filter(c => (linhas[chaveLinha(c.codigo)]?.classificacao || 'fixo') === 'fixo').reduce((acc, c) => acc + totalConta(c.codigo), 0))}</b></span>
+              <span style={{ fontSize: 11, color: '#7A8088' }}>Variável: <b style={{ color: COR.laranja }}>{formatBRL(todasContasCC.filter(c => linhas[chaveLinha(c.codigo)]?.classificacao === 'variavel').reduce((acc, c) => acc + totalConta(c.codigo), 0))}</b></span>
+            </>
+          )}
           <span style={{ fontSize: 15, fontWeight: 700, color: COR.azul }}>{formatBRL(totalCC)}</span>
         </div>
       </div>
@@ -5441,6 +5492,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
                         onUpdate={(campo, valor) => updateLinha(chaveLinha(c.codigo), campo, valor)}
                         total={totalConta(c.codigo)}
                         receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                        ocultarClassificacao={unidadeId === 'corporativo'}
                       />
                     )
                   ))
@@ -5476,6 +5528,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
                   onUpdate={(campo, valor) => updateLinha(chaveLinha(c.codigo), campo, valor)}
                   total={totalConta(c.codigo)}
                   receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                  ocultarClassificacao={unidadeId === 'corporativo'}
                 />
               ))}
             </div>

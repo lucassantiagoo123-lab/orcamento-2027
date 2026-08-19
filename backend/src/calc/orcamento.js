@@ -657,24 +657,34 @@ export function computePlano5Y(dre, anos) {
   return resultado;
 }
 
-export function runAuditoria(data, dre, ref) {
+// unidadeId opcional (default undefined = comportamento antigo, todas as
+// checagens) — pedido de 2026-08-19: exclui checagens estruturalmente
+// inaplicáveis ao Corporativo (sem Receita — unidade de back-office — e
+// sem CC de produção), em vez de deixá-las permanentemente vermelhas.
+// Espelho exato de frontend/src/OrcamentoARA.jsx.
+export function runAuditoria(data, dre, ref, unidadeId) {
   const checks = [];
+  const temReceita = unidadeId !== 'corporativo';
+  const temCcProducao = ref.ccs.some(c => c.tipo === 'producao');
+
   // Modelo por produto (Têxtil/Agrícola) ou por linha (Resorts) — ver
   // receitaBrutaPorMes() em computeDRE. Auditoria checa o que existir.
-  if (data.receita.linhas) {
-    const linhasReceitaValidas = Object.values(data.receita.linhas).filter(l => valorLinhaAnual(l, null, null) > 0);
-    checks.push({
-      label: 'Receita: ao menos uma linha (Hospedagem, A&B, etc.) com valor lançado',
-      ok: linhasReceitaValidas.length > 0,
-      detalhe: `${linhasReceitaValidas.length} de ${Object.keys(data.receita.linhas).length} linha(s) preenchida(s)`,
-    });
-  } else {
-    const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
-    checks.push({
-      label: 'Receita: ao menos um produto com volume e preço em algum mês',
-      ok: produtosValidos.length > 0,
-      detalhe: `${produtosValidos.length} de ${(data.receita.produtos || []).length} produto(s) preenchido(s)`,
-    });
+  if (temReceita) {
+    if (data.receita.linhas) {
+      const linhasReceitaValidas = Object.values(data.receita.linhas).filter(l => valorLinhaAnual(l, null, null) > 0);
+      checks.push({
+        label: 'Receita: ao menos uma linha (Hospedagem, A&B, etc.) com valor lançado',
+        ok: linhasReceitaValidas.length > 0,
+        detalhe: `${linhasReceitaValidas.length} de ${Object.keys(data.receita.linhas).length} linha(s) preenchida(s)`,
+      });
+    } else {
+      const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
+      checks.push({
+        label: 'Receita: ao menos um produto com volume e preço em algum mês',
+        ok: produtosValidos.length > 0,
+        detalhe: `${produtosValidos.length} de ${(data.receita.produtos || []).length} produto(s) preenchido(s)`,
+      });
+    }
   }
 
   const justContextoOk = !!(data.estrategicas?.contexto || '').trim();
@@ -684,31 +694,35 @@ export function runAuditoria(data, dre, ref) {
     detalhe: justContextoOk ? 'Preenchido' : 'Pendente de preenchimento',
   });
 
-  const justReceitaOk = !!(data.receita.justificativaGeral || '').trim();
-  checks.push({
-    label: 'Justificativa geral da receita preenchida (campo obrigatório)',
-    ok: justReceitaOk,
-    detalhe: justReceitaOk ? 'Preenchida' : 'Pendente de preenchimento',
-  });
+  if (temReceita) {
+    const justReceitaOk = !!(data.receita.justificativaGeral || '').trim();
+    checks.push({
+      label: 'Justificativa geral da receita preenchida (campo obrigatório)',
+      ok: justReceitaOk,
+      detalhe: justReceitaOk ? 'Preenchida' : 'Pendente de preenchimento',
+    });
 
-  const justDeducoesOk = !!(data.receita.deducoesJustificativa || '').trim();
-  checks.push({
-    label: 'Justificativa das deduções preenchida (campo obrigatório)',
-    ok: justDeducoesOk,
-    detalhe: justDeducoesOk ? 'Preenchida' : 'Pendente de preenchimento',
-  });
+    const justDeducoesOk = !!(data.receita.deducoesJustificativa || '').trim();
+    checks.push({
+      label: 'Justificativa das deduções preenchida (campo obrigatório)',
+      ok: justDeducoesOk,
+      detalhe: justDeducoesOk ? 'Preenchida' : 'Pendente de preenchimento',
+    });
+  }
 
   const linhasCustos = Object.entries(data.custos.linhas || {});
 
-  const linhasProducao = linhasCustos.filter(([chave]) => {
-    const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
-    return cc?.tipo === 'producao';
-  }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
-  checks.push({
-    label: 'CPV: ao menos uma linha analítica lançada em CC de produção',
-    ok: linhasProducao.length > 0,
-    detalhe: `${linhasProducao.length} linha(s) analítica(s) com valor em CC de produção`,
-  });
+  if (temCcProducao) {
+    const linhasProducao = linhasCustos.filter(([chave]) => {
+      const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
+      return cc?.tipo === 'producao';
+    }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
+    checks.push({
+      label: 'CPV: ao menos uma linha analítica lançada em CC de produção',
+      ok: linhasProducao.length > 0,
+      detalhe: `${linhasProducao.length} linha(s) analítica(s) com valor em CC de produção`,
+    });
+  }
 
   // Pedido de 2026-08-16: retirada do quadro de auditoria (não é mais nem
   // pendência informativa, nem bloqueio de envio).
@@ -737,13 +751,15 @@ export function runAuditoria(data, dre, ref) {
     detalhe: inadForaFaixa ? 'Há mês com inadimplência fora da faixa' : 'Todos os meses dentro da faixa',
   });
 
-  const somaDeducoesMensal = MESES.map((_, m) => (data.receita.deducoes || []).reduce((acc, d) => acc + parseNum(d.pcts?.[m]), 0));
-  const deducaoForaFaixa = somaDeducoesMensal.some(v => v < 0 || v > 40);
-  checks.push({
-    label: 'Deduções sobre receita dentro de faixa plausível (0% a 40%) em todos os meses',
-    ok: !deducaoForaFaixa,
-    detalhe: deducaoForaFaixa ? 'Há mês com soma de deduções fora da faixa' : 'Todos os meses dentro da faixa',
-  });
+  if (temReceita) {
+    const somaDeducoesMensal = MESES.map((_, m) => (data.receita.deducoes || []).reduce((acc, d) => acc + parseNum(d.pcts?.[m]), 0));
+    const deducaoForaFaixa = somaDeducoesMensal.some(v => v < 0 || v > 40);
+    checks.push({
+      label: 'Deduções sobre receita dentro de faixa plausível (0% a 40%) em todos os meses',
+      ok: !deducaoForaFaixa,
+      detalhe: deducaoForaFaixa ? 'Há mês com soma de deduções fora da faixa' : 'Todos os meses dentro da faixa',
+    });
+  }
 
   // Pedido de 2026-08-16: deixou de bloquear o envio — aparece como
   // pendência informativa na Auditoria, mas obrigatorio:false (mesmo padrão
@@ -765,17 +781,20 @@ export function runAuditoria(data, dre, ref) {
     detalhe: valoresNegativos ? 'Há valor negativo lançado — revisar' : 'Sem valores negativos',
   });
 
-  const bal = data.balanco;
   // Pedido de 2026-08-09: Balanço Patrimonial é responsabilidade do FP&A,
   // não bloqueia envio do gestor da unidade — obrigatorio:false (espelha o
   // mesmo campo no .jsx, que é quem realmente decide o botão de Enviar).
-  const balancoBaseOk = bal.caixaInicial !== '' && bal.imobilizadoInicial !== '';
-  checks.push({
-    label: 'Balanço Patrimonial: caixa e imobilizado iniciais informados',
-    ok: balancoBaseOk,
-    detalhe: balancoBaseOk ? 'Saldos de abertura informados' : 'Faltam saldos de abertura (caixa e/ou imobilizado) — responsabilidade do FP&A, não bloqueia envio',
-    obrigatorio: false,
-  });
+  // Corporativo (pedido de 2026-08-19): nem aparece.
+  if (unidadeId !== 'corporativo') {
+    const bal = data.balanco;
+    const balancoBaseOk = bal.caixaInicial !== '' && bal.imobilizadoInicial !== '';
+    checks.push({
+      label: 'Balanço Patrimonial: caixa e imobilizado iniciais informados',
+      ok: balancoBaseOk,
+      detalhe: balancoBaseOk ? 'Saldos de abertura informados' : 'Faltam saldos de abertura (caixa e/ou imobilizado) — responsabilidade do FP&A, não bloqueia envio',
+      obrigatorio: false,
+    });
+  }
 
   return checks;
 }

@@ -112,7 +112,7 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
       dfc: computeDFC(orcamento.dados, dre),
       fluxoIndiretoMensal: computeFluxoIndiretoMensal(orcamento.dados, dre, ref),
       fluxoDiretoMensal: computeFluxoCaixaDiretoMensal(orcamento.dados, dre, ref),
-      auditoria: runAuditoria(orcamento.dados, dre, ref),
+      auditoria: runAuditoria(orcamento.dados, dre, ref, unidadeId),
     });
   } catch (err) { next(err); }
 });
