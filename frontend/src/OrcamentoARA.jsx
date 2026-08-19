@@ -1333,6 +1333,41 @@ function novaLinhaVazia() {
   };
 }
 
+// Calculadora de viagens — só a conta "Passagem e Hospedagem" (CORP18) do
+// Corporativo, decisão de 2026-08-19 ("tela dedicada só para essa conta",
+// não um tipo de premissa geral). Fonte: Viagens.xlsx (aba "1.18 Passagem e
+// Hospedagem"), fórmula da linha 6 conferida célula a célula:
+//   Total = ((Dias × Diária Hospedagem) + (Dias × Alimentação/dia) +
+//            Valor Passagem + Outros Transportes + Outros1+Outros2+Outros3)
+//           × Quantidade de Pessoas
+// Cada bloco da planilha é uma viagem nomeada (destino) com esses 7 campos
+// mês a mês — o formulário replica isso como uma lista de viagens por CC.
+// O total calculado é sincronizado de volta em custos.linhas['CC|CORP18']
+// (premissaTipo 'direto') a cada edição — assim o resto do motor de
+// cálculo (DRE, auditoria, log de alteração) não precisa saber que essa
+// conta específica tem uma tela diferente por trás; só backend/frontend
+// da DRE continuam lendo custos.linhas normalmente, sem duplicar lógica
+// no backend.
+const CONTA_VIAGENS_CALCULADORA = 'CORP18';
+function novaViagem() {
+  return {
+    id: uid(), nome: '',
+    pessoas: mesesVazios(), dias: mesesVazios(),
+    diariaHospedagem: mesesVazios(), valorPassagem: mesesVazios(), outrosTransportes: mesesVazios(),
+    alimentacaoPorDia: mesesVazios(),
+    outros1: mesesVazios(), outros2: mesesVazios(), outros3: mesesVazios(),
+  };
+}
+function computeViagemMes(viagem, m) {
+  const dias = parseNum(viagem.dias?.[m]);
+  const pessoas = parseNum(viagem.pessoas?.[m]);
+  const outros = parseNum(viagem.outros1?.[m]) + parseNum(viagem.outros2?.[m]) + parseNum(viagem.outros3?.[m]);
+  return ((dias * parseNum(viagem.diariaHospedagem?.[m])) + (dias * parseNum(viagem.alimentacaoPorDia?.[m])) + parseNum(viagem.valorPassagem?.[m]) + parseNum(viagem.outrosTransportes?.[m]) + outros) * pessoas;
+}
+function computeViagensMes(viagensCC) {
+  return MESES.map((_, m) => (viagensCC || []).reduce((acc, v) => acc + computeViagemMes(v, m), 0));
+}
+
 // Valor de uma linha (chave CC|Conta) em um mês, de acordo com o tipo de premissa.
 // receitaBrutaMes/receitaLiquidaMes são arrays de 12 posições, vindos do computeDRE.
 function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes) {
@@ -1479,6 +1514,10 @@ function emptyFormData(unidadeId = 'textil') {
     custos: {
       linhas: {}, detalhes: [], funcionarios: [],
       premissasPessoal: { inssPct: '', fgtsPct: '', feriasPct: '', decimoTerceiroPct: '', valeTransporteValor: '', cestaBasicaValor: '', planoSaudeValor: '', outrosBeneficiosValor: '' },
+      // Só Corporativo, conta CORP18 "Passagem e Hospedagem" (decisão de
+      // 2026-08-19) — { [ccCodigo]: [viagem, ...] }, ver
+      // CONTA_VIAGENS_CALCULADORA/novaViagem/computeViagensMes.
+      viagens: {},
     },
     capex: { projetos: [] },
     capitalGiro: {
@@ -3616,6 +3655,7 @@ function VisaoGerente(props) {
             funcionarios={dados.custos.funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
             premissasPessoal={dados.custos.premissasPessoal} updatePremissaPessoal={updatePremissaPessoal}
             importarFuncionariosLote={importarFuncionariosLote}
+            viagens={dados.custos.viagens} atualizar={atualizar}
           />
         )}
         {aba === 'capex' && (
@@ -3763,7 +3803,44 @@ function FolhaPessoalLeitura({ funcionarios, premissasPessoal }) {
 // analítica do editor (AbaCustos/LinhaConta), só que sem nenhum campo
 // editável. É a peça central do pedido de 2026-08-17 ("detalhe até a conta
 // analítica e por premissas").
-function CustosLeituraVersao({ refUnidade, dados, dre }) {
+// Espelho leitura de LinhaViagem/LinhaContaViagens (pedido de 2026-08-19)
+// — usado só quando a conta é CONTA_VIAGENS_CALCULADORA no Corporativo.
+function LinhaContaViagensLeitura({ conta, viagens, total }) {
+  return (
+    <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 6, marginBottom: 6, padding: 10, background: COR.branco }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: COR.texto }}>{conta.nome} <span style={{ fontWeight: 400, color: '#8A8F96' }}>({viagens.length} viagem{viagens.length === 1 ? '' : 'ns'})</span></span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: COR.azul }}>{formatBRL(total)}</span>
+      </div>
+      {viagens.length === 0 && <div style={{ fontSize: 11, color: '#8A8F96' }}>Nenhuma viagem lançada.</div>}
+      {viagens.map(v => {
+        const valoresMensaisCalc = MESES.map((_, m) => computeViagemMes(v, m));
+        return (
+          <div key={v.id} style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: COR.texto, marginBottom: 4 }}>{v.nome || '(sem nome)'} — {formatBRL(somaMes(valoresMensaisCalc))}</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <CabecalhoMensalLeitura rotuloPrimeiraColuna="Premissa" />
+                <tbody>
+                  <LinhaCalculadaMensal label="# Pessoas" valoresMensal={(v.pessoas || mesesVazios()).map(parseNum)} formatarCelula={formatarQtdLeitura} />
+                  <LinhaCalculadaMensal label="Dias de viagem" valoresMensal={(v.dias || mesesVazios()).map(parseNum)} formatarCelula={formatarQtdLeitura} />
+                  <LinhaCalculadaMensal label="Diária Hospedagem (R$)" valoresMensal={(v.diariaHospedagem || mesesVazios()).map(parseNum)} />
+                  <LinhaCalculadaMensal label="Alimentação/dia (R$)" valoresMensal={(v.alimentacaoPorDia || mesesVazios()).map(parseNum)} />
+                  <LinhaCalculadaMensal label="Valor da Passagem (R$)" valoresMensal={(v.valorPassagem || mesesVazios()).map(parseNum)} />
+                  <LinhaCalculadaMensal label="Outros Transportes (R$)" valoresMensal={(v.outrosTransportes || mesesVazios()).map(parseNum)} />
+                  <LinhaCalculadaMensal label="Outros 1+2+3 (R$)" valoresMensal={MESES.map((_, m) => parseNum(v.outros1?.[m]) + parseNum(v.outros2?.[m]) + parseNum(v.outros3?.[m]))} />
+                  <LinhaCalculadaMensal label="Total da viagem (R$)" valoresMensal={valoresMensaisCalc} />
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre }) {
   const [ccSel, setCcSel] = useState(refUnidade.ccs?.[0]?.codigo);
   const [pacotesAbertos, setPacotesAbertos] = useState({});
   const [contaAberta, setContaAberta] = useState(null);
@@ -3820,14 +3897,18 @@ function CustosLeituraVersao({ refUnidade, dados, dre }) {
                   <FolhaPessoalLeitura funcionarios={funcionariosCC} premissasPessoal={premissasPessoal} />
                 ) : (
                   g.contas.map(c => (
-                    <LinhaContaLeitura
-                      key={c.codigo} conta={c}
-                      linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
-                      aberta={contaAberta === chaveLinha(c.codigo)}
-                      onToggle={() => setContaAberta(prev => prev === chaveLinha(c.codigo) ? null : chaveLinha(c.codigo))}
-                      total={totalConta(c.codigo)}
-                      receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
-                    />
+                    c.codigo === CONTA_VIAGENS_CALCULADORA && unidadeId === 'corporativo' ? (
+                      <LinhaContaViagensLeitura key={c.codigo} conta={c} viagens={dados.custos?.viagens?.[ccSel] || []} total={totalConta(c.codigo)} />
+                    ) : (
+                      <LinhaContaLeitura
+                        key={c.codigo} conta={c}
+                        linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
+                        aberta={contaAberta === chaveLinha(c.codigo)}
+                        onToggle={() => setContaAberta(prev => prev === chaveLinha(c.codigo) ? null : chaveLinha(c.codigo))}
+                        total={totalConta(c.codigo)}
+                        receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                      />
+                    )
                   ))
                 )}
               </div>
@@ -4071,7 +4152,7 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
               </>
             )}
             {abaDetalhe === 'receita' && <ReceitaLeituraVersao dados={versao.dados} />}
-            {abaDetalhe === 'custos' && <CustosLeituraVersao refUnidade={ref} dados={versao.dados} dre={dre} />}
+            {abaDetalhe === 'custos' && <CustosLeituraVersao refUnidade={ref} unidadeId={unidadeId} dados={versao.dados} dre={dre} />}
             {abaDetalhe === 'capex' && <CapexLeituraVersao dados={versao.dados} />}
             {abaDetalhe === 'provisoes' && <ProvisoesLeituraVersao dados={versao.dados} />}
           </>
@@ -4670,6 +4751,127 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
   );
 }
 
+// Uma viagem nomeada dentro da calculadora de "Passagem e Hospedagem" —
+// pedido de 2026-08-19, ver CONTA_VIAGENS_CALCULADORA/computeViagemMes. Os
+// 7 campos e a fórmula da linha 6 batem exatamente com Viagens.xlsx.
+function LinhaViagem({ viagem, aberta, onToggle, onUpdate, onRemove }) {
+  const valoresMensaisCalc = MESES.map((_, m) => computeViagemMes(viagem, m));
+  const total = somaMes(valoresMensaisCalc);
+  return (
+    <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 6, marginBottom: 6, background: COR.branco, overflow: 'hidden' }}>
+      <button
+        onClick={onToggle}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+          padding: '8px 10px', background: aberta ? COR.claro : COR.branco, border: 'none', cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+          {aberta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          <span style={{ fontSize: 11.5, color: COR.texto, fontWeight: aberta ? 700 : 400 }}>{viagem.nome || '(sem nome — clique para nomear a viagem/destino)'}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: total > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(total)}</span>
+          <span onClick={e => { e.stopPropagation(); onRemove(); }} style={{ color: COR.vermelho, cursor: 'pointer', display: 'flex' }}><Trash2 size={13} /></span>
+        </div>
+      </button>
+      {aberta && (
+        <div style={{ padding: '10px 10px 12px', borderTop: `1px solid ${COR.borda}` }}>
+          <div style={{ marginBottom: 8, maxWidth: 320 }}>
+            <CampoTexto value={viagem.nome} onChange={v => onUpdate('nome', v)} placeholder="Nome da viagem (destino)" />
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Premissa</th>
+                  {MESES.map(m => (
+                    <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', minWidth: 58 }}>{m}</th>
+                  ))}
+                  <th style={{ background: COR.laranja, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 78 }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <GradeMensalLinha label="# Pessoas" valores={viagem.pessoas} onChange={(mi, v) => onUpdate('pessoas', atualizarArray(viagem.pessoas, mi, v))} />
+                <GradeMensalLinha label="Dias de viagem (# diárias)" valores={viagem.dias} onChange={(mi, v) => onUpdate('dias', atualizarArray(viagem.dias, mi, v))} />
+                <GradeMensalLinha label="Diária da Hospedagem (R$)" valores={viagem.diariaHospedagem} onChange={(mi, v) => onUpdate('diariaHospedagem', atualizarArray(viagem.diariaHospedagem, mi, v))} />
+                <GradeMensalLinha label="Alimentação por dia (R$)" valores={viagem.alimentacaoPorDia} onChange={(mi, v) => onUpdate('alimentacaoPorDia', atualizarArray(viagem.alimentacaoPorDia, mi, v))} />
+                <GradeMensalLinha label="Valor da Passagem (R$)" valores={viagem.valorPassagem} onChange={(mi, v) => onUpdate('valorPassagem', atualizarArray(viagem.valorPassagem, mi, v))} />
+                <GradeMensalLinha label="Outros Transportes (R$)" valores={viagem.outrosTransportes} onChange={(mi, v) => onUpdate('outrosTransportes', atualizarArray(viagem.outrosTransportes, mi, v))} />
+                <GradeMensalLinha label="Outros 1 (R$)" valores={viagem.outros1} onChange={(mi, v) => onUpdate('outros1', atualizarArray(viagem.outros1, mi, v))} />
+                <GradeMensalLinha label="Outros 2 (R$)" valores={viagem.outros2} onChange={(mi, v) => onUpdate('outros2', atualizarArray(viagem.outros2, mi, v))} />
+                <GradeMensalLinha label="Outros 3 (R$)" valores={viagem.outros3} onChange={(mi, v) => onUpdate('outros3', atualizarArray(viagem.outros3, mi, v))} />
+                <LinhaCalculadaMensal label="Total da viagem (R$)" valoresMensal={valoresMensaisCalc} />
+              </tbody>
+            </table>
+          </div>
+          <p style={{ fontSize: 10, color: '#8A8F96', marginTop: 6 }}>
+            Total = (Dias × Diária Hospedagem + Dias × Alimentação/dia + Passagem + Outros Transportes + Outros 1+2+3) × Pessoas — mesma fórmula da planilha Viagens.xlsx (linha 6).
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Tela dedicada — pedido de 2026-08-19 ("tela dedicada só para essa conta",
+// não um tipo de premissa geral) — substitui LinhaConta só pra
+// CONTA_VIAGENS_CALCULADORA. Lista de viagens nomeadas (LinhaViagem), soma
+// tudo e sincroniza o total em custos.linhas via onUpdateViagens (ver
+// AbaCustos).
+function LinhaContaViagens({ conta, viagens, aberta, onToggle, onUpdateViagens, total }) {
+  const [viagemAberta, setViagemAberta] = useState(null);
+
+  function addViagem() {
+    const nova = novaViagem();
+    onUpdateViagens([...viagens, nova]);
+    setViagemAberta(nova.id);
+  }
+  function updateViagem(id, campo, valor) {
+    onUpdateViagens(viagens.map(v => v.id === id ? { ...v, [campo]: valor } : v));
+  }
+  function removeViagem(id) {
+    onUpdateViagens(viagens.filter(v => v.id !== id));
+  }
+
+  return (
+    <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 6, marginBottom: 6, background: COR.branco, overflow: 'hidden' }}>
+      <button
+        onClick={onToggle}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+          padding: '8px 10px', background: aberta ? COR.claro : COR.branco, border: 'none', cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+          {aberta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          <span style={{ fontSize: 10.5, color: '#8A8F96', flexShrink: 0 }}>{conta.codigo}</span>
+          <span style={{ fontSize: 11.5, color: COR.texto, fontWeight: aberta ? 700 : 400 }}>{conta.nome.toLowerCase()} <span style={{ color: '#8A8F96', fontWeight: 400 }}>({viagens.length} viagem{viagens.length === 1 ? '' : 'ns'})</span></span>
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 700, color: total > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(total)}</span>
+      </button>
+      {aberta && (
+        <div style={{ padding: '10px 10px 12px', borderTop: `1px solid ${COR.borda}` }}>
+          <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
+            Uma linha por viagem (destino) — quantidade de pessoas, dias, hospedagem, passagem, transporte, alimentação e outros custos, mês a mês.
+            O total de cada viagem soma no total da conta.
+          </p>
+          {viagens.map(v => (
+            <LinhaViagem
+              key={v.id} viagem={v}
+              aberta={viagemAberta === v.id}
+              onToggle={() => setViagemAberta(prev => prev === v.id ? null : v.id)}
+              onUpdate={(campo, valor) => updateViagem(v.id, campo, valor)}
+              onRemove={() => removeViagem(v.id)}
+            />
+          ))}
+          <Botao variante="fantasma" icone={Plus} onClick={addViagem}>Adicionar viagem</Botao>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Espelho somente-leitura de LinhaConta — usado na visualização detalhada de
 // versões do histórico (pedido de 2026-08-17: "detalhe até a conta
 // analítica e por premissas"). Mostra as mesmas linhas de premissa que o
@@ -5016,7 +5218,7 @@ function QuadroPessoal({ ccCodigo, funcionarios, addFuncionario, updateFuncionar
   );
 }
 
-function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote }) {
+function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote, viagens, atualizar }) {
   // Gestor de CC (perfil gerente_cc_corporativo) só vê/edita os CCs que
   // lhe foram atribuídos nesta unidade (usuario.ccsPermitidos, de
   // /auth/me) — pedido de 2026-08-16 ("os CCs ainda estão aparecendo
@@ -5062,6 +5264,17 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
   function folhaCC(ccCodigo) {
     const funcs = (funcionarios || []).filter(f => f.ccCodigo === ccCodigo);
     return computeFolhaPessoalAnual(funcs, premissasPessoal);
+  }
+  // Pedido de 2026-08-19 — só Corporativo, conta CONTA_VIAGENS_CALCULADORA:
+  // grava a lista de viagens do CC e sincroniza o total calculado (mesma
+  // fórmula da linha 6 de Viagens.xlsx) direto em custos.linhas, como uma
+  // linha 'direto' comum — o resto do motor de cálculo (DRE, auditoria,
+  // log de alteração) não precisa saber que essa conta tem tela própria.
+  function updateViagensCC(novoArray) {
+    atualizar(['custos', 'viagens', ccSel], novoArray);
+    const chave = chaveLinha(CONTA_VIAGENS_CALCULADORA);
+    const atual = linhas[chave] || novaLinhaVazia();
+    atualizar(['custos', 'linhas', chave], { ...atual, premissaTipo: 'direto', valores: computeViagensMes(novoArray) });
   }
   function togglePacote(pacoteId) {
     setPacotesAbertos(prev => ({ ...prev, [pacoteId]: !prev[pacoteId] }));
@@ -5210,15 +5423,26 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
                   <div style={{ fontSize: 11.5, color: '#8A8F96', padding: '6px 2px' }}>Nenhuma conta encontrada para o filtro atual.</div>
                 ) : (
                   g.contas.map(c => (
-                    <LinhaConta
-                      key={c.codigo} conta={c}
-                      linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
-                      aberta={contaAberta === chaveLinha(c.codigo)}
-                      onToggle={() => toggleConta(c.codigo)}
-                      onUpdate={(campo, valor) => updateLinha(chaveLinha(c.codigo), campo, valor)}
-                      total={totalConta(c.codigo)}
-                      receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
-                    />
+                    c.codigo === CONTA_VIAGENS_CALCULADORA && unidadeId === 'corporativo' ? (
+                      <LinhaContaViagens
+                        key={c.codigo} conta={c}
+                        viagens={viagens?.[ccSel] || []}
+                        aberta={contaAberta === chaveLinha(c.codigo)}
+                        onToggle={() => toggleConta(c.codigo)}
+                        onUpdateViagens={updateViagensCC}
+                        total={totalConta(c.codigo)}
+                      />
+                    ) : (
+                      <LinhaConta
+                        key={c.codigo} conta={c}
+                        linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
+                        aberta={contaAberta === chaveLinha(c.codigo)}
+                        onToggle={() => toggleConta(c.codigo)}
+                        onUpdate={(campo, valor) => updateLinha(chaveLinha(c.codigo), campo, valor)}
+                        total={totalConta(c.codigo)}
+                        receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                      />
+                    )
                   ))
                 )}
               </div>

@@ -145,6 +145,13 @@ export function emptyFormData(unidadeId = 'textil') {
     custos: {
       linhas: {}, detalhes: [], funcionarios: [],
       premissasPessoal: { inssPct: '', fgtsPct: '', feriasPct: '', decimoTerceiroPct: '', valeTransporteValor: '', cestaBasicaValor: '', planoSaudeValor: '', outrosBeneficiosValor: '' },
+      // Só Corporativo, conta CORP18 "Passagem e Hospedagem" (decisão de
+      // 2026-08-19) — { [ccCodigo]: [viagem, ...] }. O backend nunca
+      // calcula em cima disto: o frontend sincroniza o total já pronto em
+      // custos.linhas['CC|CORP18'] a cada edição (ver nota espelho em
+      // frontend/src/OrcamentoARA.jsx, computeViagensMes) — este campo só
+      // precisa existir aqui pra o documento novo ter o formato certo.
+      viagens: {},
     },
     capex: { projetos: [] },
     capitalGiro: {
