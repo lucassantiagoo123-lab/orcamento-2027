@@ -2303,7 +2303,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
                     <input
                       type="text" inputMode="decimal" value={linha.valores[mi]}
                       onChange={e => onChangeCelula(linha.key, mi, e.target.value)}
-                      onPaste={e => onPasteMensal(e, mi, (idx, v) => onChangeCelula(linha.key, idx, v))}
+                      onPaste={e => onPasteMensal(e, mi, (idxs, vals) => onChangeCelula(linha.key, idxs, vals))}
                       style={{ width: '100%', border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 11, color: COR.texto, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' }}
                     />
                   </td>
@@ -4433,16 +4433,16 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
               onChangeCelula={(linhaKey, mesIdx, valor) => {
                 if (!temCambio) {
                   const campo = linhaKey === 'volume' ? 'volumes' : 'precos';
-                  const novoArray = p[campo].map((v, idx) => idx === mesIdx ? valor : v);
+                  const novoArray = atualizarArray(p[campo], mesIdx, valor);
                   updateProduto(p.id, campo, novoArray);
                   return;
                 }
                 if (linhaKey === 'volume') {
-                  updateProduto(p.id, 'volumes', p.volumes.map((v, idx) => idx === mesIdx ? valor : v));
+                  updateProduto(p.id, 'volumes', atualizarArray(p.volumes, mesIdx, valor));
                   return;
                 }
                 const campo = linhaKey === 'precoUsd' ? 'precoUsd' : 'cambio';
-                const novoArray = p[campo].map((v, idx) => idx === mesIdx ? valor : v);
+                const novoArray = atualizarArray(p[campo], mesIdx, valor);
                 const precoUsdAtual = campo === 'precoUsd' ? novoArray : p.precoUsd;
                 const cambioAtual = campo === 'cambio' ? novoArray : p.cambio;
                 const novosPrecos = precoUsdAtual.map((v, idx) => parseNum(v) * parseNum(cambioAtual[idx]));
@@ -4494,8 +4494,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
         linhas={deducoes.map(d => ({ key: d.id, label: d.nome, valores: d.pcts }))}
         onChangeCelula={(dedId, mesIdx, valor) => {
           const d = deducoes.find(x => x.id === dedId);
-          const novoArray = d.pcts.map((v, idx) => idx === mesIdx ? valor : v);
-          updateDeducao(dedId, novoArray);
+          updateDeducao(dedId, atualizarArray(d.pcts, mesIdx, valor));
         }}
         corTotal={COR.vermelho}
         sufixo="%"
@@ -4599,8 +4598,8 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
               linhas={camposEditaveis}
               onChangeCelula={(campoKey, mesIdx, valor) => {
                 if (ehHospedagem && (campoKey === 'totalAcomodacoes' || campoKey === 'taxaOcupacao')) {
-                  const totalAtual = (linha.totalAcomodacoes || mesesVazios()).map((v, idx) => (campoKey === 'totalAcomodacoes' && idx === mesIdx) ? valor : v);
-                  const taxaAtual = (linha.taxaOcupacao || mesesVazios()).map((v, idx) => (campoKey === 'taxaOcupacao' && idx === mesIdx) ? valor : v);
+                  const totalAtual = campoKey === 'totalAcomodacoes' ? atualizarArray(linha.totalAcomodacoes, mesIdx, valor) : (linha.totalAcomodacoes || mesesVazios());
+                  const taxaAtual = campoKey === 'taxaOcupacao' ? atualizarArray(linha.taxaOcupacao, mesIdx, valor) : (linha.taxaOcupacao || mesesVazios());
                   const novasQuantidades = totalAtual.map((v, idx) => parseNum(v) * (parseNum(taxaAtual[idx]) / 100));
                   atualizar(['receita', 'linhas', def.id], {
                     ...linha, totalAcomodacoes: totalAtual, taxaOcupacao: taxaAtual, quantidades: novasQuantidades,
@@ -4609,7 +4608,7 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
                 }
                 const campo = campoKey === 'quantidade' ? 'quantidades' : campoKey === 'valorUnit' ? 'valoresUnit' : 'valores';
                 const base = campo === 'quantidades' ? linha.quantidades : campo === 'valoresUnit' ? linha.valoresUnit : linha.valores;
-                const novoArray = (base || mesesVazios()).map((v, idx) => idx === mesIdx ? valor : v);
+                const novoArray = atualizarArray(base, mesIdx, valor);
                 atualizar(['receita', 'linhas', def.id], { ...linha, [campo]: novoArray });
               }}
               corTotal={COR.azul}
@@ -4668,7 +4667,7 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
         linhas={deducoes.map(d => ({ key: d.id, label: d.nome, valores: d.pcts }))}
         onChangeCelula={(dedId, mesIdx, valor) => {
           const d = deducoes.find(x => x.id === dedId);
-          const novoArray = d.pcts.map((v, idx) => idx === mesIdx ? valor : v);
+          const novoArray = atualizarArray(d.pcts, mesIdx, valor);
           atualizar(['receita', 'deducoes'], deducoes.map(x => x.id === dedId ? { ...x, pcts: novoArray } : x));
         }}
         corTotal={COR.vermelho}
@@ -4699,9 +4698,22 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
   );
 }
 
+// idx/valor podem ser um par escalar (edição de uma célula) ou um par de
+// arrays do mesmo tamanho (colagem em lote — ver onPasteMensal): nesse caso
+// aplica cada valor[i] na posição idx[i], todas de uma vez sobre a MESMA
+// cópia do array. Isso importa porque cada onChangeCelula/onChange do app
+// substitui o campo inteiro no estado (não faz merge) — se a colagem
+// chamasse o callback uma vez por célula, cada chamada partiria do array
+// de ANTES de colar (o React só re-renderiza depois que a função que
+// disparou o paste termina), e a última célula colada apagaria as
+// anteriores. Uma chamada só, com o array já mesclado, resolve isso.
 function atualizarArray(arr, idx, valor) {
   const novo = [...(arr || mesesVazios())];
-  novo[idx] = valor;
+  if (Array.isArray(idx)) {
+    idx.forEach((i, k) => { novo[i] = valor[k]; });
+  } else {
+    novo[idx] = valor;
+  }
   return novo;
 }
 
@@ -4719,20 +4731,23 @@ function valoresColados(textoColado) {
   const partes = texto.includes('\t') ? texto.split('\t') : texto.split('\n');
   return partes.map(v => v.trim()).filter((v, i, arr) => !(v === '' && i === arr.length - 1 && arr.length > 1));
 }
-// setValorMes(mesIdx, valor) aplica um valor num mês específico da grade —
-// cada chamador (TabelaMensal, GradeMensalLinha) passa o seu próprio jeito
-// de atualizar o array. mesInicial é o mês da célula onde o usuário colou;
-// os valores colados preenchem esse mês em diante, truncando em Dez.
-function onPasteMensal(e, mesInicial, setValorMes) {
+// setValoresMes(indices, valores) aplica o lote colado numa chamada só (ver
+// nota em atualizarArray sobre por que não pode ser uma chamada por
+// célula). mesInicial é o mês da célula onde o usuário colou; os valores
+// colados preenchem esse mês em diante, truncando em Dez.
+function onPasteMensal(e, mesInicial, setValoresMes) {
   const texto = e.clipboardData?.getData('text');
   if (!texto) return;
   const valores = valoresColados(texto);
   if (valores.length <= 1) return; // 1 célula só — deixa o paste nativo do input
   e.preventDefault();
+  const indices = [];
+  const valoresAplicaveis = [];
   valores.forEach((v, i) => {
     const mesIdx = mesInicial + i;
-    if (mesIdx < 12) setValorMes(mesIdx, v);
+    if (mesIdx < 12) { indices.push(mesIdx); valoresAplicaveis.push(v); }
   });
+  setValoresMes(indices, valoresAplicaveis);
 }
 
 // Uma linha de 12 células editáveis (mês a mês) dentro da grade de premissa de uma conta.
@@ -4747,7 +4762,7 @@ function GradeMensalLinha({ label, valores, onChange, formatarTotal }) {
           <input
             type="text" inputMode="decimal" value={vals[mi]}
             onChange={e => onChange(mi, e.target.value)}
-            onPaste={e => onPasteMensal(e, mi, (idx, v) => onChange(idx, v))}
+            onPaste={e => onPasteMensal(e, mi, (idxs, vals2) => onChange(idxs, vals2))}
             style={{ width: '100%', minWidth: 56, border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 10.5, color: COR.texto, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' }}
           />
         </td>
@@ -5716,7 +5731,7 @@ function AbaGiro({ capitalGiro, atualizar, dre, dados, refUnidade }) {
           { key: 'giroEstoque', label: 'Giro de estoque (dias)', valores: capitalGiro.giroEstoque },
         ]}
         onChangeCelula={(chave, mesIdx, valor) => {
-          const novoArray = capitalGiro[chave].map((v, idx) => idx === mesIdx ? valor : v);
+          const novoArray = atualizarArray(capitalGiro[chave], mesIdx, valor);
           atualizar(['capitalGiro', chave], novoArray);
         }}
         formatarTotal={(t) => `${(t / 12).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} méd.`}
@@ -5762,7 +5777,7 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade }) {
   function updatePagamento(contaId, mesIdx, valor) {
     // Defensivo: se o orçamento foi criado antes desta migração (formato
     // antigo, lista livre), pagamentos[contaId] pode não existir ainda.
-    const novoArray = (pagamentos[contaId] || mesesVazios()).map((v, idx) => idx === mesIdx ? valor : v);
+    const novoArray = atualizarArray(pagamentos[contaId], mesIdx, valor);
     atualizar(['capitalGiro', 'pagamentosManuais'], { ...pagamentos, [contaId]: novoArray });
   }
 
@@ -5790,7 +5805,7 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade }) {
           { key: 'recebimentosVendasNovDez', label: 'Recebimentos Vendas Nov a Dez', valores: capitalGiro.recebimentosVendasNovDez },
         ]}
         onChangeCelula={(chave, mesIdx, valor) => {
-          const novoArray = capitalGiro[chave].map((v, idx) => idx === mesIdx ? valor : v);
+          const novoArray = atualizarArray(capitalGiro[chave], mesIdx, valor);
           atualizar(['capitalGiro', chave], novoArray);
         }}
         corTotal={COR.azul}
@@ -5855,7 +5870,7 @@ function AbaProvisoes({ provisoes, resultado, atualizar }) {
           { key: 'perdas', label: 'Provisão perdas', valores: provisoes.perdas },
         ]}
         onChangeCelula={(chave, mesIdx, valor) => {
-          const novoArray = provisoes[chave].map((v, idx) => idx === mesIdx ? valor : v);
+          const novoArray = atualizarArray(provisoes[chave], mesIdx, valor);
           atualizar(['provisoes', chave], novoArray);
         }}
       />
@@ -5872,7 +5887,7 @@ function AbaProvisoes({ provisoes, resultado, atualizar }) {
           { key: 'outrasReceitasDespesas', label: 'Outras receitas/despesas', valores: resultado.outrasReceitasDespesas },
         ]}
         onChangeCelula={(chave, mesIdx, valor) => {
-          const novoArray = resultado[chave].map((v, idx) => idx === mesIdx ? valor : v);
+          const novoArray = atualizarArray(resultado[chave], mesIdx, valor);
           atualizar(['resultado', chave], novoArray);
         }}
       />
@@ -6159,7 +6174,7 @@ function AbaBalancoPlanoContasTextil({ planoContas, saldosIniciais, atualizar })
               inicial: { valor: iniciais[c.id], onChange: v => updateInicial(c.id, v), placeholder: '0,00' },
             }))}
             onChangeCelula={(contaId, mesIdx, valor) => {
-              const novoArray = planoContas[contaId].map((v, idx) => idx === mesIdx ? valor : v);
+              const novoArray = atualizarArray(planoContas[contaId], mesIdx, valor);
               atualizar(['balanco', 'planoContas', contaId], novoArray);
             }}
             linhasCalculadas={[
