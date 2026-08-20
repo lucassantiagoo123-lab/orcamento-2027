@@ -86,10 +86,24 @@ const botaoPrimario = {
 const th = { textAlign: 'left', fontSize: 11, color: '#7A8088', padding: '6px 8px', borderBottom: `1px solid ${COR.borda}` };
 const td = { fontSize: 12.5, padding: '8px', borderBottom: `1px solid ${COR.borda}`, verticalAlign: 'top' };
 
+const FILTRO_VAZIO = { nome: '', email: '', perfil: '', unidade: '', cc: '', ativo: '' };
+
+// Nome do CC a partir do código, procurando em todas as listas de CC
+// conhecidas (a mesma código pode existir em unidades diferentes, mas o
+// filtro é por texto livre então basta achar alguma correspondência).
+function nomeCcPorCodigo(codigo) {
+  for (const lista of Object.values(CCS_POR_UNIDADE)) {
+    const achado = lista.find((c) => c.codigo === codigo);
+    if (achado) return achado.nome;
+  }
+  return '';
+}
+
 function SecaoUsuarios({ usuarios, onMudou }) {
   const [novo, setNovo] = useState({ nome: '', email: '', perfil: 'gerente_unidade' });
   const [salvandoNovo, setSalvandoNovo] = useState(false);
   const [erroNovo, setErroNovo] = useState(null);
+  const [filtro, setFiltro] = useState(FILTRO_VAZIO);
 
   async function handleCriar(e) {
     e.preventDefault();
@@ -105,6 +119,23 @@ function SecaoUsuarios({ usuarios, onMudou }) {
     setSalvandoNovo(false);
   }
 
+  const usuariosFiltrados = usuarios.filter((u) => {
+    if (filtro.nome && !u.nome.toLowerCase().includes(filtro.nome.toLowerCase())) return false;
+    if (filtro.email && !u.email.toLowerCase().includes(filtro.email.toLowerCase())) return false;
+    if (filtro.perfil && u.perfil !== filtro.perfil) return false;
+    if (filtro.unidade && !u.unidades.includes(filtro.unidade)) return false;
+    if (filtro.cc) {
+      const alvo = filtro.cc.toLowerCase();
+      const bate = u.ccs.some((c) => c.codigo.toLowerCase().includes(alvo) || nomeCcPorCodigo(c.codigo).toLowerCase().includes(alvo));
+      if (!bate) return false;
+    }
+    if (filtro.ativo === 'ativo' && !u.ativo) return false;
+    if (filtro.ativo === 'inativo' && u.ativo) return false;
+    return true;
+  });
+
+  const filtroAtivo = Object.values(filtro).some((v) => v !== '');
+
   return (
     <div style={{ marginBottom: 32 }}>
       <h2 style={{ fontSize: 14, marginBottom: 10 }}>Usuários</h2>
@@ -119,15 +150,57 @@ function SecaoUsuarios({ usuarios, onMudou }) {
         {erroNovo && <span style={{ color: '#C00000', fontSize: 11.5 }}>{erroNovo}</span>}
       </form>
 
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <span style={{ fontSize: 11, color: '#7A8088' }}>
+          {usuariosFiltrados.length} de {usuarios.length} usuário{usuarios.length === 1 ? '' : 's'}
+        </span>
+        {filtroAtivo && (
+          <button onClick={() => setFiltro(FILTRO_VAZIO)} style={{ ...botaoSecundario, padding: '3px 8px', fontSize: 10.5 }}>Limpar filtros</button>
+        )}
+      </div>
+
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
+            <th style={th}>#</th>
             <th style={th}>Nome</th><th style={th}>E-mail</th><th style={th}>Perfil</th>
             <th style={th}>Unidades</th><th style={th}>Centro de Custo</th><th style={th}>Senha</th><th style={th}>Ativo</th>
           </tr>
+          <tr>
+            <th style={thFiltro}></th>
+            <th style={thFiltro}>
+              <input placeholder="filtrar…" value={filtro.nome} onChange={(e) => setFiltro({ ...filtro, nome: e.target.value })} style={campoFiltro} />
+            </th>
+            <th style={thFiltro}>
+              <input placeholder="filtrar…" value={filtro.email} onChange={(e) => setFiltro({ ...filtro, email: e.target.value })} style={campoFiltro} />
+            </th>
+            <th style={thFiltro}>
+              <select value={filtro.perfil} onChange={(e) => setFiltro({ ...filtro, perfil: e.target.value })} style={campoFiltro}>
+                <option value="">Todos</option>
+                {Object.entries(PERFIL_LABEL).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </th>
+            <th style={thFiltro}>
+              <select value={filtro.unidade} onChange={(e) => setFiltro({ ...filtro, unidade: e.target.value })} style={campoFiltro}>
+                <option value="">Todas</option>
+                {UNIDADES_IDS.map((id) => <option key={id} value={id}>{id}</option>)}
+              </select>
+            </th>
+            <th style={thFiltro}>
+              <input placeholder="código ou nome…" value={filtro.cc} onChange={(e) => setFiltro({ ...filtro, cc: e.target.value })} style={campoFiltro} />
+            </th>
+            <th style={thFiltro}></th>
+            <th style={thFiltro}>
+              <select value={filtro.ativo} onChange={(e) => setFiltro({ ...filtro, ativo: e.target.value })} style={campoFiltro}>
+                <option value="">Todos</option>
+                <option value="ativo">Ativos</option>
+                <option value="inativo">Inativos</option>
+              </select>
+            </th>
+          </tr>
         </thead>
         <tbody>
-          {usuarios.map((u) => <LinhaUsuario key={u.id} usuario={u} onMudou={onMudou} />)}
+          {usuariosFiltrados.map((u, i) => <LinhaUsuario key={u.id} numero={i + 1} usuario={u} onMudou={onMudou} />)}
         </tbody>
       </table>
     </div>
@@ -135,8 +208,10 @@ function SecaoUsuarios({ usuarios, onMudou }) {
 }
 
 const campo = { fontSize: 12.5, padding: '6px 8px', borderRadius: 6, border: `1px solid ${COR.borda}` };
+const thFiltro = { textAlign: 'left', padding: '4px 8px 8px', borderBottom: `1px solid ${COR.borda}` };
+const campoFiltro = { fontSize: 11, padding: '4px 6px', borderRadius: 5, border: `1px solid ${COR.borda}`, width: '100%', boxSizing: 'border-box' };
 
-function LinhaUsuario({ usuario, onMudou }) {
+function LinhaUsuario({ usuario, numero, onMudou }) {
   const [editandoSenha, setEditandoSenha] = useState(false);
   const [senhaNova, setSenhaNova] = useState('');
   const [erroSenha, setErroSenha] = useState(null);
@@ -217,6 +292,7 @@ function LinhaUsuario({ usuario, onMudou }) {
 
   return (
     <tr style={{ opacity: usuario.ativo ? 1 : 0.5 }}>
+      <td style={{ ...td, color: '#7A8088' }}>{numero}</td>
       <td style={td}>
         <input
           value={nome} onChange={(e) => setNome(e.target.value)}
