@@ -27,7 +27,12 @@ const PERFIL_LABEL = {
 // REFERENCIA_POR_UNIDADE). Corporativo continua painel de referência
 // (pendência diferente — falta De/Para conta×CC); ARA EI segue de fora,
 // sem plano de contas nenhum ainda.
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'resorts', 'corporativo'];
+// 2026-08-20: Agrícola virou TDS/FDS/Consolidado (ver FAMILIA_AGRICOLA) —
+// 'agricola_tds'/'agricola_fds' têm lançamento próprio; 'agricola'
+// (Consolidado) continua na lista só porque o envio/histórico dela reaproveita
+// o mesmo PUT/POST de qualquer unidade (ver ConsolidadoAgricola) — não tem
+// formulário de premissa próprio (a tela não deixa editar `dados` nela).
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'corporativo'];
 
 const COR = {
   azul: '#0C4391',
@@ -43,7 +48,13 @@ const COR = {
 
 const UNIDADES = [
   { id: 'textil', nome: 'ARA Têxtil', cor: '#0069B4', logo: '/logos/ara-textil.jpg', logoAltura: 24 },
-  { id: 'agricola', nome: 'ARA Agrícola', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
+  // ARA Agrícola virou 3 "unidades" em 2026-08-20 (duas fazendas + o
+  // consolidado das duas) — ver FAMILIA_AGRICOLA/ConsolidadoAgricola. O
+  // nav agrupa as 3 sob um único botão "ARA Agrícola"; escolher a fazenda
+  // acontece na subfaixa de botões que aparece embaixo.
+  { id: 'agricola', nome: 'ARA Agrícola — Consolidado', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
+  { id: 'agricola_tds', nome: 'ARA Agrícola — Terra do Sol', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
+  { id: 'agricola_fds', nome: 'ARA Agrícola — Frutos do Sol', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
   { id: 'resorts', nome: 'ARA Resorts', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
   { id: 'ei', nome: 'ARA EI', cor: '#F07D00', logo: null }, // pendente: arquivo não recebido ainda
   // Renomeado de "ARA Energia" em 2026-08-09 — id interno continua 'energia'
@@ -54,6 +65,23 @@ const UNIDADES = [
   { id: 'energia', nome: 'Escritório de Investimentos', cor: '#FECC00', logo: null },
   { id: 'corporativo', nome: 'Corporativo', cor: '#0C4391', logo: '/logos/grupo-ara.jpg', logoAltura: 24 },
 ];
+
+// As 3 "unidades" da Agrícola (2026-08-20) — agrupadas visualmente sob um
+// único botão "ARA Agrícola" na barra de navegação (ver VisaoGerente).
+const FAMILIA_AGRICOLA = ['agricola_tds', 'agricola_fds', 'agricola'];
+const SUBUNIDADES_AGRICOLA = [
+  { id: 'agricola_tds', nome: 'Terra do Sol (TDS)' },
+  { id: 'agricola_fds', nome: 'Frutos do Sol (FDS)' },
+  { id: 'agricola', nome: 'Consolidado' },
+];
+// Pra somar "o Grupo inteiro" (dashboard do FP&A, PPT, Resultados
+// Consolidados) sem contar a Agrícola 3 vezes — 'agricola' (Consolidado)
+// já é Terra do Sol + Frutos do Sol somados (ver dreDaUnidade/somarDRE),
+// então as duas fazendas ficam de fora dessa lista específica. Listagens
+// que mostram cada "unidade" como linha própria (Status por unidade, por
+// exemplo) continuam usando UNIDADES sem filtro — lá não tem soma, então
+// não tem risco de duplicar.
+const UNIDADES_PARA_TOTAL_GRUPO = UNIDADES.filter(u => u.id !== 'agricola_tds' && u.id !== 'agricola_fds');
 
 const FONT = "'Aptos Narrow','Aptos','Segoe UI',system-ui,sans-serif";
 
@@ -609,16 +637,22 @@ const PLANO_CONTAS = {
 };
 
 
-// Agricola_Contas_x_Pacote: 153 contas classificadas (OK), 48 fora do escopo (CAPEX/obra, conta sintética, despesa financeira, ou sem pacote) — excluídas
+// Agricola_Contas_x_Pacote: 153 contas classificadas na Matriz de Governança
+// (OK), 48 fora do escopo (CAPEX/obra, conta sintética, despesa financeira,
+// ou sem pacote) — excluídas. Em 2026-08-20, o De/Para com Camadas.xlsx (CCs
+// da área Fazenda × conta analítica, ver CONTAS_POR_CC_AGRICOLA) revelou 4
+// contas reais em uso que não estavam na Matriz — adicionadas (71102034,
+// 71102036 em manutencao; 71102049 em producao; 71103001 em servicos),
+// mantendo o resto do plano intacto. Total agora: 157 contas.
 const PACOTES_AGRICOLA = [
   { id: 'pessoal', nome: "Pessoal", ref: 'Matriz_Governanca_OBZ_2027_4 (62 contas)' },
   { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Matriz_Governanca_OBZ_2027_4 (29 contas)' },
-  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas)' },
-  { id: 'manutencao', nome: "Manutenção", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas)' },
+  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas) + Camadas.xlsx (1 conta)' },
+  { id: 'manutencao', nome: "Manutenção", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas) + Camadas.xlsx (2 contas)' },
   { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Matriz_Governanca_OBZ_2027_4 (4 contas)' },
   { id: 'depreciacao', nome: "Depreciação e Amortização", ref: 'Matriz_Governanca_OBZ_2027_4 (3 contas)' },
   { id: 'fretes', nome: "Fretes e Logística", ref: 'Matriz_Governanca_OBZ_2027_4 (10 contas)' },
-  { id: 'producao', nome: "Produção", ref: 'Matriz_Governanca_OBZ_2027_4 (15 contas)' },
+  { id: 'producao', nome: "Produção", ref: 'Matriz_Governanca_OBZ_2027_4 (15 contas) + Camadas.xlsx (1 conta)' },
   { id: 'comercial', nome: "Comercial e Marketing", ref: 'Matriz_Governanca_OBZ_2027_4 (4 contas)' },
   { id: 'viagens', nome: "Viagens", ref: 'Matriz_Governanca_OBZ_2027_4 (2 contas)' },
   { id: 'locacao', nome: "Locação e Ocupação", ref: 'Matriz_Governanca_OBZ_2027_4 (4 contas)' },
@@ -726,6 +760,7 @@ const PLANO_CONTAS_AGRICOLA = {
     { codigo: '71102016', nome: "ASSESSORIAS E CONSULTORIAS", origem: 'Custo' },
     { codigo: '71102017', nome: "SERVICO PRESTADO PESSOA FISICA", origem: 'Custo' },
     { codigo: '71102031', nome: "SEGURANCA E VIGILANCIA", origem: 'Custo' },
+    { codigo: '71103001', nome: "SERVICOS TECNICOS", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20 — não existia na Matriz de Governança, conta real do CC Adm Fazenda
     { codigo: '34104013', nome: "SERVICOS PRESTADOS PESSOA JURIDICA", origem: 'Despesa' },
     { codigo: '34104019', nome: "SERVICO PRESTADO PESSOA FISICA", origem: 'Despesa' },
     { codigo: '34202010', nome: "SERVICOS DE TERCEIROS - PESSSOA JURIDICA", origem: 'Despesa' },
@@ -735,6 +770,8 @@ const PLANO_CONTAS_AGRICOLA = {
   manutencao: [
     { codigo: '71102004', nome: "MANUTENCAO, CONSERVACAO E LIMPEZA", origem: 'Custo' },
     { codigo: '71102033', nome: "MATERIAL DE MANUT - VEICULOS-MOTOS", origem: 'Custo' },
+    { codigo: '71102034', nome: "PECAS E SERV - TRATORES-IMPLEMENTOS", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20 — não existia na Matriz de Governança, conta real usada pelos CCs da área Fazenda (Cabeçal 1/2, Adm Fazenda, Irrigação)
+    { codigo: '71102036', nome: "MANUTENCAO DA COMUNICACAO", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20 — idem
     { codigo: '71102046', nome: "MATERIAL DE OFICINA", origem: 'Custo' },
     { codigo: '71102103', nome: "MANUTENCAO DE EQUIPAMENTOS MECANICOS", origem: 'Custo' },
     { codigo: '34104002', nome: "MANUTENCAO DE VEICULOS", origem: 'Despesa' },
@@ -778,6 +815,7 @@ const PLANO_CONTAS_AGRICOLA = {
     { codigo: '71102040', nome: "MONITORAMENTO DE PRAGAS", origem: 'Custo' },
     { codigo: '71102042', nome: "DESPESAS COM AQUISICOES DE UVA", origem: 'Custo' },
     { codigo: '71102048', nome: "MATERIAL PARA MANUT DE PARREIRA", origem: 'Custo' },
+    { codigo: '71102049', nome: "MATERIAL DE IRRIGACAO", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20 — não existia na Matriz de Governança, conta real do CC Irrigação
     { codigo: '71102095', nome: "RATEIO - PACKING HOUSE", origem: 'Custo' },
     { codigo: '71102096', nome: "RATEIO - INDIRETO FAZENDA", origem: 'Custo' },
     { codigo: '71102097', nome: "RATEIO DA PRODUCAO", origem: 'Custo' },
@@ -802,6 +840,135 @@ const PLANO_CONTAS_AGRICOLA = {
   tecnologia: [
     { codigo: '34202027', nome: "CONSULTORIAS DE SISTEMAS", origem: 'Despesa' },
     { codigo: '34202031', nome: "MATERIAL DE TI E COMUNICACAO", origem: 'Despesa' },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// CCs reais da ARA Agrícola (Plano Centro de Custo.xlsx, fornecida em
+// 2026-08-20) — 9 áreas (nível sintético/consolidador, nivel:2) e seus CCs
+// analíticos (nivel:3, areaCodigo aponta pro código da área-mãe). Mesma
+// estrutura de CC para as duas fazendas (Terra do Sol/TDS e Frutos do
+// Sol/FDS) — ver AbaRevisao/unidades 'agricola_tds'/'agricola_fds'.
+// tipo: 'producao' quando a coluna TIPO DE CUSTEIO da planilha é 'Custo'
+// (inclusive quando isso diverge do tipo geral da área — ex.: Transporte de
+// Pessoal e Câmara Fria são 'Custo' dentro de áreas majoritariamente 'Adm'/
+// 'Comercial'), 'despesa' quando é 'Adm' ou 'Comercial'.
+// Responsáveis (nomes completos confirmados pelo usuário em 2026-08-20,
+// já que a planilha só trazia o primeiro nome de 4 dos 7): Luiz Lima,
+// Leodivan Bagagi, Ivan Lopes, Emanuela Pereira, Maicon Silva, Janyne
+// Miranda, Edivania Parente.
+export const CCS_AGRICOLA = [
+  { codigo: '501', nome: 'Administrativo Financeiro', tipo: 'despesa', nivel: 2, areaCodigo: null },
+  { codigo: '50101', nome: 'Adm. Financeiro', tipo: 'despesa', nivel: 3, areaCodigo: '501' },
+  { codigo: '50102', nome: 'DP e SESTR', tipo: 'despesa', nivel: 3, areaCodigo: '501' },
+  { codigo: '50103', nome: 'TI Software', tipo: 'despesa', nivel: 3, areaCodigo: '501' },
+  { codigo: '50105', nome: 'Fiscal', tipo: 'despesa', nivel: 3, areaCodigo: '501' },
+
+  { codigo: '502', nome: 'Operação', tipo: 'despesa', nivel: 2, areaCodigo: null },
+  { codigo: '50201', nome: 'Segurança e Portaria', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+  { codigo: '50202', nome: 'Oficina e Manutenção', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+  { codigo: '50203', nome: 'Infra Estrutura', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+  { codigo: '50204', nome: 'Transporte de Pessoal', tipo: 'producao', nivel: 3, areaCodigo: '502' },
+  { codigo: '50205', nome: 'Cantina', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+  { codigo: '50206', nome: 'Adm. Operação', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+  { codigo: '50207', nome: 'Almoxarifado', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+
+  { codigo: '503', nome: 'Produção', tipo: 'producao', nivel: 2, areaCodigo: null },
+  { codigo: '50301', nome: 'Cabeçal 1', tipo: 'producao', nivel: 3, areaCodigo: '503' },
+  { codigo: '50302', nome: 'Cabeçal 2', tipo: 'producao', nivel: 3, areaCodigo: '503' },
+  { codigo: '50303', nome: 'Cabeçal 3', tipo: 'producao', nivel: 3, areaCodigo: '503' },
+
+  { codigo: '504', nome: 'Fazenda', tipo: 'producao', nivel: 2, areaCodigo: null },
+  { codigo: '50402', nome: 'Adm Fazenda', tipo: 'producao', nivel: 3, areaCodigo: '504' },
+  { codigo: '50403', nome: 'Irrigação', tipo: 'producao', nivel: 3, areaCodigo: '504' },
+  { codigo: '50404', nome: 'Bloco Teste Uva', tipo: 'producao', nivel: 3, areaCodigo: '504' },
+  { codigo: '50405', nome: 'Bloco Teste Mirtilo', tipo: 'producao', nivel: 3, areaCodigo: '504' },
+
+  { codigo: '505', nome: 'Packing House', tipo: 'producao', nivel: 2, areaCodigo: null },
+  { codigo: '50501', nome: 'Certificações', tipo: 'producao', nivel: 3, areaCodigo: '505' },
+  { codigo: '50502', nome: 'Adm PH', tipo: 'producao', nivel: 3, areaCodigo: '505' },
+  { codigo: '50503', nome: 'Operações PH', tipo: 'producao', nivel: 3, areaCodigo: '505' },
+  { codigo: '50504', nome: 'Embalagem', tipo: 'producao', nivel: 3, areaCodigo: '505' },
+
+  { codigo: '506', nome: 'Comercial', tipo: 'despesa', nivel: 2, areaCodigo: null },
+  { codigo: '50601', nome: 'Vendas', tipo: 'despesa', nivel: 3, areaCodigo: '506' },
+  { codigo: '50602', nome: 'Marketing', tipo: 'despesa', nivel: 3, areaCodigo: '506' },
+  { codigo: '50605', nome: 'Logística', tipo: 'despesa', nivel: 3, areaCodigo: '506' },
+  { codigo: '50606', nome: 'Câmara Fria', tipo: 'producao', nivel: 3, areaCodigo: '506' },
+
+  { codigo: '507', nome: 'Planejamento e Gestão', tipo: 'despesa', nivel: 2, areaCodigo: null },
+  { codigo: '50701', nome: 'Invest Máquinas-Equipamentos', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50702', nome: 'Invest Edificações', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50703', nome: 'Invest Mudas', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50704', nome: 'Invest Diversos', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50705', nome: 'Projeto Pessoas', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50706', nome: 'Projeto Replantio', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50710', nome: 'Suprimentos', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50711', nome: 'Gente e Gestão', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50712', nome: 'Adm. Planejamento e Gestão', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+
+  // Uva Terceiros: sub-CCs nomeados por fornecedor/fazenda terceira (não são
+  // funcionários do Grupo ARA) — decisão de 2026-08-20: ficam todos sob a
+  // titularidade da Emanuela (responsável da área 508 inteira), sem usuário
+  // próprio por sub-CC.
+  { codigo: '508', nome: 'Uva Terceiros', tipo: 'producao', nivel: 2, areaCodigo: null },
+  { codigo: '50801', nome: 'Roberto Hirai', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50802', nome: 'Marcos Luiz Loureiro Alves', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50803', nome: 'Latitude 9', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50804', nome: 'Fruticultura Maria Martins Ltda', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50805', nome: 'Cooperativa Agrícola', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50806', nome: 'Frutos do Sol', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50807', nome: 'Aldemir de Araújo', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50808', nome: 'Ibatuba', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50809', nome: 'Nova Neruda', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50810', nome: 'Ednilson', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50811', nome: 'Marcus Vinícius Furtado Santos', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50812', nome: 'Colinas do Vale', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+
+  { codigo: '511', nome: 'Custo Mercadoria Vendida', tipo: 'producao', nivel: 2, areaCodigo: null },
+  { codigo: '51101', nome: 'Custo da Mercadoria Vendida', tipo: 'producao', nivel: 3, areaCodigo: '511' },
+];
+
+// Responsável de cada área (código sintético de 3 dígitos) — usado só de
+// referência/documentação aqui; o vínculo de acesso de verdade é feito na
+// Administração (usuario_cc_corporativo), não lido daqui.
+export const RESPONSAVEIS_AREA_AGRICOLA = {
+  '501': 'Luiz Lima', '502': 'Leodivan Bagagi', '503': 'Ivan Lopes', '504': 'Ivan Lopes',
+  '505': 'Emanuela Pereira', '506': 'Maicon Silva', '507': 'Janyne Miranda',
+  '508': 'Emanuela Pereira', '511': 'Edivania Parente',
+};
+
+// De/Para conta analítica × CC — Camadas.xlsx (fornecida em 2026-08-20),
+// conferido linha a linha. Só cobre os 5 CCs da área Fazenda (503/504) —
+// as outras 8 áreas do Plano de CC ainda não têm essa planilha de origem,
+// então ficam com CC e usuário criados mas sem conta mapeada (painel de
+// referência dentro de Custos e Despesas, sem lançamento) até o FP&A trazer
+// o De/Para delas — mesmo racional de "não inventar CC/conta sem
+// dado-fonte" já usado no resto do app. Todos os códigos abaixo já existem
+// em PLANO_CONTAS_AGRICOLA (4 deles foram adicionados agora, ver notas
+// "De/Para Camadas.xlsx" acima, os demais já vinham da Matriz de
+// Governança) — aqui só se decide QUAIS valem para QUAL CC.
+export const CONTAS_POR_CC_AGRICOLA = {
+  '50301': [ // Cabeçal 1 — idêntico ao Cabeçal 2 na planilha-fonte
+    '71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101010', '71101011', '71101022',
+    '71102003', '71102004', '71102005', '71102007', '71102011', '71102012', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102033', '71102034', '71102036', '71102037', '71102045', '71102046', '71102047', '71102048',
+  ],
+  '50302': [ // Cabeçal 2
+    '71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101010', '71101011', '71101022',
+    '71102003', '71102004', '71102005', '71102007', '71102011', '71102012', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102033', '71102034', '71102036', '71102037', '71102045', '71102046', '71102047', '71102048',
+  ],
+  '50402': [ // Adm Fazenda
+    '71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101011',
+    '71102003', '71102004', '71102005', '71102007', '71102009', '71102012', '71102018', '71102019', '71102022', '71102024', '71102033', '71102034', '71102036', '71102037',
+    '71103001',
+  ],
+  '50403': [ // Irrigação
+    '71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101011',
+    '71102001', '71102003', '71102004', '71102005', '71102007', '71102012', '71102018', '71102022', '71102024', '71102033', '71102034', '71102036', '71102043', '71102045', '71102049',
+  ],
+  '50405': [ // Bloco Teste Mirtilo
+    '71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008',
+    '71102004', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102037', '71102047', '71102048',
   ],
 };
 
@@ -1273,7 +1440,14 @@ Object.entries(PLANO_CONTAS_RESORTS).forEach(([pacoteId, contas]) => {
 // subárea) da própria Têxtil.
 const REFERENCIA_POR_UNIDADE = {
   textil: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS, todasContas: TODAS_CONTAS, pacotes: PACOTES_TEXTIL },
-  agricola: { ccs: CCS_PLACEHOLDER_AGRICOLA_RESORTS, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
+  // Agrícola ganhou CC real em 2026-08-20 (Plano Centro de Custo.xlsx) — as
+  // duas fazendas (agricola_tds/agricola_fds, unidades próprias, cada uma
+  // com orçamento editável) usam a mesma estrutura de CC e plano de contas.
+  // 'agricola' (sem sufixo) é o Consolidado: não é editado diretamente (ver
+  // ConsolidadoAgricola), mas usa a mesma referência pra ler/exibir.
+  agricola: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
+  agricola_tds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
+  agricola_fds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
   resorts: { ccs: CCS_PLACEHOLDER_AGRICOLA_RESORTS, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
   // Decisão de 2026-08-16: Corporativo usa os 20 CCs reais (CCS_CORPORATIVO,
   // fonte confiável) — diferente de Agrícola/Resorts, que usam CC
@@ -1513,7 +1687,7 @@ function receitaVazia(unidadeId) {
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
     };
   }
-  if (unidadeId === 'agricola') {
+  if (unidadeId === 'agricola' || unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') {
     return {
       // "Vendas Externas" ganha o racional Volume × Preço(USD) × Câmbio —
       // pedido explícito de 2026-08-09: a planilha 2026 só trazia o preço
@@ -1761,6 +1935,62 @@ function computeDRE(data, ref) {
   };
 }
 
+// Soma dois DREs já calculados (não dois `dados` brutos) — usado pelo
+// Consolidado da Agrícola (2026-08-20) pra somar Terra do Sol + Frutos do
+// Sol sem precisar mesclar os documentos de premissa das duas fazendas
+// (que têm os mesmos códigos de CC — mesclar arriscaria colisão de chave
+// CC|Conta). Percentuais de margem são recalculados sobre as bases já
+// somadas, nunca somados diretamente (média de percentual estaria errada).
+function somarDRE(a, b) {
+  const receitaBruta = a.receitaBruta + b.receitaBruta;
+  const deducoes = a.deducoes + b.deducoes;
+  const receitaLiquida = a.receitaLiquida + b.receitaLiquida;
+  const cpv = a.cpv + b.cpv;
+  const lucroBruto = a.lucroBruto + b.lucroBruto;
+  const despesasSemDA = a.despesasSemDA + b.despesasSemDA;
+  const ebitda = a.ebitda + b.ebitda;
+  const depreciacao = a.depreciacao + b.depreciacao;
+  const resultadoFinanceiro = a.resultadoFinanceiro + b.resultadoFinanceiro;
+  const outras = a.outras + b.outras;
+  const ebt = a.ebt + b.ebt;
+  const ircsl = a.ircsl + b.ircsl;
+  const lucroLiquido = a.lucroLiquido + b.lucroLiquido;
+  const capexTotal = a.capexTotal + b.capexTotal;
+  const receitaBrutaMes = MESES.map((_, m) => a.receitaBrutaMes[m] + b.receitaBrutaMes[m]);
+  const receitaLiquidaMes = MESES.map((_, m) => a.receitaLiquidaMes[m] + b.receitaLiquidaMes[m]);
+  return {
+    receitaBruta, deducoes, receitaLiquida, cpv, lucroBruto,
+    margemBruta: receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0,
+    despesasSemDA, ebitda,
+    margemEbitda: receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0,
+    depreciacao, resultadoFinanceiro, outras, ebt, ircsl, lucroLiquido,
+    margemLiquida: receitaLiquida ? (lucroLiquido / receitaLiquida) * 100 : 0,
+    capexTotal, receitaBrutaMes, receitaLiquidaMes,
+    totalGeral: lucroLiquido,
+  };
+}
+
+// computeDRE "unidade-aware" — usado nos painéis que iteram todas as
+// UNIDADES (dashboard do FP&A). Pra qualquer unidade normal é idêntico a
+// computeDRE(dadosUnidade, referenciaDaUnidade(unidadeId)); só desvia pra
+// 'agricola' (Consolidado) quando o documento salvo já é o snapshot
+// combinado gravado no envio (marcado com _tipo — ver ConsolidadoAgricola),
+// caso em que soma os DREs de TDS e FDS em vez de tentar interpretar o
+// wrapper como se fosse um `dados` normal (ia quebrar: não tem
+// `dados.receita`/`dados.custos` no formato esperado). Antes do primeiro
+// envio do Consolidado, `dadosUnidade` de 'agricola' é só um emptyFormData
+// comum — cai no caminho normal, mostra zero, não quebra nada.
+function dreDaUnidade(dadosUnidade, unidadeId) {
+  if (unidadeId === 'agricola' && dadosUnidade && dadosUnidade._tipo === 'consolidado_agricola') {
+    const refAg = referenciaDaUnidade('agricola_tds');
+    return somarDRE(
+      computeDRE(dadosUnidade.tds || emptyFormData('agricola_tds'), refAg),
+      computeDRE(dadosUnidade.fds || emptyFormData('agricola_fds'), refAg),
+    );
+  }
+  return computeDRE(dadosUnidade, referenciaDaUnidade(unidadeId));
+}
+
 // ---------------------------------------------------------------------------
 // Cálculo do Fluxo de Caixa (método indireto) — a partir do Lucro Líquido da
 // DRE, add-back de D&A, CAPEX e eventos do Balanço (empréstimos, aportes,
@@ -1804,6 +2034,33 @@ function computeDFC(data, dre) {
     fluxoFinanciamento,
     variacaoCaixa, caixaInicial, caixaFinal,
   };
+}
+
+// Soma dois DFCs já calculados — mesmo racional de somarDRE. Todos os campos
+// de computeDFC são valores anuais simples (nenhum percentual), soma direta
+// em cada um funciona sem precisar recalcular nada.
+function somarDFC(a, b) {
+  const out = {};
+  Object.keys(a).forEach(k => { out[k] = a[k] + b[k]; });
+  return out;
+}
+
+// computeDFC "unidade-aware" — mesmo racional de dreDaUnidade, pro dashboard
+// do FP&A (VisaoResultadosConsolidados) que itera todas as UNIDADES
+// chamando computeDFC(d, dre) direto. `d` de 'agricola' pode ser o wrapper
+// {_tipo, tds, fds} depois do primeiro envio do Consolidado — computeDFC
+// quebraria em `data.capex.projetos`.
+function dfcDaUnidade(dadosUnidade, dreUnidade, unidadeId) {
+  if (unidadeId === 'agricola' && dadosUnidade && dadosUnidade._tipo === 'consolidado_agricola') {
+    const refAg = referenciaDaUnidade('agricola_tds');
+    const dTds = dadosUnidade.tds || emptyFormData('agricola_tds');
+    const dFds = dadosUnidade.fds || emptyFormData('agricola_fds');
+    return somarDFC(
+      computeDFC(dTds, computeDRE(dTds, refAg)),
+      computeDFC(dFds, computeDRE(dFds, refAg)),
+    );
+  }
+  return computeDFC(dadosUnidade, dreUnidade);
 }
 
 // ---------------------------------------------------------------------------
@@ -2835,6 +3092,11 @@ export default function OrcamentoARA({ usuario }) {
     // Agrícola/Resorts/Corporativo: painel de referência, sem escrita — o
     // backend rejeitaria (409) mesmo se tentássemos, então nem tentamos.
     if (!UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual)) return;
+    // Consolidado da Agrícola (2026-08-20) nunca é editado direto por aqui
+    // (ver ConsolidadoAgricola) — autosalvar o `dados` deste componente
+    // arriscaria sobrescrever, com uma cópia desatualizada, o snapshot que
+    // ConsolidadoAgricola acabou de gravar no envio (race condition).
+    if (unidadeAtual === 'agricola') return;
     const t = setTimeout(async () => {
       try {
         const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
@@ -2867,8 +3129,18 @@ export default function OrcamentoARA({ usuario }) {
   }
 
   const refUnidadeAtual = referenciaDaUnidade(unidadeAtual);
-  const dre = useMemo(() => computeDRE(dados, refUnidadeAtual), [dados, refUnidadeAtual]);
-  const checks = useMemo(() => runAuditoria(dados, dre, refUnidadeAtual, unidadeAtual), [dados, dre, refUnidadeAtual, unidadeAtual]);
+  // dreDaUnidade (não computeDRE direto): quando unidadeAtual === 'agricola'
+  // (Consolidado) e já houve um envio, o `dados` salvo é o wrapper
+  // {_tipo:'consolidado_agricola', tds, fds} — ver ConsolidadoAgricola.
+  // computeDRE quebraria tentando ler `dados.receita` direto do wrapper.
+  const dre = useMemo(() => dreDaUnidade(dados, unidadeAtual), [dados, unidadeAtual]);
+  // Mesmo motivo do dre acima: runAuditoria também espera o formato normal
+  // de `dados` — Consolidado calcula as próprias checagens (TDS/FDS
+  // separadas) dentro de ConsolidadoAgricola, não usa este `checks`.
+  const checks = useMemo(() => {
+    if (unidadeAtual === 'agricola' && dados?._tipo === 'consolidado_agricola') return [];
+    return runAuditoria(dados, dre, refUnidadeAtual, unidadeAtual);
+  }, [dados, dre, refUnidadeAtual, unidadeAtual]);
   // Só checks obrigatorio !== false bloqueiam o envio — Balanço Patrimonial
   // é responsabilidade do FP&A, aparece na auditoria mas não trava o gestor.
   const tudoOk = checks.filter(c => c.obrigatorio !== false).every(c => c.ok);
@@ -3057,7 +3329,12 @@ export default function OrcamentoARA({ usuario }) {
     const linhasCustosExport = [['Unidade', 'Centro de Custo', 'Tipo', 'Pacote', 'Conta', 'Descrição da Conta', 'Tipo de Premissa', 'Mês', 'Valor Calculado', 'Justificativa', 'Status', 'Última Atualização', 'Autor']];
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
-      if (!d) return;
+      // Consolidado da Agrícola (ver ConsolidadoAgricola): `dados` aqui não
+      // é o formato normal (é {tds, fds}) — Terra do Sol e Frutos do Sol já
+      // exportam as próprias linhas de Custos e Despesas individualmente,
+      // então pular esta unidade não perde informação, só evita duplicar
+      // num formato que este laço não sabe interpretar.
+      if (!d || d._tipo === 'consolidado_agricola') return;
       const refU = referenciaDaUnidade(u.id);
       const dreU = computeDRE(d, refU);
       Object.entries(d.custos.linhas || {}).forEach(([chave, linha]) => {
@@ -3080,7 +3357,7 @@ export default function OrcamentoARA({ usuario }) {
     const linhasReceita = [['Unidade', 'Produto', 'Mês', 'Volume (t)', 'Preço (R$/t)', 'Receita Bruta', 'Justificativa Geral da Receita']];
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
-      if (!d) return;
+      if (!d || d._tipo === 'consolidado_agricola') return; // ver nota acima (Custos_Despesas)
       (d.receita.produtos || []).forEach(p => {
         MESES.forEach((m, mi) => {
           const vol = parseNum(p.volumes?.[mi]);
@@ -3096,7 +3373,7 @@ export default function OrcamentoARA({ usuario }) {
     const linhasBalanco = [['Unidade', 'Item', 'Valor/Mês', 'Justificativa']];
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
-      if (!d) return;
+      if (!d || d._tipo === 'consolidado_agricola') return; // ver nota acima (Custos_Despesas)
       const b = d.balanco;
       linhasBalanco.push([u.nome, 'Caixa inicial', formatBRL(parseNum(b.caixaInicial)), '']);
       linhasBalanco.push([u.nome, 'Imobilizado inicial', formatBRL(parseNum(b.imobilizadoInicial)), '']);
@@ -3113,7 +3390,7 @@ export default function OrcamentoARA({ usuario }) {
     const linhasFinExport = [['Unidade', 'Banco', 'Linha', 'Moeda', 'Mês', 'Captações', 'Amortizações', 'Juros Pagos', 'Variação Cambial', 'Provisão Desp. Financeira', 'Justificativa']];
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
-      if (!d) return;
+      if (!d || d._tipo === 'consolidado_agricola') return; // ver nota acima (Custos_Despesas)
       (d.fcFinanciamentos?.linhas || []).forEach(l => {
         MESES.forEach((m, mi) => {
           const vals = [l.captacoes?.[mi], l.amortizacoes?.[mi], l.jurosPagos?.[mi], l.variacaoCambial?.[mi], l.provisaoDespesaFinanceira?.[mi]].map(parseNum);
@@ -3137,7 +3414,7 @@ export default function OrcamentoARA({ usuario }) {
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
       if (!d) return;
-      const t = computeDRE(d, referenciaDaUnidade(u.id));
+      const t = dreDaUnidade(d, u.id);
       linhasDRE.push([u.nome, t.receitaBruta, -t.deducoes, t.receitaLiquida, -t.cpv, t.lucroBruto, t.margemBruta, -t.despesasSemDA, t.ebitda, t.margemEbitda, -t.depreciacao, t.resultadoFinanceiro, t.outras, -t.ircsl, t.lucroLiquido, t.margemLiquida]);
     });
     const wsD = XLSX.utils.aoa_to_sheet(linhasDRE);
@@ -3170,9 +3447,9 @@ export default function OrcamentoARA({ usuario }) {
         s1.addText(tituloUnidade, { x: 0.6, y: 0.9, w: 9, h: 0.8, fontSize: 30, bold: true, color: 'FFFFFF' });
         s1.addText(`Resumo Executivo — Apresentação ao Conselho de Administração · ${dataGeracao}`, { x: 0.6, y: 1.55, w: 9, h: 0.4, fontSize: 12, color: 'D9E4F5' });
 
-        const totais = UNIDADES.reduce((acc, u) => {
+        const totais = UNIDADES_PARA_TOTAL_GRUPO.reduce((acc, u) => {
           const d = statusUnidades[u.id];
-          const t = d ? computeDRE(d, referenciaDaUnidade(u.id)) : computeDRE(emptyFormData(u.id), referenciaDaUnidade(u.id));
+          const t = d ? dreDaUnidade(d, u.id) : dreDaUnidade(emptyFormData(u.id), u.id);
           acc.receitaLiquida += t.receitaLiquida; acc.ebitda += t.ebitda; acc.lucroLiquido += t.lucroLiquido;
           return acc;
         }, { receitaLiquida: 0, ebitda: 0, lucroLiquido: 0 });
@@ -3201,7 +3478,7 @@ export default function OrcamentoARA({ usuario }) {
         ]];
         UNIDADES.forEach((u) => {
           const d = statusUnidades[u.id];
-          const t = d ? computeDRE(d, referenciaDaUnidade(u.id)) : computeDRE(emptyFormData(u.id), referenciaDaUnidade(u.id));
+          const t = d ? dreDaUnidade(d, u.id) : dreDaUnidade(emptyFormData(u.id), u.id);
           linhas2.push([u.nome, formatBRL(t.receitaLiquida), formatBRL(t.ebitda), formatPct(t.margemEbitda), formatBRL(t.lucroLiquido), d?.meta?.status || 'nao_iniciado']);
         });
         s2.addTable(linhas2, { x: 0.5, y: 1.0, w: 9, fontSize: 10.5, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
@@ -3598,29 +3875,63 @@ function VisaoGerente(props) {
               usuário tem vínculo real — proteção de verdade é no backend
               (exigirUnidade em toda rota), isto é só não oferecer na UI o
               que o servidor rejeitaria de qualquer forma. */}
-          {unidadesVisiveis.map(u => (
-            <button
-              key={u.id} onClick={() => setUnidadeAtual(u.id)}
-              style={{
-                fontFamily: FONT, fontSize: 12, fontWeight: 700, padding: '8px 14px', borderRadius: 22, cursor: 'pointer',
-                border: `1.5px solid ${u.id === unidadeAtual ? u.cor : COR.borda}`,
-                background: u.id === unidadeAtual ? u.cor : COR.branco,
-                color: u.id === unidadeAtual ? COR.branco : COR.texto,
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}
-            >
-              {u.logo && (
-                <img
-                  src={u.logo} alt=""
-                  style={{ height: u.logoAltura || 24, borderRadius: 3, background: '#fff', padding: u.id === unidadeAtual ? '2px 5px' : '1px 3px' }}
-                />
-              )}
-              {u.nome}
-            </button>
-          ))}
+          {/* 2026-08-20: Terra do Sol / Frutos do Sol / Consolidado (as 3
+              "unidades" da Agrícola, ver FAMILIA_AGRICOLA) aparecem
+              agrupadas num único botão "ARA Agrícola" — a fazenda escolhida
+              vira a subfaixa de botões logo abaixo. */}
+          {(() => {
+            const pills = [];
+            let agricolaAdicionado = false;
+            unidadesVisiveis.forEach(u => {
+              if (FAMILIA_AGRICOLA.includes(u.id)) {
+                if (!agricolaAdicionado) {
+                  pills.push({ id: '__familia_agricola__', nome: 'ARA Agrícola', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 });
+                  agricolaAdicionado = true;
+                }
+              } else {
+                pills.push(u);
+              }
+            });
+            return pills.map(u => {
+              const ativo = u.id === '__familia_agricola__' ? FAMILIA_AGRICOLA.includes(unidadeAtual) : u.id === unidadeAtual;
+              return (
+                <button
+                  key={u.id}
+                  onClick={() => {
+                    if (u.id === '__familia_agricola__') {
+                      if (!FAMILIA_AGRICOLA.includes(unidadeAtual)) {
+                        const primeiraVisivel = SUBUNIDADES_AGRICOLA.find(s => unidadesVisiveis.some(uv => uv.id === s.id));
+                        if (primeiraVisivel) setUnidadeAtual(primeiraVisivel.id);
+                      }
+                      return;
+                    }
+                    setUnidadeAtual(u.id);
+                  }}
+                  style={{
+                    fontFamily: FONT, fontSize: 12, fontWeight: 700, padding: '8px 14px', borderRadius: 22, cursor: 'pointer',
+                    border: `1.5px solid ${ativo ? u.cor : COR.borda}`,
+                    background: ativo ? u.cor : COR.branco,
+                    color: ativo ? COR.branco : COR.texto,
+                    display: 'flex', alignItems: 'center', gap: 8,
+                  }}
+                >
+                  {u.logo && (
+                    <img
+                      src={u.logo} alt=""
+                      style={{ height: u.logoAltura || 24, borderRadius: 3, background: '#fff', padding: ativo ? '2px 5px' : '1px 3px' }}
+                    />
+                  )}
+                  {u.nome}
+                </button>
+              );
+            });
+          })()}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual) && (
+          {/* Consolidado (unidadeAtual === 'agricola') nunca é editado
+              direto — não faz sentido "salvar rascunho" nele (ver
+              ConsolidadoAgricola). */}
+          {UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual) && unidadeAtual !== 'agricola' && (
             <>
               {ultimoSalvoEm && (
                 <span style={{ fontSize: 10.5, color: '#7A8088' }}>
@@ -3642,6 +3953,25 @@ function VisaoGerente(props) {
           <StatusBadge status={dados.meta?.status} />
         </div>
       </div>
+
+      {/* Subfaixa Terra do Sol / Frutos do Sol / Consolidado — só aparece
+          quando a família Agrícola está selecionada, só mostra as que este
+          usuário realmente tem vínculo (unidadesVisiveis). */}
+      {FAMILIA_AGRICOLA.includes(unidadeAtual) && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16, marginTop: -6 }}>
+          {SUBUNIDADES_AGRICOLA.filter(s => unidadesVisiveis.some(uv => uv.id === s.id)).map(s => (
+            <button
+              key={s.id} onClick={() => setUnidadeAtual(s.id)}
+              style={{
+                fontFamily: FONT, fontSize: 11, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
+                border: `1.5px solid ${s.id === unidadeAtual ? '#009640' : COR.borda}`,
+                background: s.id === unidadeAtual ? '#009640' : COR.branco,
+                color: s.id === unidadeAtual ? COR.branco : COR.texto,
+              }}
+            >{s.nome}</button>
+          ))}
+        </div>
+      )}
 
       {/* Decisão de 2026-08-09: Agrícola e Resorts saíram do painel de
           referência e ganharam o formulário completo, com CC placeholder
@@ -3677,13 +4007,22 @@ function VisaoGerente(props) {
             </div>
           </div>
         </div>
+      ) : unidadeAtual === 'agricola' ? (
+        // Consolidado da Agrícola (2026-08-20): nunca editado direto — é
+        // sempre TDS + FDS somados, com o próprio envio/histórico. Ver
+        // ConsolidadoAgricola.
+        <ConsolidadoAgricola autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} />
       ) : (
         <>
       <div style={{ display: 'flex', gap: 2, borderBottom: `2px solid ${COR.borda}`, marginBottom: 18, flexWrap: 'wrap' }}>
         {/* Gestor de CC (pedido de 2026-08-16): só Custos e Despesas — a
             visão completa das seções é exclusiva de Gestor da Unidade e
-            Admin FP&A. */}
-        {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos') : ABAS).map(a => (
+            Admin FP&A. Terra do Sol/Frutos do Sol (2026-08-20) não têm aba
+            de Revisão própria — o envio/histórico da Agrícola é só no
+            Consolidado (ver ConsolidadoAgricola). */}
+        {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos')
+          : (unidadeAtual === 'agricola_tds' || unidadeAtual === 'agricola_fds') ? ABAS.filter(a => a.id !== 'revisao')
+          : ABAS).map(a => (
           <button
             key={a.id} onClick={() => setAba(a.id)}
             style={{
@@ -3761,7 +4100,7 @@ function VisaoGerente(props) {
         )}
         {aba === 'balanco' && <AbaBalanco balanco={dados.balanco} atualizar={atualizar} />}
         {aba === 'plano5y' && <AbaPlano5Y dre={dre} plano5y={dados.plano5y} updatePremissa5Y={updatePremissa5Y} atualizar={atualizar} />}
-        {aba === 'revisao' && (
+        {aba === 'revisao' && unidadeAtual !== 'agricola_tds' && unidadeAtual !== 'agricola_fds' && (
           <AbaRevisao
             refUnidade={referenciaDaUnidade(unidadeAtual)}
             unidadeId={unidadeAtual} versoes={versoes}
@@ -4187,7 +4526,18 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
   }, [unidadeId, versaoId]);
 
   const ref = referenciaDaUnidade(unidadeId);
-  const dre = versao ? computeDRE(versao.dados, ref) : null;
+  // Versão do Consolidado da Agrícola (2026-08-20): o `dados` salvo não é o
+  // formato normal (receita/custos direto), é um wrapper { tds, fds } com o
+  // snapshot das duas fazendas no momento do envio — ver
+  // ConsolidadoAgricola/somarDRE. Precisa de um caminho próprio de leitura.
+  const ehConsolidadoAgricola = versao?.dados?._tipo === 'consolidado_agricola';
+  const refAgricolaFazenda = referenciaDaUnidade('agricola_tds');
+  const dre = versao ? (ehConsolidadoAgricola
+    ? somarDRE(
+        computeDRE(versao.dados.tds || emptyFormData('agricola_tds'), refAgricolaFazenda),
+        computeDRE(versao.dados.fds || emptyFormData('agricola_fds'), refAgricolaFazenda),
+      )
+    : computeDRE(versao.dados, ref)) : null;
 
   return (
     <div
@@ -4247,16 +4597,253 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
                 <CascataDRE dre={dre} ifrs18={ifrs18} />
               </>
             )}
-            {abaDetalhe === 'receita' && <ReceitaLeituraVersao dados={versao.dados} />}
-            {abaDetalhe === 'custos' && <CustosLeituraVersao refUnidade={ref} unidadeId={unidadeId} dados={versao.dados} dre={dre} />}
-            {abaDetalhe === 'capex' && <CapexLeituraVersao dados={versao.dados} />}
-            {abaDetalhe === 'provisoes' && <ProvisoesLeituraVersao dados={versao.dados} />}
+            {ehConsolidadoAgricola ? (
+              <>
+                {abaDetalhe === 'receita' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Terra do Sol</h4><ReceitaLeituraVersao dados={versao.dados.tds} /></div>
+                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Frutos do Sol</h4><ReceitaLeituraVersao dados={versao.dados.fds} /></div>
+                  </div>
+                )}
+                {abaDetalhe === 'custos' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Terra do Sol</h4><CustosLeituraVersao refUnidade={refAgricolaFazenda} unidadeId="agricola_tds" dados={versao.dados.tds} dre={computeDRE(versao.dados.tds || emptyFormData('agricola_tds'), refAgricolaFazenda)} /></div>
+                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Frutos do Sol</h4><CustosLeituraVersao refUnidade={refAgricolaFazenda} unidadeId="agricola_fds" dados={versao.dados.fds} dre={computeDRE(versao.dados.fds || emptyFormData('agricola_fds'), refAgricolaFazenda)} /></div>
+                  </div>
+                )}
+                {abaDetalhe === 'capex' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Terra do Sol</h4><CapexLeituraVersao dados={versao.dados.tds} /></div>
+                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Frutos do Sol</h4><CapexLeituraVersao dados={versao.dados.fds} /></div>
+                  </div>
+                )}
+                {abaDetalhe === 'provisoes' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Terra do Sol</h4><ProvisoesLeituraVersao dados={versao.dados.tds} /></div>
+                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Frutos do Sol</h4><ProvisoesLeituraVersao dados={versao.dados.fds} /></div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {abaDetalhe === 'receita' && <ReceitaLeituraVersao dados={versao.dados} />}
+                {abaDetalhe === 'custos' && <CustosLeituraVersao refUnidade={ref} unidadeId={unidadeId} dados={versao.dados} dre={dre} />}
+                {abaDetalhe === 'capex' && <CapexLeituraVersao dados={versao.dados} />}
+                {abaDetalhe === 'provisoes' && <ProvisoesLeituraVersao dados={versao.dados} />}
+              </>
+            )}
           </>
         )}
       </div>
     </div>
   );
 }
+
+// Consolidado da ARA Agrícola (pedido de 2026-08-20): Terra do Sol e Frutos
+// do Sol são unidades próprias, cada uma com seu orçamento editável — o
+// Consolidado nunca é editado direto, é sempre a soma das duas (dre via
+// somarDRE, nunca mesclando os `dados` brutos das fazendas — os códigos de
+// CC são os mesmos nas duas, mesclar arriscaria colisão de chave
+// CC|Conta). É aqui que vive o envio/histórico de versões da Agrícola —
+// TDS/FDS não têm aba de Revisão própria (ver ABAS/FAMILIA_AGRICOLA).
+function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao }) {
+  const [dadosTds, setDadosTds] = useState(null);
+  const [dadosFds, setDadosFds] = useState(null);
+  const [versoes, setVersoes] = useState([]);
+  const [aguardandoLiberacao, setAguardandoLiberacao] = useState(false);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
+  const [comentarioEnvio, setComentarioEnvio] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [ifrs18, setIfrs18] = useState(false);
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    setErro(null);
+    try {
+      const [rTds, rFds, rAg] = await Promise.all([
+        getOrcamento('agricola_tds'), getOrcamento('agricola_fds'), getOrcamento('agricola'),
+      ]);
+      setDadosTds(rTds.orcamento.dados);
+      setDadosFds(rFds.orcamento.dados);
+      setAguardandoLiberacao(rAg.orcamento.aguardando_liberacao || false);
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : 'Falha ao carregar os dados de Terra do Sol e Frutos do Sol.');
+    }
+    try {
+      setVersoes(await listarVersoes('agricola'));
+    } catch (e) {
+      setVersoes([]);
+    }
+    setCarregando(false);
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  if (carregando) return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Carregando Terra do Sol e Frutos do Sol…</p>;
+  if (!dadosTds || !dadosFds) {
+    return (
+      <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12 }}>
+        {erro || 'Não foi possível carregar os dados das fazendas.'}
+      </div>
+    );
+  }
+
+  const refAg = referenciaDaUnidade('agricola_tds');
+  const dreTds = computeDRE(dadosTds, refAg);
+  const dreFds = computeDRE(dadosFds, refAg);
+  const dre = somarDRE(dreTds, dreFds);
+  const checksTds = runAuditoria(dadosTds, dreTds, refAg, 'agricola_tds');
+  const checksFds = runAuditoria(dadosFds, dreFds, refAg, 'agricola_fds');
+  const tudoOkTds = checksTds.filter(c => c.obrigatorio !== false).every(c => c.ok);
+  const tudoOkFds = checksFds.filter(c => c.obrigatorio !== false).every(c => c.ok);
+  const tudoOk = tudoOkTds && tudoOkFds;
+
+  async function handleEnviar() {
+    setEnviando(true);
+    setErro(null);
+    try {
+      // Snapshot combinado — marcado com _tipo pra ModalVersao/dreDaUnidade
+      // saberem que este `dados` não segue o formato normal de uma unidade
+      // (ver notas em ambos). Grava primeiro (PUT) pra depois o envio
+      // (registrarEnvio, backend inalterado) snapshotar exatamente isso.
+      await putOrcamento('agricola', { _tipo: 'consolidado_agricola', tds: dadosTds, fds: dadosFds });
+      await enviarVersaoApi('agricola', { comentario: comentarioEnvio, autorNome });
+      setComentarioEnvio('');
+      await carregar();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) setAguardandoLiberacao(true);
+      setErro(e instanceof ApiError ? e.message : 'Falha ao enviar a versão consolidada.');
+    }
+    setEnviando(false);
+  }
+
+  function PainelChecklist({ titulo, checks }) {
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>{titulo}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {checks.map((c, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+              {c.ok ? <CheckCircle2 size={13} color={COR.verde} /> : <AlertTriangle size={13} color={c.obrigatorio === false ? COR.laranja : COR.vermelho} />}
+              <span style={{ color: c.ok ? COR.texto : (c.obrigatorio === false ? '#7A8088' : COR.vermelho) }}>
+                {c.label}{c.detalhe ? ` — ${c.detalhe}` : ''}
+                {!c.ok && c.obrigatorio === false ? ' (opcional)' : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>ARA Agrícola — Consolidado</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Soma de Terra do Sol (TDS) e Frutos do Sol (FDS) — sempre calculada ao vivo a partir do orçamento atual das
+        duas fazendas. O envio e o histórico de versões do orçamento da Agrícola acontecem aqui, não em cada fazenda.
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <button
+          onClick={() => setIfrs18(false)}
+          style={{
+            fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
+            border: `1.5px solid ${COR.azul}`, background: !ifrs18 ? COR.azul : COR.branco, color: !ifrs18 ? COR.branco : COR.azul,
+          }}
+        >DRE sem IFRS 18</button>
+        <button
+          onClick={() => setIfrs18(true)}
+          style={{
+            fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
+            border: `1.5px solid ${COR.azul}`, background: ifrs18 ? COR.azul : COR.branco, color: ifrs18 ? COR.branco : COR.azul,
+          }}
+        >DRE com IFRS 18</button>
+      </div>
+      <CascataDRE dre={dre} ifrs18={ifrs18} />
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '18px 0' }}>
+        <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
+        <CardTotal label="EBITDA" valor={dre.ebitda} cor={COR.laranja} />
+        <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>Detalhe por fazenda (Receita e Custos e Despesas)</h4>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginBottom: 24 }}>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            Terra do Sol <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreTds.receitaBruta)} receita bruta)</span>
+          </div>
+          <ReceitaLeituraVersao dados={dadosTds} />
+          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refAg} unidadeId="agricola_tds" dados={dadosTds} dre={dreTds} /></div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            Frutos do Sol <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreFds.receitaBruta)} receita bruta)</span>
+          </div>
+          <ReceitaLeituraVersao dados={dadosFds} />
+          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refAg} unidadeId="agricola_fds" dados={dadosFds} dre={dreFds} /></div>
+        </div>
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Auditoria — checagens de completude</h4>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 10 }}>
+        <PainelChecklist titulo="Terra do Sol" checks={checksTds} />
+        <PainelChecklist titulo="Frutos do Sol" checks={checksFds} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, margin: '20px 0 14px' }}>
+        <div>
+          <Rotulo>Seu nome (autor da versão)</Rotulo>
+          <CampoTexto value={autorNome} onChange={setAutorNome} placeholder="Nome do gerente" />
+        </div>
+        <div>
+          <Rotulo>Comentário da versão (opcional)</Rotulo>
+          <CampoTexto value={comentarioEnvio} onChange={setComentarioEnvio} placeholder="Ex.: revisão de premissas de CAPEX" />
+        </div>
+      </div>
+
+      {erro && (
+        <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>{erro}</div>
+      )}
+      {!tudoOk && (
+        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, color: COR.texto, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+          Existem checagens de Auditoria pendentes em Terra do Sol e/ou Frutos do Sol. Corrija-as antes de enviar (painel acima).
+        </div>
+      )}
+      {aguardandoLiberacao && (
+        <div style={{ background: '#E9F0FB', border: `1px solid ${COR.azul}`, color: COR.azul, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+          Este orçamento consolidado já foi enviado e está aguardando liberação do FP&A para permitir um novo envio.
+        </div>
+      )}
+
+      <Botao variante="laranja" icone={Send} onClick={handleEnviar} disabled={!tudoOk || enviando || aguardandoLiberacao}>
+        {enviando ? 'Enviando…' : aguardandoLiberacao ? 'Aguardando liberação do FP&A' : 'Enviar versão consolidada'}
+      </Botao>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 30, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <History size={15} /> Histórico de versões — Consolidado
+      </h4>
+      {versoes.length === 0 ? (
+        <p style={{ fontSize: 12, color: '#7A8088' }}>Nenhuma versão consolidada enviada ainda.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {versoes.map(v => (
+            <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${COR.borda}`, borderRadius: 6, padding: '8px 12px', fontSize: 11.5 }}>
+              <span>{formatData(v.timestamp)} — <b>{v.autor}</b>{v.comentario ? ` — ${v.comentario}` : ''}</span>
+              <button onClick={() => abrirVersao('agricola', v.id)} style={{ ...botaoSecundarioLocal }}>Abrir</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+const botaoSecundarioLocal = {
+  fontFamily: FONT, fontSize: 10.5, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+  border: `1px solid ${COR.azul}`, background: '#fff', color: COR.azul,
+};
 
 function StatusBadge({ status }) {
   const map = {
@@ -5407,19 +5994,99 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
   const origemAlvo = ccAtual.tipo === 'producao' ? 'Custo' : 'Despesa';
 
   function chaveLinha(contaCodigo) { return `${ccSel}|${contaCodigo}`; }
-  function totalConta(contaCodigo) {
-    return valorLinhaAnual(linhas[chaveLinha(contaCodigo)], dre.receitaBrutaMes, dre.receitaLiquidaMes);
-  }
-  function totalContaMes(contaCodigo, m) {
-    return valorLinhaMes(linhas[chaveLinha(contaCodigo)], m, dre.receitaBrutaMes, dre.receitaLiquidaMes);
-  }
-  function totalPacoteMes(contas, m) {
-    return contas.reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0);
-  }
   function folhaCC(ccCodigo) {
     const funcs = (funcionarios || []).filter(f => f.ccCodigo === ccCodigo);
     return computeFolhaPessoalAnual(funcs, premissasPessoal);
   }
+  // Versões parametrizadas por CC (não só o ccSel selecionado) — usadas na
+  // visão consolidadora do CC sintético (2026-08-20, ARA Agrícola: cada
+  // área tem um CC "AREA" que soma os CCs analíticos dela — ver
+  // CCS_AGRICOLA/areaCodigo). Cada CC filha pode ter tipo diferente do pai
+  // (ex.: Transporte de Pessoal é 'Custo' dentro de uma área majoritariamente
+  // 'Adm'), por isso a origem é resolvida por CC, não herdada da área.
+  function totalContaAnualCC(ccCodigo, contaCodigo) {
+    return valorLinhaAnual(linhas[`${ccCodigo}|${contaCodigo}`], dre.receitaBrutaMes, dre.receitaLiquidaMes);
+  }
+  function totalContaMesCC(ccCodigo, contaCodigo, m) {
+    return valorLinhaMes(linhas[`${ccCodigo}|${contaCodigo}`], m, dre.receitaBrutaMes, dre.receitaLiquidaMes);
+  }
+  function contasDoCc(cc) {
+    const origem = cc.tipo === 'producao' ? 'Custo' : 'Despesa';
+    return refUnidade.pacotes.flatMap(p => (refUnidade.planoContas[p.id] || []).filter(c => c.origem === origem));
+  }
+  function totalCcAnual(ccCodigo) {
+    const cc = refUnidade.ccs.find(c => c.codigo === ccCodigo);
+    if (!cc) return 0;
+    return contasDoCc(cc).reduce((acc, c) => acc + totalContaAnualCC(ccCodigo, c.codigo), 0) + folhaCC(ccCodigo).totalAnual;
+  }
+  function totalCcMes(ccCodigo, m) {
+    const cc = refUnidade.ccs.find(c => c.codigo === ccCodigo);
+    if (!cc) return 0;
+    return contasDoCc(cc).reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0) + (folhaCC(ccCodigo).mensal[m]?.total || 0);
+  }
+  function totalConta(contaCodigo) { return totalContaAnualCC(ccSel, contaCodigo); }
+  function totalContaMes(contaCodigo, m) { return totalContaMesCC(ccSel, contaCodigo, m); }
+  function totalPacoteMes(contas, m) {
+    return contas.reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0);
+  }
+
+  // CC sintético/consolidador (nivel:2 — só existe na ARA Agrícola por
+  // enquanto, ver CCS_AGRICOLA): pedido de 2026-08-20, "o gestor do CC
+  // precisa ter acesso o CC sintético consolidador e a visão a analítica" —
+  // é uma visão consolidada somando os CCs analíticos da área, não um alvo
+  // de lançamento (lançar direto nele duplicaria o que já está nos filhos).
+  if (ccAtual.nivel === 2) {
+    const filhos = refUnidade.ccs.filter(c => c.areaCodigo === ccAtual.codigo);
+    const totalMes = MESES.map((_, m) => filhos.reduce((acc, f) => acc + totalCcMes(f.codigo, m), 0));
+    const totalAnual = totalMes.reduce((a, v) => a + v, 0);
+    return (
+      <div>
+        <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>3. Custos e Despesas — por conta analítica (OBZ)</h3>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+          {ccsVisiveis.map(cc => (
+            <button key={cc.codigo} onClick={() => setCcSel(cc.codigo)}
+              style={{
+                fontFamily: FONT, fontSize: 11.5, fontWeight: cc.nivel === 2 ? 700 : 700, padding: '7px 12px', borderRadius: 16, cursor: 'pointer',
+                border: `1.5px solid ${cc.codigo === ccSel ? COR.azul : COR.borda}`,
+                background: cc.codigo === ccSel ? COR.azul : COR.branco, color: cc.codigo === ccSel ? COR.branco : COR.texto,
+              }}
+            >{cc.nome}{cc.nivel === 2 ? ' · Consolidador' : cc.tipo === 'producao' ? ' · CPV' : ' · Despesa'}</button>
+          ))}
+        </div>
+        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 14, marginBottom: 14, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <Info size={17} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 11.5, color: COR.texto }}>
+            <b>{ccAtual.nome}</b> é o CC sintético da área — soma automática dos {filhos.length} CC(s) analítico(s) abaixo.
+            O lançamento de premissas acontece neles, não aqui (evita contar o mesmo custo duas vezes).
+          </div>
+        </div>
+        <TabelaMensal
+          linhas={[]}
+          onChangeCelula={() => {}}
+          corTotal={COR.azul}
+          linhasCalculadas={[
+            ...filhos.map(f => ({
+              key: f.codigo, label: f.nome,
+              valoresMensal: MESES.map((_, m) => totalCcMes(f.codigo, m)),
+              totalValor: totalCcAnual(f.codigo),
+              cor: COR.texto,
+            })),
+            { key: '__total__', label: `Total ${ccAtual.nome}`, valoresMensal: totalMes, totalValor: totalAnual, cor: COR.laranja },
+          ]}
+        />
+      </div>
+    );
+  }
+
+  // Contas analíticas mapeadas pra este CC (De/Para Camadas.xlsx, só ARA
+  // Agrícola) — undefined quando o CC ainda não tem essa planilha de
+  // origem (áreas fora da Fazenda). Nesse caso não inventamos contas: o CC
+  // fica com acesso criado (estrutura/usuário), mas sem lançamento, até o
+  // FP&A trazer o De/Para dessa área.
+  const contasMapeadasCC = (unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds')
+    ? CONTAS_POR_CC_AGRICOLA[ccAtual.codigo]
+    : undefined;
+  const semContasMapeadas = (unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') && !contasMapeadasCC;
   // Pedido de 2026-08-19 — só Corporativo, conta CONTA_VIAGENS_CALCULADORA:
   // grava a lista de viagens do CC e sincroniza o total calculado (mesma
   // fórmula da linha 6 de Viagens.xlsx) direto em custos.linhas, como uma
@@ -5439,8 +6106,41 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
     setContaAberta(prev => (prev === chave ? null : chave));
   }
 
+  if (semContasMapeadas) {
+    return (
+      <div>
+        <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>3. Custos e Despesas — por conta analítica (OBZ)</h3>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+          {ccsVisiveis.map(cc => (
+            <button key={cc.codigo} onClick={() => setCcSel(cc.codigo)}
+              style={{
+                fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 16, cursor: 'pointer',
+                border: `1.5px solid ${cc.codigo === ccSel ? COR.azul : COR.borda}`,
+                background: cc.codigo === ccSel ? COR.azul : COR.branco, color: cc.codigo === ccSel ? COR.branco : COR.texto,
+              }}
+            >{cc.nome}{cc.nivel === 2 ? ' · Consolidador' : cc.tipo === 'producao' ? ' · CPV' : ' · Despesa'}</button>
+          ))}
+        </div>
+        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 16, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <AlertTriangle size={18} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{ccAtual.nome}: sem contas analíticas mapeadas ainda</div>
+            <div style={{ fontSize: 11.5, color: COR.texto }}>
+              O De/Para conta × CC (Camadas.xlsx) por enquanto só cobre os CCs da área Fazenda (Cabeçal 1, Cabeçal 2,
+              Adm Fazenda, Irrigação, Bloco Teste Mirtilo). Este CC já está cadastrado e o gestor já tem acesso — falta
+              o FP&A trazer o De/Para dessa área pra habilitar o lançamento aqui.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const gruposPacote = refUnidade.pacotes
-    .map(p => ({ ...p, contas: (refUnidade.planoContas[p.id] || []).filter(c => c.origem === origemAlvo) }))
+    .map(p => ({
+      ...p,
+      contas: (refUnidade.planoContas[p.id] || []).filter(c => c.origem === origemAlvo && (!contasMapeadasCC || contasMapeadasCC.includes(c.codigo))),
+    }))
     .filter(g => g.contas.length > 0);
   const contasSemPacote = []; // Matriz_Governanca_OBZ_2027_4: 100% das contas Têxtil classificadas
   const todasContasCC = [...gruposPacote.flatMap(g => g.contas), ...contasSemPacote];
@@ -5473,7 +6173,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
               border: `1.5px solid ${cc.codigo === ccSel ? COR.azul : COR.borda}`,
               background: cc.codigo === ccSel ? COR.azul : COR.branco, color: cc.codigo === ccSel ? COR.branco : COR.texto,
             }}
-          >{cc.nome}{cc.tipo === 'producao' ? ' · CPV' : ' · Despesa'}</button>
+          >{cc.nome}{cc.nivel === 2 ? ' · Consolidador' : cc.tipo === 'producao' ? ' · CPV' : ' · Despesa'}</button>
         ))}
       </div>
 
@@ -6446,7 +7146,7 @@ function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggl
       </button>
       {aberto && (
         <div style={{ background: COR.claro }}>
-          {UNIDADES.map(u => {
+          {UNIDADES_PARA_TOTAL_GRUPO.map(u => {
             const v = valorConta(conta, porUnidade[u.id]);
             return (
               <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px 6px 30px', fontSize: 11.5, borderBottom: `1px solid ${COR.borda}` }}>
@@ -6984,10 +7684,10 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
 
-  const totalGrupo = UNIDADES.reduce((acc, u) => {
+  const totalGrupo = UNIDADES_PARA_TOTAL_GRUPO.reduce((acc, u) => {
     const d = statusUnidades[u.id];
     if (!d) return acc;
-    const t = computeDRE(d, referenciaDaUnidade(u.id));
+    const t = dreDaUnidade(d, u.id);
     return {
       receitaLiquida: acc.receitaLiquida + t.receitaLiquida,
       ebitda: acc.ebitda + t.ebitda,
@@ -7085,7 +7785,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 26 }}>
             {UNIDADES.filter(u => filtroStatus === 'todos' || (statusUnidades[u.id]?.meta?.status || 'nao_iniciado') === filtroStatus).map(u => {
               const d = statusUnidades[u.id];
-              const t = d ? computeDRE(d, referenciaDaUnidade(u.id)) : computeDRE(emptyFormData(u.id), referenciaDaUnidade(u.id));
+              const t = d ? dreDaUnidade(d, u.id) : dreDaUnidade(emptyFormData(u.id), u.id);
               const aberto = unidadeDrill === u.id;
               return (
                 <div key={u.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
@@ -7180,11 +7880,11 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo }) {
 
   const porUnidadeDRE = {};
   const porUnidadeDFC = {};
-  UNIDADES.forEach(u => {
+  UNIDADES_PARA_TOTAL_GRUPO.forEach(u => {
     const d = statusUnidades[u.id] || emptyFormData(u.id);
-    const t = computeDRE(d, referenciaDaUnidade(u.id));
+    const t = dreDaUnidade(d, u.id);
     porUnidadeDRE[u.id] = t;
-    porUnidadeDFC[u.id] = computeDFC(d, t);
+    porUnidadeDFC[u.id] = dfcDaUnidade(d, t, u.id);
   });
   const grupoDRE = agregarDRE(Object.values(porUnidadeDRE));
   const grupoDFC = agregarDFC(Object.values(porUnidadeDFC));

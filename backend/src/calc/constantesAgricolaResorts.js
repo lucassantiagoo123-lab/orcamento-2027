@@ -18,19 +18,99 @@ export const CCS_PLACEHOLDER_AGRICOLA_RESORTS = [
   { codigo: '00999', nome: 'Apoio Geral', tipo: 'despesa' },
 ];
 
+// 2026-08-20: De/Para com Camadas.xlsx (CCs da área Fazenda × conta
+// analítica) revelou 4 contas reais em uso que não estavam na Matriz de
+// Governança — adicionadas (71102034/71102036 em manutencao, 71102049 em
+// producao, 71103001 em servicos). Ver CONTAS_POR_CC_AGRICOLA no frontend
+// (whitelist por CC — só usada lá, não precisa espelhar aqui: o backend não
+// valida quais contas cada CC pode usar, só qual unidade/CC o usuário pode
+// escrever).
 export const PACOTES_AGRICOLA = [
   { id: 'pessoal', nome: "Pessoal", ref: 'Matriz_Governanca_OBZ_2027_4 (62 contas)' },
   { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Matriz_Governanca_OBZ_2027_4 (29 contas)' },
-  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas)' },
-  { id: 'manutencao', nome: "Manutenção", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas)' },
+  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas) + Camadas.xlsx (1 conta)' },
+  { id: 'manutencao', nome: "Manutenção", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas) + Camadas.xlsx (2 contas)' },
   { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Matriz_Governanca_OBZ_2027_4 (4 contas)' },
   { id: 'depreciacao', nome: "Depreciação e Amortização", ref: 'Matriz_Governanca_OBZ_2027_4 (3 contas)' },
   { id: 'fretes', nome: "Fretes e Logística", ref: 'Matriz_Governanca_OBZ_2027_4 (10 contas)' },
-  { id: 'producao', nome: "Produção", ref: 'Matriz_Governanca_OBZ_2027_4 (15 contas)' },
+  { id: 'producao', nome: "Produção", ref: 'Matriz_Governanca_OBZ_2027_4 (15 contas) + Camadas.xlsx (1 conta)' },
   { id: 'comercial', nome: "Comercial e Marketing", ref: 'Matriz_Governanca_OBZ_2027_4 (4 contas)' },
   { id: 'viagens', nome: "Viagens", ref: 'Matriz_Governanca_OBZ_2027_4 (2 contas)' },
   { id: 'locacao', nome: "Locação e Ocupação", ref: 'Matriz_Governanca_OBZ_2027_4 (4 contas)' },
   { id: 'tecnologia', nome: "Tecnologia e Inovação", ref: 'Matriz_Governanca_OBZ_2027_4 (2 contas)' },
+];
+
+// CCs reais da ARA Agrícola (Plano Centro de Custo.xlsx, 2026-08-20) — 9
+// áreas (nível sintético/consolidador, nivel:2) e seus CCs analíticos
+// (nivel:3, areaCodigo aponta pro código da área-mãe). Mesma estrutura pras
+// duas fazendas (agricola_tds/agricola_fds — ver registroUnidades.js).
+// Espelho exato de CCS_AGRICOLA em frontend/src/OrcamentoARA.jsx.
+export const CCS_AGRICOLA = [
+  { codigo: '501', nome: 'Administrativo Financeiro', tipo: 'despesa', nivel: 2, areaCodigo: null },
+  { codigo: '50101', nome: 'Adm. Financeiro', tipo: 'despesa', nivel: 3, areaCodigo: '501' },
+  { codigo: '50102', nome: 'DP e SESTR', tipo: 'despesa', nivel: 3, areaCodigo: '501' },
+  { codigo: '50103', nome: 'TI Software', tipo: 'despesa', nivel: 3, areaCodigo: '501' },
+  { codigo: '50105', nome: 'Fiscal', tipo: 'despesa', nivel: 3, areaCodigo: '501' },
+
+  { codigo: '502', nome: 'Operação', tipo: 'despesa', nivel: 2, areaCodigo: null },
+  { codigo: '50201', nome: 'Segurança e Portaria', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+  { codigo: '50202', nome: 'Oficina e Manutenção', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+  { codigo: '50203', nome: 'Infra Estrutura', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+  { codigo: '50204', nome: 'Transporte de Pessoal', tipo: 'producao', nivel: 3, areaCodigo: '502' },
+  { codigo: '50205', nome: 'Cantina', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+  { codigo: '50206', nome: 'Adm. Operação', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+  { codigo: '50207', nome: 'Almoxarifado', tipo: 'despesa', nivel: 3, areaCodigo: '502' },
+
+  { codigo: '503', nome: 'Produção', tipo: 'producao', nivel: 2, areaCodigo: null },
+  { codigo: '50301', nome: 'Cabeçal 1', tipo: 'producao', nivel: 3, areaCodigo: '503' },
+  { codigo: '50302', nome: 'Cabeçal 2', tipo: 'producao', nivel: 3, areaCodigo: '503' },
+  { codigo: '50303', nome: 'Cabeçal 3', tipo: 'producao', nivel: 3, areaCodigo: '503' },
+
+  { codigo: '504', nome: 'Fazenda', tipo: 'producao', nivel: 2, areaCodigo: null },
+  { codigo: '50402', nome: 'Adm Fazenda', tipo: 'producao', nivel: 3, areaCodigo: '504' },
+  { codigo: '50403', nome: 'Irrigação', tipo: 'producao', nivel: 3, areaCodigo: '504' },
+  { codigo: '50404', nome: 'Bloco Teste Uva', tipo: 'producao', nivel: 3, areaCodigo: '504' },
+  { codigo: '50405', nome: 'Bloco Teste Mirtilo', tipo: 'producao', nivel: 3, areaCodigo: '504' },
+
+  { codigo: '505', nome: 'Packing House', tipo: 'producao', nivel: 2, areaCodigo: null },
+  { codigo: '50501', nome: 'Certificações', tipo: 'producao', nivel: 3, areaCodigo: '505' },
+  { codigo: '50502', nome: 'Adm PH', tipo: 'producao', nivel: 3, areaCodigo: '505' },
+  { codigo: '50503', nome: 'Operações PH', tipo: 'producao', nivel: 3, areaCodigo: '505' },
+  { codigo: '50504', nome: 'Embalagem', tipo: 'producao', nivel: 3, areaCodigo: '505' },
+
+  { codigo: '506', nome: 'Comercial', tipo: 'despesa', nivel: 2, areaCodigo: null },
+  { codigo: '50601', nome: 'Vendas', tipo: 'despesa', nivel: 3, areaCodigo: '506' },
+  { codigo: '50602', nome: 'Marketing', tipo: 'despesa', nivel: 3, areaCodigo: '506' },
+  { codigo: '50605', nome: 'Logística', tipo: 'despesa', nivel: 3, areaCodigo: '506' },
+  { codigo: '50606', nome: 'Câmara Fria', tipo: 'producao', nivel: 3, areaCodigo: '506' },
+
+  { codigo: '507', nome: 'Planejamento e Gestão', tipo: 'despesa', nivel: 2, areaCodigo: null },
+  { codigo: '50701', nome: 'Invest Máquinas-Equipamentos', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50702', nome: 'Invest Edificações', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50703', nome: 'Invest Mudas', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50704', nome: 'Invest Diversos', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50705', nome: 'Projeto Pessoas', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50706', nome: 'Projeto Replantio', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50710', nome: 'Suprimentos', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50711', nome: 'Gente e Gestão', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+  { codigo: '50712', nome: 'Adm. Planejamento e Gestão', tipo: 'despesa', nivel: 3, areaCodigo: '507' },
+
+  { codigo: '508', nome: 'Uva Terceiros', tipo: 'producao', nivel: 2, areaCodigo: null },
+  { codigo: '50801', nome: 'Roberto Hirai', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50802', nome: 'Marcos Luiz Loureiro Alves', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50803', nome: 'Latitude 9', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50804', nome: 'Fruticultura Maria Martins Ltda', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50805', nome: 'Cooperativa Agrícola', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50806', nome: 'Frutos do Sol', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50807', nome: 'Aldemir de Araújo', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50808', nome: 'Ibatuba', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50809', nome: 'Nova Neruda', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50810', nome: 'Ednilson', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50811', nome: 'Marcus Vinícius Furtado Santos', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+  { codigo: '50812', nome: 'Colinas do Vale', tipo: 'producao', nivel: 3, areaCodigo: '508' },
+
+  { codigo: '511', nome: 'Custo Mercadoria Vendida', tipo: 'producao', nivel: 2, areaCodigo: null },
+  { codigo: '51101', nome: 'Custo da Mercadoria Vendida', tipo: 'producao', nivel: 3, areaCodigo: '511' },
 ];
 
 export const PLANO_CONTAS_AGRICOLA = {
@@ -134,6 +214,7 @@ export const PLANO_CONTAS_AGRICOLA = {
     { codigo: '71102016', nome: "ASSESSORIAS E CONSULTORIAS", origem: 'Custo' },
     { codigo: '71102017', nome: "SERVICO PRESTADO PESSOA FISICA", origem: 'Custo' },
     { codigo: '71102031', nome: "SEGURANCA E VIGILANCIA", origem: 'Custo' },
+    { codigo: '71103001', nome: "SERVICOS TECNICOS", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20
     { codigo: '34104013', nome: "SERVICOS PRESTADOS PESSOA JURIDICA", origem: 'Despesa' },
     { codigo: '34104019', nome: "SERVICO PRESTADO PESSOA FISICA", origem: 'Despesa' },
     { codigo: '34202010', nome: "SERVICOS DE TERCEIROS - PESSSOA JURIDICA", origem: 'Despesa' },
@@ -143,6 +224,8 @@ export const PLANO_CONTAS_AGRICOLA = {
   manutencao: [
     { codigo: '71102004', nome: "MANUTENCAO, CONSERVACAO E LIMPEZA", origem: 'Custo' },
     { codigo: '71102033', nome: "MATERIAL DE MANUT - VEICULOS-MOTOS", origem: 'Custo' },
+    { codigo: '71102034', nome: "PECAS E SERV - TRATORES-IMPLEMENTOS", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20
+    { codigo: '71102036', nome: "MANUTENCAO DA COMUNICACAO", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20
     { codigo: '71102046', nome: "MATERIAL DE OFICINA", origem: 'Custo' },
     { codigo: '71102103', nome: "MANUTENCAO DE EQUIPAMENTOS MECANICOS", origem: 'Custo' },
     { codigo: '34104002', nome: "MANUTENCAO DE VEICULOS", origem: 'Despesa' },
@@ -186,6 +269,7 @@ export const PLANO_CONTAS_AGRICOLA = {
     { codigo: '71102040', nome: "MONITORAMENTO DE PRAGAS", origem: 'Custo' },
     { codigo: '71102042', nome: "DESPESAS COM AQUISICOES DE UVA", origem: 'Custo' },
     { codigo: '71102048', nome: "MATERIAL PARA MANUT DE PARREIRA", origem: 'Custo' },
+    { codigo: '71102049', nome: "MATERIAL DE IRRIGACAO", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20
     { codigo: '71102095', nome: "RATEIO - PACKING HOUSE", origem: 'Custo' },
     { codigo: '71102096', nome: "RATEIO - INDIRETO FAZENDA", origem: 'Custo' },
     { codigo: '71102097', nome: "RATEIO DA PRODUCAO", origem: 'Custo' },

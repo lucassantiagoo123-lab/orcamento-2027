@@ -9,6 +9,10 @@
 import { MESES, mesesVazios, PRODUTOS_REF, DEDUCOES_REF } from './constantesTextil.js';
 import { PRODUTOS_REF_AGRICOLA, DEDUCOES_REF_AGRICOLA, LINHAS_RECEITA_RESORTS, DEDUCOES_REF_RESORTS, LINHA_RECEITA_INFORMATIVA_RESORTS } from './receitaAgricolaResorts.js';
 import { premissasRecebimentoVazias, planoContasBalancoVazio, saldosIniciaisBalancoVazio, computeRecebimentosKgiroMensal, pagamentosManuaisVazios, computePagamentosManuaisMes, saldosAberturaFc } from './kgiroBalancoTextil.js';
+// Só pra dreDaUnidade resolver a referência de agricola_tds/agricola_fds no
+// ramo do Consolidado (ver nota lá embaixo) — sem ciclo: registroUnidades.js
+// não importa nada deste arquivo.
+import { buscarReferencia } from './registroUnidades.js';
 
 export function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -112,7 +116,7 @@ function receitaVazia(unidadeId) {
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
     };
   }
-  if (unidadeId === 'agricola') {
+  if (unidadeId === 'agricola' || unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') {
     return {
       produtos: PRODUTOS_REF_AGRICOLA.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
       deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
@@ -350,6 +354,61 @@ export function computeDRE(data, ref) {
     receitaBrutaMes, receitaLiquidaMes,
     totalGeral: lucroLiquido,
   };
+}
+
+// Soma dois DREs já calculados (não dois `dados` brutos) — espelho de
+// somarDRE em frontend/src/OrcamentoARA.jsx. Usada pelo Consolidado da
+// Agrícola (2026-08-20): Terra do Sol e Frutos do Sol têm os mesmos códigos
+// de CC, então nunca mesclamos os `dados` brutos das duas (colidiria a
+// chave CC|Conta) — só os DREs já calculados, campo a campo. Percentuais de
+// margem são recalculados sobre as bases já somadas, nunca somados direto.
+export function somarDRE(a, b) {
+  const receitaBruta = a.receitaBruta + b.receitaBruta;
+  const deducoes = a.deducoes + b.deducoes;
+  const receitaLiquida = a.receitaLiquida + b.receitaLiquida;
+  const cpv = a.cpv + b.cpv;
+  const lucroBruto = a.lucroBruto + b.lucroBruto;
+  const despesasSemDA = a.despesasSemDA + b.despesasSemDA;
+  const ebitda = a.ebitda + b.ebitda;
+  const depreciacao = a.depreciacao + b.depreciacao;
+  const resultadoFinanceiro = a.resultadoFinanceiro + b.resultadoFinanceiro;
+  const outras = a.outras + b.outras;
+  const ebt = a.ebt + b.ebt;
+  const ircsl = a.ircsl + b.ircsl;
+  const lucroLiquido = a.lucroLiquido + b.lucroLiquido;
+  const capexTotal = a.capexTotal + b.capexTotal;
+  const receitaBrutaMes = MESES.map((_, m) => a.receitaBrutaMes[m] + b.receitaBrutaMes[m]);
+  const receitaLiquidaMes = MESES.map((_, m) => a.receitaLiquidaMes[m] + b.receitaLiquidaMes[m]);
+  return {
+    receitaBruta, deducoes, receitaLiquida, cpv, lucroBruto,
+    margemBruta: receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0,
+    despesasSemDA, ebitda,
+    margemEbitda: receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0,
+    depreciacao, resultadoFinanceiro, outras, ebt, ircsl, lucroLiquido,
+    margemLiquida: receitaLiquida ? (lucroLiquido / receitaLiquida) * 100 : 0,
+    capexTotal, receitaBrutaMes, receitaLiquidaMes,
+    totalGeral: lucroLiquido,
+  };
+}
+
+// computeDRE "unidade-aware" — espelho de dreDaUnidade em OrcamentoARA.jsx.
+// GET /:unidadeId e POST /:unidadeId/enviar chamam computeDRE direto sobre
+// `orcamento.dados`; pra 'agricola' (Consolidado) depois do primeiro envio,
+// esse `dados` é o snapshot combinado {_tipo:'consolidado_agricola', tds,
+// fds} gravado pelo frontend (ver ConsolidadoAgricola) — computeDRE
+// quebraria tentando ler `dados.receita` direto do wrapper. `ref` continua
+// sendo passado pra manter a assinatura igual a computeDRE nos outros
+// casos, mas não é usado no ramo do wrapper (usa sempre a referência de
+// agricola_tds/agricola_fds, que são as unidades de verdade por trás dele).
+export function dreDaUnidade(dadosUnidade, unidadeId, ref) {
+  if (unidadeId === 'agricola' && dadosUnidade && dadosUnidade._tipo === 'consolidado_agricola') {
+    const refAg = buscarReferencia('agricola_tds') || ref;
+    return somarDRE(
+      computeDRE(dadosUnidade.tds || emptyFormData('agricola_tds'), refAg),
+      computeDRE(dadosUnidade.fds || emptyFormData('agricola_fds'), refAg),
+    );
+  }
+  return computeDRE(dadosUnidade, ref);
 }
 
 // ---------------------------------------------------------------------------

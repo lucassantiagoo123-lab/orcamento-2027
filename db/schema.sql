@@ -33,7 +33,7 @@ CREATE TABLE usuarios (
 -- caso real observado no lançamento — Gerente + Diretor por unidade)
 CREATE TABLE usuario_unidade (
   usuario_id  UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
-  unidade_id  TEXT NOT NULL,   -- 'textil' | 'agricola' | 'resorts' | 'ei' | 'energia' | 'corporativo'
+  unidade_id  TEXT NOT NULL,   -- 'textil' | 'agricola' | 'agricola_tds' | 'agricola_fds' | 'resorts' | 'ei' | 'energia' | 'corporativo'
   PRIMARY KEY (usuario_id, unidade_id)
 );
 
@@ -130,7 +130,7 @@ CREATE TABLE log_alteracoes (
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE unidades (
-  id      TEXT PRIMARY KEY,   -- 'textil' | 'agricola' | 'resorts' | 'ei' | 'energia' | 'corporativo'
+  id      TEXT PRIMARY KEY,   -- 'textil' | 'agricola' | 'agricola_tds' | 'agricola_fds' | 'resorts' | 'ei' | 'energia' | 'corporativo'
   nome    TEXT NOT NULL
 );
 

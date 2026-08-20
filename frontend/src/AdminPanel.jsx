@@ -9,10 +9,16 @@ import {
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
-import { CCS_TEXTIL, CCS_PLACEHOLDER_AGRICOLA_RESORTS, CCS_CORPORATIVO } from './OrcamentoARA.jsx';
+import { CCS_TEXTIL, CCS_PLACEHOLDER_AGRICOLA_RESORTS, CCS_AGRICOLA, CCS_CORPORATIVO } from './OrcamentoARA.jsx';
 
 const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9D9D9', claro: '#F7F7F7' };
-const UNIDADES_IDS = ['textil', 'agricola', 'resorts', 'ei', 'energia', 'corporativo'];
+// 2026-08-20: Agrícola virou 3 "unidades" — agricola_tds/agricola_fds (as
+// fazendas, onde o lançamento de verdade acontece) e agricola (Consolidado,
+// só leitura + envio — ver ConsolidadoAgricola no OrcamentoARA.jsx). Um
+// Gestor da Unidade normalmente precisa das 3 vinculadas pra ter o pacote
+// completo (editar as duas fazendas + enviar o Consolidado); um Gestor de
+// CC só precisa das duas fazendas (não acessa o Consolidado).
+const UNIDADES_IDS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'resorts', 'ei', 'energia', 'corporativo'];
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
   gerente_unidade: 'Gestor da Unidade',
@@ -29,7 +35,9 @@ const PERFIL_LABEL = {
 // dado-fonte", ainda sem CC oficial pra elas). EI/Energia ainda não têm CC.
 const CCS_POR_UNIDADE = {
   textil: CCS_TEXTIL,
-  agricola: CCS_PLACEHOLDER_AGRICOLA_RESORTS,
+  agricola_tds: CCS_AGRICOLA,
+  agricola_fds: CCS_AGRICOLA,
+  agricola: [], // Consolidado — sem CC próprio pra vincular Gestor de CC (ver nota acima)
   resorts: CCS_PLACEHOLDER_AGRICOLA_RESORTS,
   corporativo: CCS_CORPORATIVO,
   ei: [],

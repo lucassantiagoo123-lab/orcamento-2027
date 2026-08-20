@@ -6,7 +6,7 @@ import { Router } from 'express';
 import { exigirUnidade, exigirPerfil } from '../middleware/authorize.js';
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
-import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria } from '../calc/orcamento.js';
+import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
 import { notificarEnvioParaFpa } from '../email/notificacoes.js';
 
@@ -27,7 +27,13 @@ const NOME_UNIDADE = {
 // contas ela tem ainda.
 // Isto é reforçado aqui, no servidor, e não só escondido na UI — mesma regra
 // da seção 4 aplicada a uma pendência de dado, não só a escopo de usuário.
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'resorts', 'corporativo'];
+// 2026-08-20: Agrícola virou TDS/FDS/Consolidado (ver ConsolidadoAgricola no
+// frontend) — 'agricola_tds'/'agricola_fds' são as unidades editáveis de
+// verdade; 'agricola' (Consolidado) continua na lista porque o envio dela
+// reaproveita o mesmo PUT + POST /enviar de qualquer unidade (grava o
+// snapshot combinado antes de enviar — não tem formulário de premissa
+// próprio, só essas duas chamadas).
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'corporativo'];
 
 function exigirLancamentoHabilitado(req, res, next) {
   const { unidadeId } = req.params;
@@ -105,14 +111,24 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
     const { unidadeId } = req.params;
     const ref = buscarReferencia(unidadeId) || REF_VAZIA;
     const orcamento = await buscarOuCriarOrcamento(unidadeId, ANO_ATUAL);
-    const dre = computeDRE(orcamento.dados, ref);
+    // Consolidado da Agrícola (2026-08-20): depois do primeiro envio,
+    // orcamento.dados de 'agricola' é o snapshot combinado
+    // {_tipo:'consolidado_agricola', tds, fds} — ver frontend
+    // ConsolidadoAgricola. computeDFC/computeFluxoIndiretoMensal/
+    // computeFluxoCaixaDiretoMensal/runAuditoria quebrariam nesse formato
+    // (nenhum é wrapper-aware como dreDaUnidade) — e o frontend nem usa
+    // esses 4 campos da resposta (sempre recalcula do zero a partir de
+    // orcamento.dados, ver dreDaUnidade/OrcamentoARA.jsx), então ficam null
+    // nesse caso em vez de arriscar quebrar a rota à toa.
+    const ehConsolidadoAgricola = orcamento.dados?._tipo === 'consolidado_agricola';
+    const dre = dreDaUnidade(orcamento.dados, unidadeId, ref);
     res.json({
       orcamento,
       dre,
-      dfc: computeDFC(orcamento.dados, dre),
-      fluxoIndiretoMensal: computeFluxoIndiretoMensal(orcamento.dados, dre, ref),
-      fluxoDiretoMensal: computeFluxoCaixaDiretoMensal(orcamento.dados, dre, ref),
-      auditoria: runAuditoria(orcamento.dados, dre, ref, unidadeId),
+      dfc: ehConsolidadoAgricola ? null : computeDFC(orcamento.dados, dre),
+      fluxoIndiretoMensal: ehConsolidadoAgricola ? null : computeFluxoIndiretoMensal(orcamento.dados, dre, ref),
+      fluxoDiretoMensal: ehConsolidadoAgricola ? null : computeFluxoCaixaDiretoMensal(orcamento.dados, dre, ref),
+      auditoria: ehConsolidadoAgricola ? [] : runAuditoria(orcamento.dados, dre, ref, unidadeId),
     });
   } catch (err) { next(err); }
 });
@@ -165,7 +181,12 @@ orcamentosRouter.post('/:unidadeId/enviar', exigirUnidade('unidadeId'), exigirLa
       });
     }
     const ref = buscarReferencia(req.params.unidadeId) || REF_VAZIA;
-    const dre = computeDRE(atual.dados, ref);
+    // dreDaUnidade (não computeDRE direto): no envio do Consolidado da
+    // Agrícola, atual.dados já é o snapshot combinado {_tipo, tds, fds} que
+    // o frontend acabou de gravar via PUT — ver ConsolidadoAgricola. Soma
+    // os totais reais de Terra do Sol + Frutos do Sol em vez de quebrar (ou
+    // de mandar e-mail/gravar versão com totais zerados).
+    const dre = dreDaUnidade(atual.dados, req.params.unidadeId, ref);
     const totais = { receitaLiquida: dre.receitaLiquida, ebitda: dre.ebitda, lucroLiquido: dre.lucroLiquido };
     const { orcamento, versao } = await registrarEnvio(atual.id, atual.dados, req.usuario.id, req.body.comentario, totais);
     res.json({ orcamento, versao });
