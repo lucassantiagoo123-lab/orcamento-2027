@@ -2303,6 +2303,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
                     <input
                       type="text" inputMode="decimal" value={linha.valores[mi]}
                       onChange={e => onChangeCelula(linha.key, mi, e.target.value)}
+                      onPaste={e => onPasteMensal(e, mi, (idx, v) => onChangeCelula(linha.key, idx, v))}
                       style={{ width: '100%', border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 11, color: COR.texto, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' }}
                     />
                   </td>
@@ -4704,6 +4705,36 @@ function atualizarArray(arr, idx, valor) {
   return novo;
 }
 
+// Colar direto do Excel numa grade mensal (pedido de 2026-08-20): o gestor
+// copia uma linha ou coluna de células da planilha de premissas dele e cola
+// numa célula da grade — em vez de digitar mês a mês, os 12 valores entram
+// de uma vez, a partir da célula onde colou. Excel copia uma seleção
+// horizontal como texto separado por TAB e uma seleção vertical como texto
+// separado por quebra de linha (uma célula só copiada não tem nem um nem
+// outro, aí o comportamento nativo do input continua valendo). Números com
+// vírgula decimal (padrão BR do Excel) chegam intactos — parseNum, usado em
+// todo o motor de cálculo, já entende vírgula.
+function valoresColados(textoColado) {
+  const texto = (textoColado || '').replace(/\r/g, '');
+  const partes = texto.includes('\t') ? texto.split('\t') : texto.split('\n');
+  return partes.map(v => v.trim()).filter((v, i, arr) => !(v === '' && i === arr.length - 1 && arr.length > 1));
+}
+// setValorMes(mesIdx, valor) aplica um valor num mês específico da grade —
+// cada chamador (TabelaMensal, GradeMensalLinha) passa o seu próprio jeito
+// de atualizar o array. mesInicial é o mês da célula onde o usuário colou;
+// os valores colados preenchem esse mês em diante, truncando em Dez.
+function onPasteMensal(e, mesInicial, setValorMes) {
+  const texto = e.clipboardData?.getData('text');
+  if (!texto) return;
+  const valores = valoresColados(texto);
+  if (valores.length <= 1) return; // 1 célula só — deixa o paste nativo do input
+  e.preventDefault();
+  valores.forEach((v, i) => {
+    const mesIdx = mesInicial + i;
+    if (mesIdx < 12) setValorMes(mesIdx, v);
+  });
+}
+
 // Uma linha de 12 células editáveis (mês a mês) dentro da grade de premissa de uma conta.
 function GradeMensalLinha({ label, valores, onChange, formatarTotal }) {
   const vals = valores || mesesVazios();
@@ -4716,6 +4747,7 @@ function GradeMensalLinha({ label, valores, onChange, formatarTotal }) {
           <input
             type="text" inputMode="decimal" value={vals[mi]}
             onChange={e => onChange(mi, e.target.value)}
+            onPaste={e => onPasteMensal(e, mi, (idx, v) => onChange(idx, v))}
             style={{ width: '100%', minWidth: 56, border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 10.5, color: COR.texto, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' }}
           />
         </td>
