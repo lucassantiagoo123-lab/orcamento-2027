@@ -58,6 +58,19 @@ export const LINHAS_RECEITA_RESORTS = [
   { id: 'arrumacao', nome: '1.4 Outras Receitas — Arrumação (LFCVH)', tipo: 'direto' },
 ];
 
+// Café e Pensão NÃO soma na Receita Operacional Bruta (conferido célula a
+// célula em Premissa Resorts.xlsx, aba "1.1 DRE"): a linha 42 "Receita
+// Operacional Bruta" é a soma de Hospedagem(43) + A&B(44) + Moorea(45) +
+// Outras Receitas(46) — e a fórmula da linha 44 ("1.2 Receita Total com
+// A&B" dentro da ROB) puxa só a célula de Alimentação e Bebidas (=G25),
+// não a soma de A&B com Café e Pensão que aparece no subtotal informativo
+// da linha 23. Café e Pensão já está embutido na Tarifa Média da
+// Hospedagem — é por isso que a planilha tem uma linha só informativa,
+// "Receita com Hospedagem sem Pensão" = Hospedagem − Café e Pensão (linha
+// 21), que só faz sentido se a Hospedagem contabilizada alhures já a
+// inclui. Somar Café e Pensão de novo na ROB duplicaria essa receita.
+export const LINHA_RECEITA_INFORMATIVA_RESORTS = 'cafePensao';
+
 export const REFERENCIA_2026_RESORTS = {
   hospedagem: {
     quantidades: [4371.7905, 3927.924, 4283.8125, 3747.15, 3880.7505, 3462.03, 4327.8015, 3915.021, 3861, 4092, 3762, 4092],

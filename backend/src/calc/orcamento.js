@@ -7,7 +7,7 @@
 // Não alterar a lógica de negócio aqui sem replicar a mudança no .jsx (ou,
 // depois que a Fase 6 aposentar o protótipo, aqui passa a ser a única fonte).
 import { MESES, mesesVazios, PRODUTOS_REF, DEDUCOES_REF } from './constantesTextil.js';
-import { PRODUTOS_REF_AGRICOLA, DEDUCOES_REF_AGRICOLA, LINHAS_RECEITA_RESORTS, DEDUCOES_REF_RESORTS } from './receitaAgricolaResorts.js';
+import { PRODUTOS_REF_AGRICOLA, DEDUCOES_REF_AGRICOLA, LINHAS_RECEITA_RESORTS, DEDUCOES_REF_RESORTS, LINHA_RECEITA_INFORMATIVA_RESORTS } from './receitaAgricolaResorts.js';
 import { premissasRecebimentoVazias, planoContasBalancoVazio, saldosIniciaisBalancoVazio, computeRecebimentosKgiroMensal, pagamentosManuaisVazios, computePagamentosManuaisMes, saldosAberturaFc } from './kgiroBalancoTextil.js';
 
 export function uid() {
@@ -268,7 +268,12 @@ function receitaBrutaPorMes(data) {
     Object.entries(data.receita.linhas).forEach(([id, linha]) => {
       linhasMes[id] = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
     });
-    const totalMes = MESES.map((_, m) => Object.values(linhasMes).reduce((acc, arr) => acc + arr[m], 0));
+    // Café e Pensão não soma na ROB — ver LINHA_RECEITA_INFORMATIVA_RESORTS
+    // em receitaAgricolaResorts.js. Continua em linhasMes (ex.: pra exibir
+    // ou usar como base de dedução, se algum dia alguma passar a referenciá-la).
+    const totalMes = MESES.map((_, m) =>
+      Object.entries(linhasMes).reduce((acc, [id, arr]) => id === LINHA_RECEITA_INFORMATIVA_RESORTS ? acc : acc + arr[m], 0)
+    );
     return { receitaBrutaMes: totalMes, linhasReceitaMes: linhasMes };
   }
   const totalMes = MESES.map((_, m) =>

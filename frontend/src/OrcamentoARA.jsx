@@ -1309,6 +1309,18 @@ const LINHAS_RECEITA_RESORTS = [
   { id: 'outrasIss', nome: '1.4 Outras Receitas — ISS', tipo: 'direto' },
   { id: 'arrumacao', nome: '1.4 Outras Receitas — Arrumação (LFCVH)', tipo: 'direto' },
 ];
+// Café e Pensão NÃO soma na Receita Operacional Bruta (conferido célula a
+// célula em Premissa Resorts.xlsx, aba "1.1 DRE"): a linha 42 "Receita
+// Operacional Bruta" é a soma de Hospedagem(43) + A&B(44) + Moorea(45) +
+// Outras Receitas(46) — e a fórmula da linha 44 ("1.2 Receita Total com
+// A&B" dentro da ROB) puxa só a célula de Alimentação e Bebidas (=G25),
+// não a soma de A&B com Café e Pensão que aparece no subtotal informativo
+// da linha 23. Café e Pensão já está embutido na Tarifa Média da
+// Hospedagem — é por isso que a planilha tem uma linha só informativa,
+// "Receita com Hospedagem sem Pensão" = Hospedagem − Café e Pensão (linha
+// 21), que só faz sentido se a Hospedagem contabilizada alhures já a
+// inclui. Somar Café e Pensão de novo na ROB duplicaria essa receita.
+const LINHA_RECEITA_INFORMATIVA_RESORTS = 'cafePensao';
 // baseLinhaIds: quais linhas de receita somadas formam a base do percentual
 // ("A&B" na planilha = Alimentação e Bebidas + Café e Pensão somados).
 // Bases conferidas direto nas fórmulas da planilha (não aproximação — ver
@@ -1666,7 +1678,12 @@ function receitaBrutaPorMes(data) {
     Object.entries(data.receita.linhas).forEach(([id, linha]) => {
       linhasMes[id] = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
     });
-    const totalMes = MESES.map((_, m) => Object.values(linhasMes).reduce((acc, arr) => acc + arr[m], 0));
+    // Café e Pensão não soma na ROB — ver LINHA_RECEITA_INFORMATIVA_RESORTS.
+    // Continua em linhasMes (ex.: pra exibir ou usar como base de dedução,
+    // se algum dia alguma passar a referenciá-la).
+    const totalMes = MESES.map((_, m) =>
+      Object.entries(linhasMes).reduce((acc, [id, arr]) => id === LINHA_RECEITA_INFORMATIVA_RESORTS ? acc : acc + arr[m], 0)
+    );
     return { receitaBrutaMes: totalMes, linhasReceitaMes: linhasMes };
   }
   const totalMes = MESES.map((_, m) =>
@@ -4614,10 +4631,21 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
       })}
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Receita Operacional Bruta — consolidado</h4>
+      <p style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 8 }}>
+        Café e Pensão (1.2.2) não soma na Receita Operacional Bruta: já está embutida na Tarifa Média da
+        Hospedagem (mesmo racional de Premissa Resorts.xlsx) — por isso a linha abaixo mostra o quanto disso
+        está implícito na Hospedagem, só para conferência.
+      </p>
       <TabelaMensal
         linhas={[]}
         onChangeCelula={() => {}}
         linhasCalculadas={[
+          {
+            key: 'hospedagemSemPensao', label: 'Receita com Hospedagem sem Pensão (informativo)',
+            valoresMensal: MESES.map((_, m) => valorLinhaMes(linhas.hospedagem || novaLinhaVazia(), m, null, null) - valorLinhaMes(linhas.cafePensao || novaLinhaVazia(), m, null, null)),
+            totalValor: valorLinhaAnual(linhas.hospedagem || novaLinhaVazia(), null, null) - valorLinhaAnual(linhas.cafePensao || novaLinhaVazia(), null, null),
+            cor: '#8A8F96',
+          },
           { key: 'receitaBruta', label: 'Receita Operacional Bruta (R$)', valoresMensal: dre.receitaBrutaMes, totalValor: dre.receitaBruta, cor: COR.verde },
         ]}
       />
