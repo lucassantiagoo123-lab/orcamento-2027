@@ -125,6 +125,25 @@ export async function listarVersoes(orcamentoId) {
   return rows;
 }
 
+/** Backlog do FP&A: as N versões enviadas mais recentes de TODAS as
+ * unidades juntas (histórico consolidado entre unidades) — pedido de
+ * 2026-08-23. Antes vivia só em localStorage, escrito manualmente a cada
+ * envio (ver frontend/src/legacyStorage.js); agora é derivado direto de
+ * orcamento_versoes, a mesma fonte de verdade de sempre — não duplica nada,
+ * não precisa de escrita própria no momento do envio. */
+export async function listarVersoesRecentesTodasUnidades(limite = 200) {
+  const { rows } = await pool.query(
+    `SELECT ov.id, o.unidade_id, ov.autor_id, u.nome AS autor_nome, ov.comentario, ov.totais, ov.enviado_em
+     FROM orcamento_versoes ov
+     JOIN orcamentos o ON o.id = ov.orcamento_id
+     JOIN usuarios u ON u.id = ov.autor_id
+     ORDER BY ov.enviado_em DESC
+     LIMIT $1`,
+    [limite]
+  );
+  return rows;
+}
+
 /** Snapshot completo de uma versão específica (com `dados`) — pedido de
  * 2026-08-17: "o gestor da unidade ou admin FP&A precisa ter a opção de
  * abrir a versão enviada e salva". listarVersoes não traz `dados` de

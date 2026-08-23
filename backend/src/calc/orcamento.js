@@ -481,12 +481,13 @@ export function dreDaUnidade(dadosUnidade, unidadeId, ref, ipcaAnualPct) {
 // ---------------------------------------------------------------------------
 // Cálculo do Fluxo de Caixa (método indireto) — a partir do Lucro Líquido da
 // DRE, add-back de D&A, CAPEX e eventos do Balanço (empréstimos, aportes,
-// dividendos). Variação de Capital de Giro fica como pendência: os dados do
-// formulário (prazos de recebimento/pagamento, giro de estoque) são premissas
-// em dias, sem saldo inicial de contas a receber/pagar/estoque para calcular
-// o delta em R$ — não inventamos esse número.
+// dividendos). Variação de Capital de Giro (2026-08-23, antes fixada em 0
+// aqui — espelho exato de frontend/src/OrcamentoARA.jsx): soma o
+// variacaoGiroMes do método mensal (computeFluxoIndiretoMensal), que já usa
+// os saldos iniciais de aba 8/Balanço via saldosAberturaFc — evita duplicar
+// a conta em dois lugares.
 // ---------------------------------------------------------------------------
-export function computeDFC(data, dre) {
+export function computeDFC(data, dre, ref, ipcaAnualPct) {
   const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + parseNum(p.valor), 0);
 
   const linhasFin = data.fcFinanciamentos?.linhas || [];
@@ -503,7 +504,9 @@ export function computeDFC(data, dre) {
   const devolucaoEmprestimos = buscaMov('devolucao_emprestimos');
 
   const geracaoOperacionalAntesGiro = dre.lucroLiquido + dre.depreciacao;
-  const variacaoCapitalGiro = 0; // pendência — ver nota acima
+  const variacaoCapitalGiro = ref
+    ? computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct).variacaoGiroMes.reduce((a, v) => a + v, 0)
+    : 0;
   const fluxoOperacional = geracaoOperacionalAntesGiro + variacaoCapitalGiro;
 
   const fluxoInvestimento = -capexTotal;

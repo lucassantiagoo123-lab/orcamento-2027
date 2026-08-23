@@ -12,8 +12,8 @@ import {
 } from 'lucide-react';
 import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi } from './api/orcamentos.js';
 import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi } from './api/premissasMacro.js';
+import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
 import { logout } from './api/auth.js';
-import { legacyStorage } from './legacyStorage.js';
 import { ApiError } from './api/client.js';
 
 const PERFIL_LABEL = {
@@ -2222,12 +2222,14 @@ function dreDaUnidade(dadosUnidade, unidadeId, ipcaAnualPct) {
 // ---------------------------------------------------------------------------
 // Cálculo do Fluxo de Caixa (método indireto) — a partir do Lucro Líquido da
 // DRE, add-back de D&A, CAPEX e eventos do Balanço (empréstimos, aportes,
-// dividendos). Variação de Capital de Giro fica como pendência: os dados do
-// formulário (prazos de recebimento/pagamento, giro de estoque) são premissas
-// em dias, sem saldo inicial de contas a receber/pagar/estoque para calcular
-// o delta em R$ — não inventamos esse número.
+// dividendos). Variação de Capital de Giro (2026-08-23, antes fixada em 0
+// aqui — a lacuna real nunca foi falta de dado, era esta função "anual,
+// legado" não reaproveitar o cálculo que computeFluxoIndiretoMensal já faz
+// mês a mês, a partir dos saldos iniciais de aba 8/Balanço via
+// saldosAberturaFc): soma o variacaoGiroMes do método mensal, garantindo o
+// mesmo número em ambos — nunca diverge por manutenção em duplicado.
 // ---------------------------------------------------------------------------
-function computeDFC(data, dre) {
+function computeDFC(data, dre, ref, ipcaAnualPct) {
   const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + parseNum(p.valor), 0);
 
   const linhasFin = data.fcFinanciamentos?.linhas || [];
@@ -2244,7 +2246,12 @@ function computeDFC(data, dre) {
   const devolucaoEmprestimos = buscaMov('devolucao_emprestimos');
 
   const geracaoOperacionalAntesGiro = dre.lucroLiquido + dre.depreciacao;
-  const variacaoCapitalGiro = 0; // pendência — ver nota acima
+  // `ref` opcional (default REF_VAZIA nos call sites) — sem CCs (unidades
+  // sem registro, ex. EI/Energia) o reduce por CC não acha nada e o giro
+  // sai 0 mesmo, sem quebrar.
+  const variacaoCapitalGiro = ref
+    ? computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct).variacaoGiroMes.reduce((a, v) => a + v, 0)
+    : 0;
   const fluxoOperacional = geracaoOperacionalAntesGiro + variacaoCapitalGiro;
 
   const fluxoInvestimento = -capexTotal;
@@ -2283,11 +2290,12 @@ function dfcDaUnidade(dadosUnidade, dreUnidade, unidadeId, ipcaAnualPct) {
   if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
     const [dfcA, dfcB] = consolidado.sites.map(siteId => {
       const d = dadosUnidade[siteId] || emptyFormData(siteId);
-      return computeDFC(d, computeDRE(d, referenciaDaUnidade(siteId), ipcaAnualPct));
+      const refSite = referenciaDaUnidade(siteId);
+      return computeDFC(d, computeDRE(d, refSite, ipcaAnualPct), refSite, ipcaAnualPct);
     });
     return somarDFC(dfcA, dfcB);
   }
-  return computeDFC(dadosUnidade, dreUnidade);
+  return computeDFC(dadosUnidade, dreUnidade, referenciaDaUnidade(unidadeId), ipcaAnualPct);
 }
 
 // ---------------------------------------------------------------------------
@@ -3277,17 +3285,29 @@ export default function OrcamentoARA({ usuario }) {
     }
     setStatusUnidades(mapa);
     setAguardandoLiberacaoPorUnidade(mapaAguardando);
-    // backlog/etapas: ver legacyStorage.js — pendência real, não sincroniza
-    // entre usuários ainda (não têm tabela no schema da especificação).
+    // Backlog (2026-08-23): agora derivado direto de orcamento_versoes no
+    // backend (ver listarVersoesRecentesTodasUnidades) — sem escrita
+    // própria, sempre reflete o que foi realmente enviado. `totais` é o
+    // mesmo subconjunto que o backend já grava no envio (ver
+    // registrarEnvio), não o objeto DRE completo.
     try {
-      const rb = await legacyStorage.get('ara-orc:backlog');
-      setBacklog(rb ? JSON.parse(rb.value) : []);
+      const linhas = await listarBacklogApi();
+      setBacklog(linhas.map(l => ({
+        id: l.id, unidadeId: l.unidade_id, timestamp: l.enviado_em,
+        autor: l.autor_nome, comentario: l.comentario, totalGeral: l.totais?.lucroLiquido,
+      })));
     } catch (e) {
       setBacklog([]);
     }
+    // Etapas do processo (2026-08-23): nome/ordem continuam vindos da
+    // constante ETAPAS_PROCESSO_PADRAO; só inicio/fim (o que é editável)
+    // vem do backend agora, mesclado por id.
     try {
-      const re = await legacyStorage.get('ara-orc:etapas');
-      setEtapasProcesso(re ? JSON.parse(re.value) : ETAPAS_PROCESSO_PADRAO);
+      const salvas = await listarEtapasProcessoApi();
+      setEtapasProcesso(ETAPAS_PROCESSO_PADRAO.map(e => {
+        const s = salvas.find(x => x.id === e.id);
+        return s && s.inicio && s.fim ? { ...e, inicio: s.inicio, fim: s.fim } : e;
+      }));
     } catch (e) {
       setEtapasProcesso(ETAPAS_PROCESSO_PADRAO);
     }
@@ -3296,12 +3316,14 @@ export default function OrcamentoARA({ usuario }) {
 
   useEffect(() => { if (role === 'fpa') carregarFPA(); }, [role, carregarFPA]);
 
-  // Premissas macro (2026-08-20): saíram do legacyStorage (localStorage,
-  // só do navegador de quem preencheu — ver legacyStorage.js) pra uma
-  // tabela de verdade (premissas_macro), porque o "Reajuste Inflação"
-  // (tipo de premissa de Custos e Despesas) precisa do IPCA chegando igual
-  // pra qualquer gestor, não só pra quem está na mesma aba do FP&A que
-  // preencheu. Leitura liberada a qualquer perfil autenticado.
+  // Premissas macro (2026-08-20): saíram do localStorage do navegador (que
+  // só quem preencheu enxergava) pra uma tabela de verdade (premissas_macro),
+  // porque o "Reajuste Inflação" (tipo de premissa de Custos e Despesas)
+  // precisa do IPCA chegando igual pra qualquer gestor, não só pra quem está
+  // na mesma aba do FP&A que preencheu. Leitura liberada a qualquer perfil
+  // autenticado. Backlog e etapas do processo passaram pelo mesmo caminho em
+  // 2026-08-23 (ver carregarFPA/atualizarEtapa) — os três itens que o antigo
+  // legacyStorage.js cobria já foram todos migrados.
   useEffect(() => {
     (async () => {
       try {
@@ -3544,27 +3566,14 @@ export default function OrcamentoARA({ usuario }) {
       // Backend cria o snapshot em orcamento_versoes e move o status para
       // 'enviado' numa transação só (ver db/orcamentos.js registrarEnvio) —
       // não montamos mais o snapshot aqui no cliente.
-      const { orcamento, versao } = await enviarVersaoApi(unidadeAtual, comentarioEnvio.trim());
+      // Backlog do FP&A (2026-08-23): não precisa mais de escrita própria
+      // aqui — é derivado de orcamento_versoes no backend (ver
+      // listarVersoesRecentesTodasUnidades/carregarFPA), a mesma versão que
+      // acabou de ser gravada por enviarVersaoApi já aparece lá.
+      const { orcamento } = await enviarVersaoApi(unidadeAtual, comentarioEnvio.trim());
       setDados(orcamento.dados);
       setAguardandoLiberacao(orcamento.aguardando_liberacao || false);
       setVersoes(await listarVersoes(unidadeAtual));
-
-      // Backlog (histórico consolidado do FP&A entre unidades) ainda é
-      // legacyStorage — ver nota no arquivo. totalGeral aqui é o lucroLiquido
-      // do subconjunto de totais que o backend grava (não o objeto DRE
-      // completo que o protótipo produzia local).
-      try {
-        const rb = await legacyStorage.get('ara-orc:backlog');
-        const backlogAtual = rb ? JSON.parse(rb.value) : [];
-        const entrada = {
-          id: uid(), unidadeId: unidadeAtual, timestamp: versao.enviado_em,
-          autor: autorNome.trim(), comentario: comentarioEnvio.trim(),
-          totalGeral: versao.totais?.lucroLiquido,
-        };
-        await legacyStorage.set('ara-orc:backlog', JSON.stringify([entrada, ...backlogAtual].slice(0, 200)));
-      } catch (e) {
-        // silencioso — backlog é conveniência de listagem, não a fonte de verdade
-      }
 
       setComentarioEnvio('');
     } catch (e) {
@@ -3602,7 +3611,8 @@ export default function OrcamentoARA({ usuario }) {
     const novasEtapas = etapasProcesso.map(e => e.id === id ? { ...e, [campo]: valor } : e);
     setEtapasProcesso(novasEtapas);
     try {
-      await legacyStorage.set('ara-orc:etapas', JSON.stringify(novasEtapas));
+      const etapaNova = novasEtapas.find(e => e.id === id);
+      await atualizarEtapaProcessoApi(id, etapaNova.inicio, etapaNova.fim);
     } catch (e) {
       // silencioso — próxima gravação tenta novamente
     }
@@ -7603,7 +7613,7 @@ function CascataDFC({ dfc }) {
     { label: 'Lucro Líquido', valor: dfc.lucroLiquido, tipo: 'base' },
     { label: '(+) Depreciação e Amortização', valor: dfc.depreciacao, tipo: 'pos' },
     { label: '(=) Geração de Caixa Operacional (antes do giro)', valor: dfc.geracaoOperacionalAntesGiro, tipo: 'subtotal' },
-    { label: '(+/-) Variação de Capital de Giro', valor: dfc.variacaoCapitalGiro, tipo: 'pendencia' },
+    { label: '(+/-) Variação de Capital de Giro', valor: dfc.variacaoCapitalGiro, tipo: 'pos' },
     { label: '(=) Fluxo de Caixa das Operações', valor: dfc.fluxoOperacional, tipo: 'subtotal' },
     { label: '(-) CAPEX (Investimentos)', valor: dfc.fluxoInvestimento, tipo: 'neg' },
     { label: '(=) Fluxo de Caixa de Investimentos', valor: dfc.fluxoInvestimento, tipo: 'subtotal' },
@@ -7647,7 +7657,7 @@ function CascataDFC({ dfc }) {
         })}
       </div>
       <p style={{ fontSize: 10.5, color: '#8A8F96', marginTop: 6 }}>
-        Variação de Capital de Giro não calculada — os prazos de recebimento/pagamento e giro de estoque (aba 5) são premissas em dias; falta saldo inicial de contas a receber, contas a pagar e estoque para converter em R$. Pendência de estrutura.
+        Variação de Capital de Giro: prazos de recebimento/pagamento e giro de estoque (aba 5), em dias, aplicados sobre a Receita Líquida/CPV projetados e os saldos iniciais de contas a receber, contas a pagar e estoque (aba 8 — Balanço Patrimonial).
       </p>
     </div>
   );
@@ -7708,7 +7718,7 @@ const CONTAS_SINTETICAS_DFC = [
   { id: 'dfc_lucroLiquido', campo: 'lucroLiquido', label: 'Lucro Líquido', tipo: 'base' },
   { id: 'dfc_depreciacao', campo: 'depreciacao', label: '(+) Depreciação e Amortização', tipo: 'pos' },
   { id: 'dfc_geracaoOp', campo: 'geracaoOperacionalAntesGiro', label: '(=) Geração de Caixa Operacional (antes do giro)', tipo: 'subtotal' },
-  { id: 'dfc_giro', campo: 'variacaoCapitalGiro', label: '(+/-) Variação de Capital de Giro', tipo: 'pendencia' },
+  { id: 'dfc_giro', campo: 'variacaoCapitalGiro', label: '(+/-) Variação de Capital de Giro', tipo: 'pos' },
   { id: 'dfc_fluxoOp', campo: 'fluxoOperacional', label: '(=) Fluxo de Caixa das Operações', tipo: 'subtotal' },
   { id: 'dfc_capex', campo: 'fluxoInvestimento', label: '(-) CAPEX (Investimentos)', tipo: 'neg' },
   { id: 'dfc_fluxoInv', campo: 'fluxoInvestimento', label: '(=) Fluxo de Caixa de Investimentos', tipo: 'subtotal' },
@@ -8556,7 +8566,7 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct 
         ))}
       </div>
       <p style={{ fontSize: 10.5, color: '#8A8F96', marginTop: 6 }}>
-        Variação de Capital de Giro não calculada — pendência de estrutura (ver nota na Revisão do gerente).
+        Variação de Capital de Giro: prazos de recebimento/pagamento e giro de estoque (aba 5, por unidade), aplicados sobre os saldos iniciais de contas a receber, contas a pagar e estoque (aba 8 — Balanço Patrimonial).
       </p>
     </>
   );

@@ -139,7 +139,7 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
     res.json({
       orcamento,
       dre,
-      dfc: ehConsolidado ? null : computeDFC(orcamento.dados, dre),
+      dfc: ehConsolidado ? null : computeDFC(orcamento.dados, dre, ref, ipcaAnualPct),
       fluxoIndiretoMensal: ehConsolidado ? null : computeFluxoIndiretoMensal(orcamento.dados, dre, ref, ipcaAnualPct),
       fluxoDiretoMensal: ehConsolidado ? null : computeFluxoCaixaDiretoMensal(orcamento.dados, dre, ref, ipcaAnualPct),
       auditoria: ehConsolidado ? [] : runAuditoria(orcamento.dados, dre, ref, unidadeId, ipcaAnualPct),

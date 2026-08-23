@@ -170,6 +170,17 @@ CREATE TABLE premissas_macro (
   atualizado_por UUID REFERENCES usuarios(id)
 );
 
+-- Etapas do processo orçamentário (cronograma do FP&A) — pedido de
+-- 2026-08-23, ver migração 0004_etapas_processo.sql pra contexto completo.
+-- inicio/fim em TEXT (formato 'AAAA-MM-DD'), não DATE — ver nota na migração.
+CREATE TABLE etapas_processo (
+  id             TEXT PRIMARY KEY,
+  inicio         TEXT,
+  fim            TEXT,
+  atualizado_em  TIMESTAMPTZ,
+  atualizado_por UUID REFERENCES usuarios(id)
+);
+
 -- ---------------------------------------------------------------------------
 -- Índices de apoio às consultas de autorização (seção 4)
 -- ---------------------------------------------------------------------------
