@@ -39,6 +39,8 @@ export function novaLinhaFinanciamento() {
 
 export function novaLinhaVazia() {
   return {
+    id: uid(),
+    descricao: '',
     premissaTipo: 'direto',
     classificacao: 'fixo',
     valores: mesesVazios(),
@@ -63,6 +65,25 @@ export function novaLinhaVazia() {
   };
 }
 
+// Múltiplas linhas por conta analítica (2026-08-23, "se o gestor quiser
+// incluir mais de uma linha dentro de cada despesa, ex.: por fornecedor" —
+// avalie e ajuste para todas as empresas"): custos.linhas['CC|Conta'] passa
+// a poder ser { classificacao, sublinhas: [novaLinhaVazia(), ...] } em vez
+// de uma linha só — normalizarConta aceita os dois formatos (dado salvo
+// antes desta mudança é tratado como 1 sublinha "legacy", sem migração de
+// banco: custos.linhas continua um JSONB livre). Espelho de
+// frontend/src/OrcamentoARA.jsx.
+export function normalizarConta(contaRaw) {
+  if (!contaRaw) return novaContaVazia();
+  if (Array.isArray(contaRaw.sublinhas)) {
+    return { classificacao: contaRaw.classificacao || 'fixo', sublinhas: contaRaw.sublinhas };
+  }
+  return { classificacao: contaRaw.classificacao || 'fixo', sublinhas: [{ ...contaRaw, id: contaRaw.id || 'legacy' }] };
+}
+export function novaContaVazia() {
+  return { classificacao: 'fixo', sublinhas: [novaLinhaVazia()] };
+}
+
 // IPCA mensal composto a partir de um IPCA anual (%) — usado só pelo tipo
 // de premissa 'reajuste_inflacao'. (1+ipcaAnual/100)^(1/12) - 1.
 export function ipcaMensalDe(ipcaAnualPct) {
@@ -77,45 +98,59 @@ export function ipcaMensalDe(ipcaAnualPct) {
 // (tipo 'custo_por_kg') são opcionais — quando quem chama não os informa,
 // o cálculo degrada sem quebrar: reajuste_inflacao cai pro valor-base sem
 // reajuste (equivalente a IPCA 0%) e custo_por_kg cai pra zero.
-export function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
-  if (!linha) return 0;
-  if (linha.premissaTipo === 'qtd_valor') {
-    return parseNum(linha.quantidades?.[m]) * parseNum(linha.valoresUnit?.[m]);
+export function valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  if (!sublinha) return 0;
+  if (sublinha.premissaTipo === 'qtd_valor') {
+    return parseNum(sublinha.quantidades?.[m]) * parseNum(sublinha.valoresUnit?.[m]);
   }
-  if (linha.premissaTipo === 'rateio') {
-    const pct = parseNum(linha.percentuais?.[m]) / 100;
+  if (sublinha.premissaTipo === 'rateio') {
+    const pct = parseNum(sublinha.percentuais?.[m]) / 100;
     let base = 0;
-    if (linha.baseTipo === 'receita_bruta') base = receitaBrutaMes?.[m] || 0;
-    else if (linha.baseTipo === 'receita_liquida') base = receitaLiquidaMes?.[m] || 0;
-    else base = parseNum(linha.baseManual?.[m]);
+    if (sublinha.baseTipo === 'receita_bruta') base = receitaBrutaMes?.[m] || 0;
+    else if (sublinha.baseTipo === 'receita_liquida') base = receitaLiquidaMes?.[m] || 0;
+    else base = parseNum(sublinha.baseManual?.[m]);
     return base * pct;
   }
-  if (linha.premissaTipo === 'reajuste_inflacao') {
-    const base = parseNum(linha.valores?.[m]);
+  if (sublinha.premissaTipo === 'reajuste_inflacao') {
+    const base = parseNum(sublinha.valores?.[m]);
     // Único × mensal (2026-08-23) — espelho de frontend/src/OrcamentoARA.jsx.
-    if (linha.reajusteInflacaoTipo === 'unico') {
-      const idxReajuste = linha.reajusteInflacaoMes ? MESES.indexOf(linha.reajusteInflacaoMes) : -1;
+    if (sublinha.reajusteInflacaoTipo === 'unico') {
+      const idxReajuste = sublinha.reajusteInflacaoMes ? MESES.indexOf(sublinha.reajusteInflacaoMes) : -1;
       const fatorUnico = (idxReajuste >= 0 && m >= idxReajuste) ? (1 + parseNum(ipcaAnualPct) / 100) : 1;
       return base * fatorUnico;
     }
     const fatorAcumulado = Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1);
     return base * fatorAcumulado;
   }
-  if (linha.premissaTipo === 'custo_por_kg') {
+  if (sublinha.premissaTipo === 'custo_por_kg') {
     const kg = parseNum(volumeTotalKgMes?.[m]);
-    return kg * parseNum(linha.valoresUnit?.[m]);
+    return kg * parseNum(sublinha.valoresUnit?.[m]);
   }
-  return parseNum(linha.valores?.[m]);
+  return parseNum(sublinha.valores?.[m]);
 }
-export function valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
-  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
+// Múltiplas linhas por conta (2026-08-23): valorLinhaMes/valorLinhaAnual
+// normalizam a conta (normalizarConta) e SOMAM o valor de todas as
+// sublinhas — mantém a assinatura idêntica à de antes, então todo o
+// resto do arquivo (computeDRE, runAuditoria, FC, etc.) continua chamando
+// exatamente como chamava, sem saber que por baixo pode haver mais de uma
+// sublinha. Espelho de frontend/src/OrcamentoARA.jsx.
+export function valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  if (!contaRaw) return 0;
+  return normalizarConta(contaRaw).sublinhas.reduce((acc, sub) => acc + valorSublinhaMes(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
 }
-// Valor de CAIXA (pagamento) de uma linha num mês — usado só pelo Fluxo de
+export function valorLinhaAnual(contaRaw, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
+}
+// Valor de CAIXA (pagamento) de uma sublinha num mês — usado só pelo Fluxo de
 // Caixa, nunca pela DRE. Espelho exato de frontend/src/OrcamentoARA.jsx.
-export function valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
-  if (!linha) return 0;
-  if (linha.pagamentoDiferente) return parseNum(linha.valoresPagamento?.[m]);
-  return valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
+export function valorSublinhaMesCaixa(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  if (!sublinha) return 0;
+  if (sublinha.pagamentoDiferente) return parseNum(sublinha.valoresPagamento?.[m]);
+  return valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
+}
+export function valorLinhaMesCaixa(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  if (!contaRaw) return 0;
+  return normalizarConta(contaRaw).sublinhas.reduce((acc, sub) => acc + valorSublinhaMesCaixa(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
 }
 // Checagem de coerência: premissa qtd_valor/rateio com apenas um dos dois campos preenchido em algum mês.
 export function linhaIncoerente(linha) {
@@ -142,6 +177,16 @@ export function linhaTemNegativo(linha) {
     : linha.premissaTipo === 'rateio' ? [linha.baseManual, linha.percentuais]
     : [linha.valores];
   return campos.some(arr => (arr || []).some(v => parseNum(v) < 0));
+}
+// Wrappers em nível de CONTA (2026-08-23) — usados por runAuditoria, que
+// só precisa saber se a conta (qualquer uma de suas sublinhas) tem
+// problema, não qual sublinha especificamente. Espelho de
+// frontend/src/OrcamentoARA.jsx.
+export function contaIncoerente(contaRaw) {
+  return normalizarConta(contaRaw).sublinhas.some(sub => linhaIncoerente(sub));
+}
+export function contaTemNegativo(contaRaw) {
+  return normalizarConta(contaRaw).sublinhas.some(sub => linhaTemNegativo(sub));
 }
 
 // unidadeId só muda uma coisa: PRODUTOS_REF (produtos têxteis de referência,
@@ -916,15 +961,20 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   // Pedido de 2026-08-16: retirada do quadro de auditoria (não é mais nem
   // pendência informativa, nem bloqueio de envio).
 
-  const linhasIncoerentes = linhasCustos.filter(([, linha]) => linhaIncoerente(linha));
+  const linhasIncoerentes = linhasCustos.filter(([, linha]) => contaIncoerente(linha));
   checks.push({
     label: 'Linhas Qtd × Valor unit. ou Rateio (base manual) sem campo incompleto',
     ok: linhasIncoerentes.length === 0,
     detalhe: linhasIncoerentes.length === 0 ? 'Nenhuma linha com apenas um dos dois campos preenchido' : `${linhasIncoerentes.length} linha(s) com quantidade/valor unit. ou base/percentual incompletos em algum mês`,
   });
 
-  const linhasComValorSemJustificativa = linhasCustos.filter(([, linha]) =>
-    valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0 && !(linha.justificativa || '').trim()
+  // Múltiplas linhas por conta (2026-08-23): cada SUBLINHA com valor
+  // lançado precisa da própria justificativa — não basta uma justificativa
+  // por conta quando há mais de um fornecedor dentro dela.
+  const linhasComValorSemJustificativa = linhasCustos.filter(([, contaRaw]) =>
+    normalizarConta(contaRaw).sublinhas.some(sub =>
+      valorLinhaAnual(sub, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0 && !(sub.justificativa || '').trim()
+    )
   );
   checks.push({
     label: 'Toda linha analítica com valor lançado tem justificativa preenchida',
@@ -963,7 +1013,7 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   });
 
   const valoresNegativos = (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || (p.precos || []).some(v => parseNum(v) < 0))
-    || Object.values(data.custos.linhas || {}).some(linha => linhaTemNegativo(linha));
+    || Object.values(data.custos.linhas || {}).some(linha => contaTemNegativo(linha));
   checks.push({
     label: 'Nenhum valor negativo em receita ou custos/despesas',
     ok: !valoresNegativos,

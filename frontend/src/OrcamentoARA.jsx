@@ -1686,8 +1686,16 @@ function novaLinhaFinanciamento() {
   };
 }
 
+// Uma SUBLINHA dentro de uma conta analítica (2026-08-23, ver
+// normalizarConta/novaContaVazia logo abaixo — "se o gestor quiser incluir
+// mais de uma linha dentro de cada despesa, ex.: por fornecedor"). `id`
+// identifica a sublinha dentro do array `sublinhas` da conta (pra
+// update/remove mirarem a certa); `descricao` é o rótulo livre que o
+// gestor usa pra diferenciar ("Fornecedor A", "Contrato X"...), opcional.
 function novaLinhaVazia() {
   return {
+    id: uid(),
+    descricao: '',
     premissaTipo: 'direto',
     classificacao: 'fixo',
     valores: mesesVazios(),
@@ -1713,6 +1721,27 @@ function novaLinhaVazia() {
     reajusteInflacaoTipo: 'mensal',
     reajusteInflacaoMes: '',
   };
+}
+
+// Múltiplas linhas por conta analítica (2026-08-23, "se o gestor quiser
+// incluir mais de uma linha dentro de cada despesa, ex.: por fornecedor —
+// avalie e ajuste para todas as empresas"): custos.linhas['CC|Conta'] passa
+// a ser uma CONTA — { classificacao, sublinhas: [linha, ...] } — em vez de
+// uma linha só. Compatibilidade com dados já salvos (formato antigo, uma
+// linha plana sem `.sublinhas`): normalizarConta trata o objeto inteiro
+// como a única sublinha, sem precisar de migração de banco nenhuma — id
+// 'legacy' fixo porque só existe uma por conta nesse caso (nunca colide).
+// valorLinhaMes/valorLinhaAnual (abaixo) chamam isto por dentro, então TODO
+// o resto do código (computeDRE, runAuditoria, exportarExcel, etc.) continua
+// passando `linhas[chave]` do jeito que sempre passou, sem precisar saber
+// que agora pode ter mais de uma linha — só quem edita/lê a UI precisa.
+function normalizarConta(contaRaw) {
+  if (!contaRaw) return { classificacao: 'fixo', sublinhas: [novaLinhaVazia()] };
+  if (Array.isArray(contaRaw.sublinhas)) return contaRaw;
+  return { classificacao: contaRaw.classificacao || 'fixo', sublinhas: [{ ...contaRaw, id: contaRaw.id || 'legacy' }] };
+}
+function novaContaVazia() {
+  return { classificacao: 'fixo', sublinhas: [novaLinhaVazia()] };
 }
 
 // Calculadora de viagens — só a conta "Passagem e Hospedagem" (CORP18) do
@@ -1758,7 +1787,12 @@ function ipcaMensalDe(ipcaAnualPct) {
   return Math.pow(1 + anual / 100, 1 / 12) - 1;
 }
 
-// Valor de uma linha (chave CC|Conta) em um mês, de acordo com o tipo de premissa.
+// Valor de UMA SUBLINHA em um mês, de acordo com o tipo de premissa dela —
+// a lógica "de verdade" de cada tipo de premissa mora aqui. Uma conta
+// analítica pode ter mais de uma sublinha (2026-08-23, ver
+// normalizarConta/novaContaVazia); valorLinhaMes/valorLinhaAnual (abaixo)
+// somam todas as sublinhas de uma conta — é isso que o resto do código
+// chama, nunca esta função diretamente.
 // receitaBrutaMes/receitaLiquidaMes são arrays de 12 posições, vindos do computeDRE.
 // ipcaAnualPct (2026-08-20, tipo 'reajuste_inflacao') e volumeTotalKgMes
 // (tipo 'custo_por_kg') são opcionais — quando quem chama não os informa
@@ -1766,54 +1800,73 @@ function ipcaMensalDe(ipcaAnualPct) {
 // comparação de versões), o cálculo degrada sem quebrar: reajuste_inflacao
 // cai pro valor-base sem reajuste (equivalente a IPCA 0%) e custo_por_kg
 // cai pra zero (sem volume, não tem como multiplicar).
-function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
-  if (!linha) return 0;
-  if (linha.premissaTipo === 'qtd_valor') {
-    return parseNum(linha.quantidades?.[m]) * parseNum(linha.valoresUnit?.[m]);
+function valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  if (!sublinha) return 0;
+  if (sublinha.premissaTipo === 'qtd_valor') {
+    return parseNum(sublinha.quantidades?.[m]) * parseNum(sublinha.valoresUnit?.[m]);
   }
-  if (linha.premissaTipo === 'rateio') {
-    const pct = parseNum(linha.percentuais?.[m]) / 100;
+  if (sublinha.premissaTipo === 'rateio') {
+    const pct = parseNum(sublinha.percentuais?.[m]) / 100;
     let base = 0;
-    if (linha.baseTipo === 'receita_bruta') base = receitaBrutaMes?.[m] || 0;
-    else if (linha.baseTipo === 'receita_liquida') base = receitaLiquidaMes?.[m] || 0;
-    else base = parseNum(linha.baseManual?.[m]);
+    if (sublinha.baseTipo === 'receita_bruta') base = receitaBrutaMes?.[m] || 0;
+    else if (sublinha.baseTipo === 'receita_liquida') base = receitaLiquidaMes?.[m] || 0;
+    else base = parseNum(sublinha.baseManual?.[m]);
     return base * pct;
   }
-  if (linha.premissaTipo === 'reajuste_inflacao') {
-    const base = parseNum(linha.valores?.[m]);
+  if (sublinha.premissaTipo === 'reajuste_inflacao') {
+    const base = parseNum(sublinha.valores?.[m]);
     // Único (2026-08-23): o IPCA anual inteiro entra de uma vez só a partir
     // do mês escolhido (reajusteInflacaoMes) — sem composição mensal. Sem
     // mês escolhido, cai no mesmo degrade de sempre (sem reajuste).
-    if (linha.reajusteInflacaoTipo === 'unico') {
-      const idxReajuste = linha.reajusteInflacaoMes ? MESES.indexOf(linha.reajusteInflacaoMes) : -1;
+    if (sublinha.reajusteInflacaoTipo === 'unico') {
+      const idxReajuste = sublinha.reajusteInflacaoMes ? MESES.indexOf(sublinha.reajusteInflacaoMes) : -1;
       const fatorUnico = (idxReajuste >= 0 && m >= idxReajuste) ? (1 + parseNum(ipcaAnualPct) / 100) : 1;
       return base * fatorUnico;
     }
     const fatorAcumulado = Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1);
     return base * fatorAcumulado;
   }
-  if (linha.premissaTipo === 'custo_por_kg') {
+  if (sublinha.premissaTipo === 'custo_por_kg') {
     const kg = parseNum(volumeTotalKgMes?.[m]);
-    return kg * parseNum(linha.valoresUnit?.[m]);
+    return kg * parseNum(sublinha.valoresUnit?.[m]);
   }
-  return parseNum(linha.valores?.[m]);
+  return parseNum(sublinha.valores?.[m]);
 }
-function valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
-  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
+// Valor de uma CONTA analítica (chave CC|Conta) em um mês — soma o valor de
+// todas as sublinhas dela (normalmente só 1). Aceita tanto o formato novo
+// ({classificacao, sublinhas}) quanto dado já salvo no formato antigo (uma
+// linha só, sem `.sublinhas`) via normalizarConta — é por isso que todo o
+// resto do código (computeDRE, runAuditoria, exportarExcel...) continua
+// chamando esta função exatamente como sempre chamou, sem precisar saber
+// que agora pode ter mais de uma linha por trás.
+function valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  if (!contaRaw) return 0;
+  const conta = normalizarConta(contaRaw);
+  return conta.sublinhas.reduce((acc, sub) => acc + valorSublinhaMes(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
 }
-// Valor de CAIXA (pagamento) de uma linha num mês — usado só pelo Fluxo de
-// Caixa (Indireto e Direto), nunca pela DRE (que continua 100% em
+function valorLinhaAnual(contaRaw, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
+}
+// Valor de CAIXA (pagamento) de uma sublinha num mês — usado só pelo Fluxo
+// de Caixa (Indireto e Direto), nunca pela DRE (que continua 100% em
 // competência, sem mudança nenhuma). Pedido de 2026-08-23 ("o fato gerador
 // [competência] ocorre no mesmo mês do pagamento?"): por padrão (linha
 // .pagamentoDiferente false) o caixa é igual à competência — mesmo
-// valorLinhaMes de sempre. Quando o gestor marca que não, usa o valor
+// valorSublinhaMes de sempre. Quando o gestor marca que não, usa o valor
 // digitado à parte em linha.valoresPagamento (mês a mês, independente do
 // valor de competência — o total pago no ano pode até ser diferente do
 // total incorrido, ex.: parte fica a pagar em janeiro do ano seguinte).
-function valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
-  if (!linha) return 0;
-  if (linha.pagamentoDiferente) return parseNum(linha.valoresPagamento?.[m]);
-  return valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
+function valorSublinhaMesCaixa(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  if (!sublinha) return 0;
+  if (sublinha.pagamentoDiferente) return parseNum(sublinha.valoresPagamento?.[m]);
+  return valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
+}
+// Idem valorLinhaMes acima, mas em caixa — soma valorSublinhaMesCaixa de
+// todas as sublinhas da conta.
+function valorLinhaMesCaixa(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  if (!contaRaw) return 0;
+  const conta = normalizarConta(contaRaw);
+  return conta.sublinhas.reduce((acc, sub) => acc + valorSublinhaMesCaixa(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
 }
 // Checagem de coerência: premissa qtd_valor/rateio com apenas um dos dois campos preenchido em algum mês.
 function linhaIncoerente(linha) {
@@ -1841,6 +1894,16 @@ function linhaTemNegativo(linha) {
     : linha.premissaTipo === 'custo_por_kg' ? [linha.valoresUnit]
     : [linha.valores]; // 'direto' e 'reajuste_inflacao' usam `valores` (base, no caso do reajuste)
   return campos.some(arr => (arr || []).some(v => parseNum(v) < 0));
+}
+// Versões conta-inteira (2026-08-23, ver normalizarConta) de
+// linhaIncoerente/linhaTemNegativo — "verdadeiro se QUALQUER sublinha
+// tiver o problema". runAuditoria e LinhaConta chamam estas, nunca as de
+// sublinha diretamente (que continuam existindo pra checar uma sublinha só).
+function contaIncoerente(contaRaw) {
+  return normalizarConta(contaRaw).sublinhas.some(sub => linhaIncoerente(sub));
+}
+function contaTemNegativo(contaRaw) {
+  return normalizarConta(contaRaw).sublinhas.some(sub => linhaTemNegativo(sub));
 }
 
 // Pedido de 2026-08-09: a entrega do gestor da unidade se restringe ao DRE
@@ -2741,15 +2804,20 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   // Pedido de 2026-08-16: retirada do quadro de auditoria (não é mais nem
   // pendência informativa, nem bloqueio de envio).
 
-  const linhasIncoerentes = linhasCustos.filter(([, linha]) => linhaIncoerente(linha));
+  const linhasIncoerentes = linhasCustos.filter(([, linha]) => contaIncoerente(linha));
   checks.push({
     label: 'Linhas Qtd × Valor unit. ou Rateio (base manual) sem campo incompleto',
     ok: linhasIncoerentes.length === 0,
     detalhe: linhasIncoerentes.length === 0 ? 'Nenhuma linha com apenas um dos dois campos preenchido' : `${linhasIncoerentes.length} linha(s) com quantidade/valor unit. ou base/percentual incompletos em algum mês`,
   });
 
-  const linhasComValorSemJustificativa = linhasCustos.filter(([, linha]) =>
-    valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0 && !(linha.justificativa || '').trim()
+  // Múltiplas linhas por conta (2026-08-23): cada SUBLINHA com valor
+  // lançado precisa da própria justificativa — não basta uma justificativa
+  // por conta quando há mais de um fornecedor dentro dela.
+  const linhasComValorSemJustificativa = linhasCustos.filter(([, contaRaw]) =>
+    normalizarConta(contaRaw).sublinhas.some(sub =>
+      valorLinhaAnual(sub, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0 && !(sub.justificativa || '').trim()
+    )
   );
   checks.push({
     label: 'Toda linha analítica com valor lançado tem justificativa preenchida',
@@ -2788,7 +2856,7 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   });
 
   const valoresNegativos = (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || (p.precos || []).some(v => parseNum(v) < 0))
-    || Object.values(data.custos.linhas || {}).some(linha => linhaTemNegativo(linha));
+    || Object.values(data.custos.linhas || {}).some(linha => contaTemNegativo(linha));
   checks.push({
     label: 'Nenhum valor negativo em receita ou custos/despesas',
     ok: !valoresNegativos,
@@ -3547,9 +3615,30 @@ export default function OrcamentoARA({ usuario }) {
     atualizar(['estrategicas', 'iniciativas'], dados.estrategicas.iniciativas.filter(i => i.id !== id));
   }
 
-  function updateLinha(chave, campo, valor) {
-    const atual = dados.custos.linhas[chave] || novaLinhaVazia();
+  // Múltiplas linhas por conta (2026-08-23, ver normalizarConta/
+  // novaContaVazia) — updateLinha virou 4 funções: updateConta (campo no
+  // nível da conta, hoje só `classificacao`) e updateSublinha/addSublinha/
+  // removeSublinha (miram uma sublinha específica pelo id dentro do array).
+  function updateConta(chave, campo, valor) {
+    const atual = normalizarConta(dados.custos.linhas[chave]);
     atualizar(['custos', 'linhas'], { ...dados.custos.linhas, [chave]: { ...atual, [campo]: valor } });
+  }
+  function updateSublinha(chave, sublinhaId, campo, valor) {
+    const atual = normalizarConta(dados.custos.linhas[chave]);
+    const sublinhas = atual.sublinhas.map(s => s.id === sublinhaId ? { ...s, [campo]: valor } : s);
+    atualizar(['custos', 'linhas'], { ...dados.custos.linhas, [chave]: { ...atual, sublinhas } });
+  }
+  function addSublinha(chave) {
+    const atual = normalizarConta(dados.custos.linhas[chave]);
+    atualizar(['custos', 'linhas'], { ...dados.custos.linhas, [chave]: { ...atual, sublinhas: [...atual.sublinhas, novaLinhaVazia()] } });
+  }
+  // Nunca deixa a conta sem nenhuma sublinha (a última não pode ser
+  // removida, só limpa de volta pro estado vazio) — o resto do código
+  // (valorLinhaMes etc.) assume sempre pelo menos 1.
+  function removeSublinha(chave, sublinhaId) {
+    const atual = normalizarConta(dados.custos.linhas[chave]);
+    const sublinhas = atual.sublinhas.filter(s => s.id !== sublinhaId);
+    atualizar(['custos', 'linhas'], { ...dados.custos.linhas, [chave]: { ...atual, sublinhas: sublinhas.length > 0 ? sublinhas : [novaLinhaVazia()] } });
   }
   // origem: 'novo' — pedido de 2026-08-17, "Novo Headcount a ser inserido
   // manualmente" (ver QuadroPessoal/ehExistente).
@@ -3689,16 +3778,22 @@ export default function OrcamentoARA({ usuario }) {
       if (!d || ehSnapshotConsolidado(d)) return;
       const refU = referenciaDaUnidade(u.id);
       const dreU = computeDRE(d, refU, ipcaAnualPct);
-      Object.entries(d.custos.linhas || {}).forEach(([chave, linha]) => {
+      Object.entries(d.custos.linhas || {}).forEach(([chave, contaRaw]) => {
         const [ccCodigo, contaCodigo] = chave.split('|');
         const cc = refU.ccs.find(c => c.codigo === ccCodigo);
         const conta = refU.todasContas[contaCodigo];
         const pacote = (refU.pacotes || []).find(p => p.id === conta?.pacoteId);
-        const premissa = TIPOS_PREMISSA.find(t => t.id === linha.premissaTipo);
-        MESES.forEach((m, mi) => {
-          const valor = valorLinhaMes(linha, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes);
-          if (valor === 0) return;
-          linhasCustosExport.push([u.nome, cc?.nome || ccCodigo, cc?.tipo === 'producao' ? 'Custo' : 'Despesa', pacote?.nome || 'Sem pacote', contaCodigo, conta?.nome || '', premissa?.nome || linha.premissaTipo, m, valor, linha.justificativa || '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
+        // Múltiplas linhas por conta (2026-08-23): exporta uma linha do
+        // Excel por SUBLINHA (não por conta) — cada sublinha tem sua
+        // própria premissa/justificativa (ex.: um fornecedor diferente).
+        normalizarConta(contaRaw).sublinhas.forEach(sub => {
+          const premissa = TIPOS_PREMISSA.find(t => t.id === sub.premissaTipo);
+          const descricaoConta = sub.descricao ? `${conta?.nome || ''} — ${sub.descricao}` : (conta?.nome || '');
+          MESES.forEach((m, mi) => {
+            const valor = valorSublinhaMes(sub, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes);
+            if (valor === 0) return;
+            linhasCustosExport.push([u.nome, cc?.nome || ccCodigo, cc?.tipo === 'producao' ? 'Custo' : 'Despesa', pacote?.nome || 'Sem pacote', contaCodigo, descricaoConta, premissa?.nome || sub.premissaTipo, m, valor, sub.justificativa || '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
+          });
         });
       });
     });
@@ -4042,7 +4137,8 @@ export default function OrcamentoARA({ usuario }) {
           premissasMacro={premissasMacro}
           addObjetivo={addObjetivo} updateObjetivo={updateObjetivo} removeObjetivo={removeObjetivo}
           addIniciativa={addIniciativa} updateIniciativa={updateIniciativa} removeIniciativa={removeIniciativa}
-          updateLinha={updateLinha} addDetalhe={addDetalhe} updateDetalhe={updateDetalhe} removeDetalhe={removeDetalhe}
+          updateConta={updateConta} updateSublinha={updateSublinha} addSublinha={addSublinha} removeSublinha={removeSublinha}
+          addDetalhe={addDetalhe} updateDetalhe={updateDetalhe} removeDetalhe={removeDetalhe}
           addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
           importarFuncionariosLote={importarFuncionariosLote}
           updatePremissaPessoal={updatePremissaPessoal}
@@ -4211,7 +4307,7 @@ function VisaoGerente(props) {
     unidadeAtual, setUnidadeAtual, unidadeObj, aba, setAba, dados, dre, checks, tudoOk, aguardandoLiberacao,
     updateProduto, updateDeducao, premissasMacro,
     addObjetivo, updateObjetivo, removeObjetivo, addIniciativa, updateIniciativa, removeIniciativa,
-    updateLinha, addDetalhe, updateDetalhe, removeDetalhe,
+    updateConta, updateSublinha, addSublinha, removeSublinha, addDetalhe, updateDetalhe, removeDetalhe,
     addFuncionario, updateFuncionario, removeFuncionario, updatePremissaPessoal, importarFuncionariosLote,
     addProjeto, updateProjeto, removeProjeto,
     addLinhaFinanciamento, updateLinhaFinanciamento, removeLinhaFinanciamento, updateMovimentacaoAcionista,
@@ -4445,7 +4541,7 @@ function VisaoGerente(props) {
           <AbaCustos
             refUnidade={referenciaDaUnidade(unidadeAtual)}
             unidadeId={unidadeAtual} usuario={usuario}
-            linhas={dados.custos.linhas} updateLinha={updateLinha} dre={dre} ipcaAnualPct={ipcaAnualPct}
+            linhas={dados.custos.linhas} updateConta={updateConta} updateSublinha={updateSublinha} addSublinha={addSublinha} removeSublinha={removeSublinha} dre={dre} ipcaAnualPct={ipcaAnualPct}
             detalhes={dados.custos.detalhes} addDetalhe={addDetalhe} updateDetalhe={updateDetalhe} removeDetalhe={removeDetalhe}
             funcionarios={dados.custos.funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
             premissasPessoal={dados.custos.premissasPessoal} updatePremissaPessoal={updatePremissaPessoal}
@@ -5955,24 +6051,210 @@ function LinhaCalculadaMensal({ label, valoresMensal, formatarCelula, formatarTo
   );
 }
 
-function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, unidadeId, ipcaAnualPct, volumeTotalKgMes }) {
-  const valoresMensaisCalc = MESES.map((_, m) => valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes));
-  const incoerente = linhaIncoerente(linha);
+// Conteúdo de UMA sublinha — Selecao de premissa, grades mensais, avisos e
+// justificativa. Extraído em 2026-08-23 do que era o corpo inteiro de
+// LinhaConta, pra dar suporte a mais de uma sublinha por conta analítica
+// (ver normalizarConta/novaContaVazia) sem duplicar toda essa lógica —
+// LinhaConta (abaixo) chama isto uma vez por sublinha.
+function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTotalKgMes, receitaBrutaMes, receitaLiquidaMes }) {
+  const valoresMensaisCalc = MESES.map((_, m) => valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes));
+  const incoerente = linhaIncoerente(sublinha);
   // "Custo/Despesa por kg" só aparece nas opções nas unidades com Volume em
   // toneladas na Receita (Têxtil/Agrícola) — ver UNIDADES_COM_CUSTO_POR_KG.
   const opcoesPremissa = TIPOS_PREMISSA.filter(t => t.id !== 'custo_por_kg' || UNIDADES_COM_CUSTO_POR_KG.includes(unidadeId));
   // Linha de referência não-editável do IPCA acumulado mês a mês, a partir
   // da premissa macro do FP&A Corporativo (ipcaAnualPct) — pedido de
-  // 2026-08-20.
-  // Único (2026-08-23): a referência mostra 0% antes do mês escolhido e o
-  // IPCA anual cheio dele em diante (sem composição) — reflete exatamente
-  // o fator usado em valorLinhaMes.
-  const ipcaAcumuladoMensal = linha.reajusteInflacaoTipo === 'unico'
+  // 2026-08-20. Único (2026-08-23): a referência mostra 0% antes do mês
+  // escolhido e o IPCA anual cheio dele em diante (sem composição).
+  const ipcaAcumuladoMensal = sublinha.reajusteInflacaoTipo === 'unico'
     ? MESES.map((_, m) => {
-        const idxReajuste = linha.reajusteInflacaoMes ? MESES.indexOf(linha.reajusteInflacaoMes) : -1;
+        const idxReajuste = sublinha.reajusteInflacaoMes ? MESES.indexOf(sublinha.reajusteInflacaoMes) : -1;
         return (idxReajuste >= 0 && m >= idxReajuste) ? parseNum(ipcaAnualPct) : 0;
       })
     : MESES.map((_, m) => (Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1) - 1) * 100);
+
+  return (
+    <div>
+      <div style={{ marginBottom: 8, maxWidth: 260 }}>
+        <Selecao value={sublinha.premissaTipo} onChange={v => onUpdate('premissaTipo', v)} opcoes={opcoesPremissa} />
+      </div>
+      {/* Competência × caixa (2026-08-23, ver UNIDADES_COM_COMPETENCIA_CAIXA)
+          — pergunta em toda conta analítica do Corporativo, pra dar
+          insumo ao FC (a DRE nunca muda, é sempre em competência). */}
+      {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && (
+        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: COR.texto }}>O fato gerador (competência) desta despesa ocorre no mesmo mês do pagamento?</span>
+          <div style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
+            <button
+              onClick={() => onUpdate('pagamentoDiferente', false)}
+              style={{
+                fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
+                background: !sublinha.pagamentoDiferente ? COR.azul : COR.branco,
+                color: !sublinha.pagamentoDiferente ? COR.branco : '#8A8F96',
+              }}
+            >Sim</button>
+            <button
+              onClick={() => onUpdate('pagamentoDiferente', true)}
+              style={{
+                fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
+                background: sublinha.pagamentoDiferente ? COR.laranja : COR.branco,
+                color: sublinha.pagamentoDiferente ? COR.branco : '#8A8F96',
+              }}
+            >Não</button>
+          </div>
+        </div>
+      )}
+      {/* Reajuste único × mensal (2026-08-23): "mensal" compõe o IPCA
+          mês a mês desde Janeiro (comportamento de sempre); "único"
+          aplica o IPCA anual inteiro de uma vez só a partir de um mês
+          escolhido. */}
+      {sublinha.premissaTipo === 'reajuste_inflacao' && (
+        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: COR.texto }}>Reajuste:</span>
+          <div style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
+            <button
+              onClick={() => onUpdate('reajusteInflacaoTipo', 'unico')}
+              style={{
+                fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
+                background: sublinha.reajusteInflacaoTipo === 'unico' ? COR.azul : COR.branco,
+                color: sublinha.reajusteInflacaoTipo === 'unico' ? COR.branco : '#8A8F96',
+              }}
+            >Único</button>
+            <button
+              onClick={() => onUpdate('reajusteInflacaoTipo', 'mensal')}
+              style={{
+                fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
+                background: sublinha.reajusteInflacaoTipo !== 'unico' ? COR.azul : COR.branco,
+                color: sublinha.reajusteInflacaoTipo !== 'unico' ? COR.branco : '#8A8F96',
+              }}
+            >Mensal</button>
+          </div>
+          {sublinha.reajusteInflacaoTipo === 'unico' && (
+            <div style={{ maxWidth: 160 }}>
+              <Selecao
+                value={sublinha.reajusteInflacaoMes} onChange={v => onUpdate('reajusteInflacaoMes', v)}
+                opcoes={[{ id: '', nome: 'Mês do reajuste…' }, ...MESES.map(m => ({ id: m, nome: m }))]}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      <div style={{ overflowX: 'auto', marginBottom: 8 }}>
+        <table>
+          <thead>
+            <tr>
+              <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Premissa</th>
+              {MESES.map(m => (
+                <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', minWidth: 58 }}>{m}</th>
+              ))}
+              <th style={{ background: COR.laranja, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 78 }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sublinha.premissaTipo === 'direto' && (
+              <GradeMensalLinha label="Valor (R$)" valores={sublinha.valores} onChange={(mi, v) => onUpdate('valores', atualizarArray(sublinha.valores, mi, v))} />
+            )}
+            {sublinha.premissaTipo === 'qtd_valor' && (
+              <>
+                <GradeMensalLinha label={`Quantidade${sublinha.unidadeMedida ? ` (${sublinha.unidadeMedida})` : ''}`} valores={sublinha.quantidades} onChange={(mi, v) => onUpdate('quantidades', atualizarArray(sublinha.quantidades, mi, v))} />
+                <GradeMensalLinha label="Valor unit. (R$)" valores={sublinha.valoresUnit} onChange={(mi, v) => onUpdate('valoresUnit', atualizarArray(sublinha.valoresUnit, mi, v))} />
+                <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+              </>
+            )}
+            {sublinha.premissaTipo === 'rateio' && (
+              <>
+                {sublinha.baseTipo === 'manual' && (
+                  <GradeMensalLinha label="Base manual (R$)" valores={sublinha.baseManual} onChange={(mi, v) => onUpdate('baseManual', atualizarArray(sublinha.baseManual, mi, v))} />
+                )}
+                <GradeMensalLinha label="Percentual (%)" valores={sublinha.percentuais} onChange={(mi, v) => onUpdate('percentuais', atualizarArray(sublinha.percentuais, mi, v))} />
+                <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+              </>
+            )}
+            {sublinha.premissaTipo === 'reajuste_inflacao' && (
+              <>
+                <LinhaCalculadaMensal
+                  label={`IPCA ${sublinha.reajusteInflacaoTipo === 'unico' ? `único (${sublinha.reajusteInflacaoMes || 'sem mês'})` : 'acumulado'} (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
+                  valoresMensal={ipcaAcumuladoMensal}
+                  formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
+                  formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}%`}
+                />
+                <GradeMensalLinha label="Valor-base (R$)" valores={sublinha.valores} onChange={(mi, v) => onUpdate('valores', atualizarArray(sublinha.valores, mi, v))} />
+                <LinhaCalculadaMensal label="Valor projetado (R$)" valoresMensal={valoresMensaisCalc} />
+              </>
+            )}
+            {sublinha.premissaTipo === 'custo_por_kg' && (
+              <>
+                <LinhaCalculadaMensal
+                  label="Volume total (kg) — da Receita"
+                  valoresMensal={volumeTotalKgMes || Array(12).fill(0)}
+                  formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
+                  formatarTotal={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
+                />
+                <GradeMensalLinha label="Valor unit. (R$/kg)" valores={sublinha.valoresUnit} onChange={(mi, v) => onUpdate('valoresUnit', atualizarArray(sublinha.valoresUnit, mi, v))} />
+                <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+              </>
+            )}
+            {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && sublinha.pagamentoDiferente && (
+              <GradeMensalLinha
+                label="Valor do pagamento — caixa (R$)"
+                valores={sublinha.valoresPagamento}
+                onChange={(mi, v) => onUpdate('valoresPagamento', atualizarArray(sublinha.valoresPagamento, mi, v))}
+              />
+            )}
+          </tbody>
+        </table>
+      </div>
+      {sublinha.premissaTipo === 'reajuste_inflacao' && (
+        <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
+          IPCA vem da premissa macro do FP&A Corporativo (tela "Gestão do Orçamento"). O gestor digita o valor-base mensal (R$);
+          {sublinha.reajusteInflacaoTipo === 'unico'
+            ? ' no modo Único, o sistema aplica o IPCA anual inteiro de uma vez só a partir do mês escolhido (sem reajuste antes dele).'
+            : ' no modo Mensal, o sistema aplica o reajuste acumulado mês a mês a partir de Janeiro automaticamente.'}
+        </p>
+      )}
+      {sublinha.premissaTipo === 'custo_por_kg' && (
+        <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
+          Volume vem da aba Receita (soma dos produtos, toneladas × 1000). O gestor digita o R$/kg; o valor calculado é Volume (kg) × R$/kg.
+        </p>
+      )}
+      {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && sublinha.pagamentoDiferente && (
+        <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
+          A DRE continua usando o valor de competência (acima). O valor do pagamento (caixa) alimenta só o Fluxo de Caixa — aba Revisão, Análise e Envio.
+        </p>
+      )}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+        {sublinha.premissaTipo === 'qtd_valor' && (
+          <div style={{ maxWidth: 260, flex: 1 }}>
+            <CampoTexto value={sublinha.unidadeMedida} onChange={v => onUpdate('unidadeMedida', v)} placeholder="Unidade de medida (ex.: kg, kWh, viagens)" />
+          </div>
+        )}
+        {sublinha.premissaTipo === 'rateio' && (
+          <div style={{ maxWidth: 260, flex: 1 }}>
+            <Selecao value={sublinha.baseTipo} onChange={v => onUpdate('baseTipo', v)} opcoes={BASES_RATEIO} />
+          </div>
+        )}
+      </div>
+      {incoerente && (
+        <div style={{ fontSize: 10.5, color: COR.vermelho, marginBottom: 6 }}>
+          Há mês com apenas um dos dois campos da premissa preenchido — revisar antes de enviar.
+        </div>
+      )}
+      <CampoJustificativa value={sublinha.justificativa} onChange={v => onUpdate('justificativa', v)} />
+    </div>
+  );
+}
+
+// Conta analítica — cabeçalho (código/nome/classificação/total) e, aberta,
+// uma ou mais sublinhas (2026-08-23, "se o gestor quiser incluir mais de
+// uma linha dentro de cada despesa, ex.: por fornecedor" — ver
+// normalizarConta/novaContaVazia/LinhaSublinha acima). `linha` aqui é a
+// CONTA inteira (não mais uma linha só) — normalizarConta aceita os dois
+// formatos, então dado já salvo antes desta mudança continua funcionando
+// sem migração.
+function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onUpdateSublinha, onAddSublinha, onRemoveSublinha, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, unidadeId, ipcaAnualPct, volumeTotalKgMes }) {
+  const contaNorm = normalizarConta(linha);
+  const incoerente = contaNorm.sublinhas.some(s => linhaIncoerente(s));
+  const multiplas = contaNorm.sublinhas.length > 1;
 
   return (
     <div style={{ border: `1px solid ${incoerente ? COR.vermelho : COR.borda}`, borderRadius: 6, marginBottom: 6, background: COR.branco, overflow: 'hidden' }}>
@@ -5987,6 +6269,7 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
           {aberta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           <span style={{ fontSize: 10.5, color: '#8A8F96', flexShrink: 0 }}>{conta.codigo}</span>
           <span style={{ fontSize: 11.5, color: COR.texto, fontWeight: aberta ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conta.nome.toLowerCase()}</span>
+          {multiplas && <span style={{ fontSize: 9.5, fontWeight: 700, color: COR.azul, background: COR.claro, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: '1px 6px', flexShrink: 0 }}>{contaNorm.sublinhas.length} linhas</span>}
           {incoerente && <AlertTriangle size={13} color={COR.vermelho} style={{ flexShrink: 0 }} />}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
@@ -5996,19 +6279,19 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
               style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}
             >
               <button
-                onClick={() => onUpdate('classificacao', 'fixo')}
+                onClick={() => onUpdateClassificacao('fixo')}
                 style={{
                   fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '2px 8px', border: 'none', cursor: 'pointer',
-                  background: linha.classificacao === 'fixo' ? COR.azul : COR.branco,
-                  color: linha.classificacao === 'fixo' ? COR.branco : '#8A8F96',
+                  background: contaNorm.classificacao === 'fixo' ? COR.azul : COR.branco,
+                  color: contaNorm.classificacao === 'fixo' ? COR.branco : '#8A8F96',
                 }}
               >Fixo</button>
               <button
-                onClick={() => onUpdate('classificacao', 'variavel')}
+                onClick={() => onUpdateClassificacao('variavel')}
                 style={{
                   fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '2px 8px', border: 'none', cursor: 'pointer',
-                  background: linha.classificacao === 'variavel' ? COR.laranja : COR.branco,
-                  color: linha.classificacao === 'variavel' ? COR.branco : '#8A8F96',
+                  background: contaNorm.classificacao === 'variavel' ? COR.laranja : COR.branco,
+                  color: contaNorm.classificacao === 'variavel' ? COR.branco : '#8A8F96',
                 }}
               >Variável</button>
             </div>
@@ -6018,171 +6301,30 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
       </button>
       {aberta && (
         <div style={{ padding: '10px 10px 12px', borderTop: `1px solid ${COR.borda}` }}>
-          <div style={{ marginBottom: 8, maxWidth: 260 }}>
-            <Selecao value={linha.premissaTipo} onChange={v => onUpdate('premissaTipo', v)} opcoes={opcoesPremissa} />
-          </div>
-          {/* Competência × caixa (2026-08-23, ver UNIDADES_COM_COMPETENCIA_CAIXA)
-              — pergunta em toda conta analítica do Corporativo, pra dar
-              insumo ao FC (a DRE nunca muda, é sempre em competência). */}
-          {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && (
-            <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, color: COR.texto }}>O fato gerador (competência) desta despesa ocorre no mesmo mês do pagamento?</span>
-              <div style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
-                <button
-                  onClick={() => onUpdate('pagamentoDiferente', false)}
-                  style={{
-                    fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
-                    background: !linha.pagamentoDiferente ? COR.azul : COR.branco,
-                    color: !linha.pagamentoDiferente ? COR.branco : '#8A8F96',
-                  }}
-                >Sim</button>
-                <button
-                  onClick={() => onUpdate('pagamentoDiferente', true)}
-                  style={{
-                    fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
-                    background: linha.pagamentoDiferente ? COR.laranja : COR.branco,
-                    color: linha.pagamentoDiferente ? COR.branco : '#8A8F96',
-                  }}
-                >Não</button>
-              </div>
-            </div>
-          )}
-          {/* Reajuste único × mensal (2026-08-23): "mensal" compõe o IPCA
-              mês a mês desde Janeiro (comportamento de sempre); "único"
-              aplica o IPCA anual inteiro de uma vez só a partir de um mês
-              escolhido. */}
-          {linha.premissaTipo === 'reajuste_inflacao' && (
-            <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, color: COR.texto }}>Reajuste:</span>
-              <div style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
-                <button
-                  onClick={() => onUpdate('reajusteInflacaoTipo', 'unico')}
-                  style={{
-                    fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
-                    background: linha.reajusteInflacaoTipo === 'unico' ? COR.azul : COR.branco,
-                    color: linha.reajusteInflacaoTipo === 'unico' ? COR.branco : '#8A8F96',
-                  }}
-                >Único</button>
-                <button
-                  onClick={() => onUpdate('reajusteInflacaoTipo', 'mensal')}
-                  style={{
-                    fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
-                    background: linha.reajusteInflacaoTipo !== 'unico' ? COR.azul : COR.branco,
-                    color: linha.reajusteInflacaoTipo !== 'unico' ? COR.branco : '#8A8F96',
-                  }}
-                >Mensal</button>
-              </div>
-              {linha.reajusteInflacaoTipo === 'unico' && (
-                <div style={{ maxWidth: 160 }}>
-                  <Selecao
-                    value={linha.reajusteInflacaoMes} onChange={v => onUpdate('reajusteInflacaoMes', v)}
-                    opcoes={[{ id: '', nome: 'Mês do reajuste…' }, ...MESES.map(m => ({ id: m, nome: m }))]}
-                  />
+          {contaNorm.sublinhas.map((sub, i) => (
+            <div key={sub.id} style={{ border: multiplas ? `1px solid ${COR.borda}` : 'none', borderRadius: multiplas ? 6 : 0, padding: multiplas ? 8 : 0, marginBottom: multiplas ? 10 : 0, background: multiplas ? COR.claro : 'transparent' }}>
+              {multiplas && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: COR.azul }}>Linha {i + 1}</span>
+                  <button onClick={() => onRemoveSublinha(sub.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={13} /></button>
                 </div>
               )}
-            </div>
-          )}
-          <div style={{ overflowX: 'auto', marginBottom: 8 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Premissa</th>
-                  {MESES.map(m => (
-                    <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', minWidth: 58 }}>{m}</th>
-                  ))}
-                  <th style={{ background: COR.laranja, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 78 }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linha.premissaTipo === 'direto' && (
-                  <GradeMensalLinha label="Valor (R$)" valores={linha.valores} onChange={(mi, v) => onUpdate('valores', atualizarArray(linha.valores, mi, v))} />
-                )}
-                {linha.premissaTipo === 'qtd_valor' && (
-                  <>
-                    <GradeMensalLinha label={`Quantidade${linha.unidadeMedida ? ` (${linha.unidadeMedida})` : ''}`} valores={linha.quantidades} onChange={(mi, v) => onUpdate('quantidades', atualizarArray(linha.quantidades, mi, v))} />
-                    <GradeMensalLinha label="Valor unit. (R$)" valores={linha.valoresUnit} onChange={(mi, v) => onUpdate('valoresUnit', atualizarArray(linha.valoresUnit, mi, v))} />
-                    <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
-                  </>
-                )}
-                {linha.premissaTipo === 'rateio' && (
-                  <>
-                    {linha.baseTipo === 'manual' && (
-                      <GradeMensalLinha label="Base manual (R$)" valores={linha.baseManual} onChange={(mi, v) => onUpdate('baseManual', atualizarArray(linha.baseManual, mi, v))} />
-                    )}
-                    <GradeMensalLinha label="Percentual (%)" valores={linha.percentuais} onChange={(mi, v) => onUpdate('percentuais', atualizarArray(linha.percentuais, mi, v))} />
-                    <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
-                  </>
-                )}
-                {linha.premissaTipo === 'reajuste_inflacao' && (
-                  <>
-                    <LinhaCalculadaMensal
-                      label={`IPCA ${linha.reajusteInflacaoTipo === 'unico' ? `único (${linha.reajusteInflacaoMes || 'sem mês'})` : 'acumulado'} (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
-                      valoresMensal={ipcaAcumuladoMensal}
-                      formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
-                      formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}%`}
-                    />
-                    <GradeMensalLinha label="Valor-base (R$)" valores={linha.valores} onChange={(mi, v) => onUpdate('valores', atualizarArray(linha.valores, mi, v))} />
-                    <LinhaCalculadaMensal label="Valor projetado (R$)" valoresMensal={valoresMensaisCalc} />
-                  </>
-                )}
-                {linha.premissaTipo === 'custo_por_kg' && (
-                  <>
-                    <LinhaCalculadaMensal
-                      label="Volume total (kg) — da Receita"
-                      valoresMensal={volumeTotalKgMes || Array(12).fill(0)}
-                      formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
-                      formatarTotal={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
-                    />
-                    <GradeMensalLinha label="Valor unit. (R$/kg)" valores={linha.valoresUnit} onChange={(mi, v) => onUpdate('valoresUnit', atualizarArray(linha.valoresUnit, mi, v))} />
-                    <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
-                  </>
-                )}
-                {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && linha.pagamentoDiferente && (
-                  <GradeMensalLinha
-                    label="Valor do pagamento — caixa (R$)"
-                    valores={linha.valoresPagamento}
-                    onChange={(mi, v) => onUpdate('valoresPagamento', atualizarArray(linha.valoresPagamento, mi, v))}
-                  />
-                )}
-              </tbody>
-            </table>
-          </div>
-          {linha.premissaTipo === 'reajuste_inflacao' && (
-            <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
-              IPCA vem da premissa macro do FP&A Corporativo (tela "Gestão do Orçamento"). O gestor digita o valor-base mensal (R$);
-              {linha.reajusteInflacaoTipo === 'unico'
-                ? ' no modo Único, o sistema aplica o IPCA anual inteiro de uma vez só a partir do mês escolhido (sem reajuste antes dele).'
-                : ' no modo Mensal, o sistema aplica o reajuste acumulado mês a mês a partir de Janeiro automaticamente.'}
-            </p>
-          )}
-          {linha.premissaTipo === 'custo_por_kg' && (
-            <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
-              Volume vem da aba Receita (soma dos produtos, toneladas × 1000). O gestor digita o R$/kg; o valor calculado é Volume (kg) × R$/kg.
-            </p>
-          )}
-          {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && linha.pagamentoDiferente && (
-            <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
-              A DRE continua usando o valor de competência (acima). O valor do pagamento (caixa) alimenta só o Fluxo de Caixa — aba Revisão, Análise e Envio.
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-            {linha.premissaTipo === 'qtd_valor' && (
-              <div style={{ maxWidth: 260, flex: 1 }}>
-                <CampoTexto value={linha.unidadeMedida} onChange={v => onUpdate('unidadeMedida', v)} placeholder="Unidade de medida (ex.: kg, kWh, viagens)" />
+              <div style={{ marginBottom: 8, maxWidth: 300 }}>
+                <CampoTexto value={sub.descricao} onChange={v => onUpdateSublinha(sub.id, 'descricao', v)} placeholder="Descrição (opcional — ex.: nome do fornecedor)" />
               </div>
-            )}
-            {linha.premissaTipo === 'rateio' && (
-              <div style={{ maxWidth: 260, flex: 1 }}>
-                <Selecao value={linha.baseTipo} onChange={v => onUpdate('baseTipo', v)} opcoes={BASES_RATEIO} />
-              </div>
-            )}
-          </div>
-          {incoerente && (
-            <div style={{ fontSize: 10.5, color: COR.vermelho, marginBottom: 6 }}>
-              Há mês com apenas um dos dois campos da premissa preenchido — revisar antes de enviar.
+              <LinhaSublinha
+                sublinha={sub}
+                onUpdate={(campo, valor) => onUpdateSublinha(sub.id, campo, valor)}
+                unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={volumeTotalKgMes}
+                receitaBrutaMes={receitaBrutaMes} receitaLiquidaMes={receitaLiquidaMes}
+              />
             </div>
-          )}
-          <CampoJustificativa value={linha.justificativa} onChange={v => onUpdate('justificativa', v)} />
+          ))}
+          {/* Múltiplas linhas por conta (2026-08-23): "se o gestor quiser
+              incluir mais de uma linha dentro de cada despesa, ex.: por
+              fornecedor". Cada sublinha tem sua própria premissa/grade
+              mensal independente; o total da conta soma todas. */}
+          <Botao variante="fantasma" icone={Plus} onClick={onAddSublinha}>+ Adicionar linha (ex.: outro fornecedor)</Botao>
         </div>
       )}
     </div>
@@ -6315,18 +6457,102 @@ function LinhaContaViagens({ conta, viagens, aberta, onToggle, onUpdateViagens, 
 // analítica e por premissas"). Mostra as mesmas linhas de premissa que o
 // editor mostra (quantidade/valor unit., ou base/%, ou valor direto), só
 // que via LinhaCalculadaMensal (sem <input>) em vez de GradeMensalLinha.
-function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, ipcaAnualPct, volumeTotalKgMes }) {
-  const valoresMensaisCalc = MESES.map((_, m) => valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes));
+// Mirror somente-leitura de LinhaSublinha (2026-08-23) — mesma extração,
+// mesmo motivo: suportar mais de uma sublinha por conta nas telas de
+// Revisão/Versão/Consolidado sem duplicar a lógica de exibição.
+function LinhaSublinhaLeitura({ sublinha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes }) {
+  const valoresMensaisCalc = MESES.map((_, m) => valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes));
   const formatarPct = (v) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
-  // Único (2026-08-23): a referência mostra 0% antes do mês escolhido e o
-  // IPCA anual cheio dele em diante (sem composição) — reflete exatamente
-  // o fator usado em valorLinhaMes.
-  const ipcaAcumuladoMensal = linha.reajusteInflacaoTipo === 'unico'
+  const ipcaAcumuladoMensal = sublinha.reajusteInflacaoTipo === 'unico'
     ? MESES.map((_, m) => {
-        const idxReajuste = linha.reajusteInflacaoMes ? MESES.indexOf(linha.reajusteInflacaoMes) : -1;
+        const idxReajuste = sublinha.reajusteInflacaoMes ? MESES.indexOf(sublinha.reajusteInflacaoMes) : -1;
         return (idxReajuste >= 0 && m >= idxReajuste) ? parseNum(ipcaAnualPct) : 0;
       })
     : MESES.map((_, m) => (Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1) - 1) * 100);
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 8 }}>
+        {sublinha.descricao && <><b style={{ color: COR.texto }}>{sublinha.descricao}</b> — </>}
+        Premissa: <b style={{ color: COR.texto }}>{TIPOS_PREMISSA.find(t => t.id === sublinha.premissaTipo)?.nome || sublinha.premissaTipo}</b>
+      </div>
+      <div style={{ overflowX: 'auto', marginBottom: 8 }}>
+        <table>
+          <thead>
+            <tr>
+              <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Premissa</th>
+              {MESES.map(m => (
+                <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', minWidth: 58 }}>{m}</th>
+              ))}
+              <th style={{ background: COR.laranja, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 78 }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sublinha.premissaTipo === 'direto' && (
+              <LinhaCalculadaMensal label="Valor (R$)" valoresMensal={(sublinha.valores || mesesVazios()).map(parseNum)} />
+            )}
+            {sublinha.premissaTipo === 'qtd_valor' && (
+              <>
+                <LinhaCalculadaMensal label={`Quantidade${sublinha.unidadeMedida ? ` (${sublinha.unidadeMedida})` : ''}`} valoresMensal={(sublinha.quantidades || mesesVazios()).map(parseNum)} formatarCelula={v => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
+                <LinhaCalculadaMensal label="Valor unit. (R$)" valoresMensal={(sublinha.valoresUnit || mesesVazios()).map(parseNum)} />
+                <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+              </>
+            )}
+            {sublinha.premissaTipo === 'rateio' && (
+              <>
+                {sublinha.baseTipo === 'manual' && (
+                  <LinhaCalculadaMensal label="Base manual (R$)" valoresMensal={(sublinha.baseManual || mesesVazios()).map(parseNum)} />
+                )}
+                <LinhaCalculadaMensal label={`Percentual — base: ${BASES_RATEIO.find(b => b.id === sublinha.baseTipo)?.nome || sublinha.baseTipo}`} valoresMensal={(sublinha.percentuais || mesesVazios()).map(parseNum)} formatarCelula={formatarPct} />
+                <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+              </>
+            )}
+            {sublinha.premissaTipo === 'reajuste_inflacao' && (
+              <>
+                <LinhaCalculadaMensal
+                  label={`IPCA ${sublinha.reajusteInflacaoTipo === 'unico' ? `único (${sublinha.reajusteInflacaoMes || '—'})` : 'acumulado'} (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
+                  valoresMensal={ipcaAcumuladoMensal}
+                  formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
+                  formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}%`}
+                />
+                <LinhaCalculadaMensal label="Valor-base (R$)" valoresMensal={(sublinha.valores || mesesVazios()).map(parseNum)} />
+                <LinhaCalculadaMensal label="Valor projetado (R$)" valoresMensal={valoresMensaisCalc} />
+              </>
+            )}
+            {sublinha.premissaTipo === 'custo_por_kg' && (
+              <>
+                <LinhaCalculadaMensal
+                  label="Volume total (kg) — da Receita"
+                  valoresMensal={volumeTotalKgMes || Array(12).fill(0)}
+                  formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
+                  formatarTotal={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
+                />
+                <LinhaCalculadaMensal label="Valor unit. (R$/kg)" valoresMensal={(sublinha.valoresUnit || mesesVazios()).map(parseNum)} />
+                <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+              </>
+            )}
+            {sublinha.pagamentoDiferente && (
+              <LinhaCalculadaMensal label="Valor do pagamento — caixa (R$)" valoresMensal={(sublinha.valoresPagamento || mesesVazios()).map(parseNum)} />
+            )}
+          </tbody>
+        </table>
+      </div>
+      {sublinha.pagamentoDiferente && (
+        <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
+          Fato gerador (competência) em mês diferente do pagamento — a DRE usa o valor de competência acima; o Fluxo de Caixa usa o valor do pagamento.
+        </p>
+      )}
+      {sublinha.justificativa && (
+        <div style={{ fontSize: 10.5, color: COR.texto, background: COR.claro, borderRadius: 6, padding: 8 }}>
+          <b>Justificativa:</b> {sublinha.justificativa}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, ipcaAnualPct, volumeTotalKgMes }) {
+  const contaNorm = normalizarConta(linha);
+  const multiplas = contaNorm.sublinhas.length > 1;
   return (
     <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 6, marginBottom: 6, background: COR.branco, overflow: 'hidden' }}>
       <button
@@ -6340,88 +6566,21 @@ function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBruta
           {aberta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           <span style={{ fontSize: 10.5, color: '#8A8F96', flexShrink: 0 }}>{conta.codigo}</span>
           <span style={{ fontSize: 11.5, color: COR.texto, fontWeight: aberta ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conta.nome.toLowerCase()}</span>
+          {multiplas && <span style={{ fontSize: 9.5, fontWeight: 700, color: COR.azul, background: COR.claro, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: '1px 6px', flexShrink: 0 }}>{contaNorm.sublinhas.length} linhas</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {!ocultarClassificacao && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#8A8F96' }}>{linha.classificacao === 'variavel' ? 'Variável' : 'Fixo'}</span>}
+          {!ocultarClassificacao && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#8A8F96' }}>{contaNorm.classificacao === 'variavel' ? 'Variável' : 'Fixo'}</span>}
           <span style={{ fontSize: 11, fontWeight: 700, color: total > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(total)}</span>
         </div>
       </button>
       {aberta && (
         <div style={{ padding: '10px 10px 12px', borderTop: `1px solid ${COR.borda}` }}>
-          <div style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 8 }}>
-            Premissa: <b style={{ color: COR.texto }}>{TIPOS_PREMISSA.find(t => t.id === linha.premissaTipo)?.nome || linha.premissaTipo}</b>
-          </div>
-          <div style={{ overflowX: 'auto', marginBottom: 8 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Premissa</th>
-                  {MESES.map(m => (
-                    <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', minWidth: 58 }}>{m}</th>
-                  ))}
-                  <th style={{ background: COR.laranja, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 78 }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linha.premissaTipo === 'direto' && (
-                  <LinhaCalculadaMensal label="Valor (R$)" valoresMensal={(linha.valores || mesesVazios()).map(parseNum)} />
-                )}
-                {linha.premissaTipo === 'qtd_valor' && (
-                  <>
-                    <LinhaCalculadaMensal label={`Quantidade${linha.unidadeMedida ? ` (${linha.unidadeMedida})` : ''}`} valoresMensal={(linha.quantidades || mesesVazios()).map(parseNum)} formatarCelula={v => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
-                    <LinhaCalculadaMensal label="Valor unit. (R$)" valoresMensal={(linha.valoresUnit || mesesVazios()).map(parseNum)} />
-                    <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
-                  </>
-                )}
-                {linha.premissaTipo === 'rateio' && (
-                  <>
-                    {linha.baseTipo === 'manual' && (
-                      <LinhaCalculadaMensal label="Base manual (R$)" valoresMensal={(linha.baseManual || mesesVazios()).map(parseNum)} />
-                    )}
-                    <LinhaCalculadaMensal label={`Percentual — base: ${BASES_RATEIO.find(b => b.id === linha.baseTipo)?.nome || linha.baseTipo}`} valoresMensal={(linha.percentuais || mesesVazios()).map(parseNum)} formatarCelula={formatarPct} />
-                    <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
-                  </>
-                )}
-                {linha.premissaTipo === 'reajuste_inflacao' && (
-                  <>
-                    <LinhaCalculadaMensal
-                      label={`IPCA ${linha.reajusteInflacaoTipo === 'unico' ? `único (${linha.reajusteInflacaoMes || '—'})` : 'acumulado'} (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
-                      valoresMensal={ipcaAcumuladoMensal}
-                      formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
-                      formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}%`}
-                    />
-                    <LinhaCalculadaMensal label="Valor-base (R$)" valoresMensal={(linha.valores || mesesVazios()).map(parseNum)} />
-                    <LinhaCalculadaMensal label="Valor projetado (R$)" valoresMensal={valoresMensaisCalc} />
-                  </>
-                )}
-                {linha.premissaTipo === 'custo_por_kg' && (
-                  <>
-                    <LinhaCalculadaMensal
-                      label="Volume total (kg) — da Receita"
-                      valoresMensal={volumeTotalKgMes || Array(12).fill(0)}
-                      formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
-                      formatarTotal={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
-                    />
-                    <LinhaCalculadaMensal label="Valor unit. (R$/kg)" valoresMensal={(linha.valoresUnit || mesesVazios()).map(parseNum)} />
-                    <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
-                  </>
-                )}
-                {linha.pagamentoDiferente && (
-                  <LinhaCalculadaMensal label="Valor do pagamento — caixa (R$)" valoresMensal={(linha.valoresPagamento || mesesVazios()).map(parseNum)} />
-                )}
-              </tbody>
-            </table>
-          </div>
-          {linha.pagamentoDiferente && (
-            <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
-              Fato gerador (competência) em mês diferente do pagamento — a DRE usa o valor de competência acima; o Fluxo de Caixa usa o valor do pagamento.
-            </p>
-          )}
-          {linha.justificativa && (
-            <div style={{ fontSize: 10.5, color: COR.texto, background: COR.claro, borderRadius: 6, padding: 8 }}>
-              <b>Justificativa:</b> {linha.justificativa}
+          {contaNorm.sublinhas.map((sub, i) => (
+            <div key={sub.id} style={{ border: multiplas ? `1px solid ${COR.borda}` : 'none', borderRadius: multiplas ? 6 : 0, padding: multiplas ? 8 : 0, marginBottom: multiplas ? 10 : 0, background: multiplas ? COR.claro : 'transparent' }}>
+              {multiplas && <div style={{ fontSize: 10.5, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>Linha {i + 1}</div>}
+              <LinhaSublinhaLeitura sublinha={sub} receitaBrutaMes={receitaBrutaMes} receitaLiquidaMes={receitaLiquidaMes} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={volumeTotalKgMes} />
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>
@@ -6739,7 +6898,7 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
   );
 }
 
-function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote, viagens, atualizar }) {
+function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote, viagens, atualizar }) {
   // Gestor de CC (perfil gerente_cc_corporativo) só vê/edita os CCs que
   // lhe foram atribuídos nesta unidade (usuario.ccsPermitidos, de
   // /auth/me) — pedido de 2026-08-16 ("os CCs ainda estão aparecendo
@@ -6874,8 +7033,14 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, i
   function updateViagensCC(novoArray) {
     atualizar(['custos', 'viagens', ccSel], novoArray);
     const chave = chaveLinha(CONTA_VIAGENS_CALCULADORA);
-    const atual = linhas[chave] || novaLinhaVazia();
-    atualizar(['custos', 'linhas', chave], { ...atual, premissaTipo: 'direto', valores: computeViagensMes(novoArray) });
+    // Tela dedicada, sem LinhaConta — mas normaliza mesmo assim (defensivo,
+    // 2026-08-23): se por algum motivo essa conta já tiver ganhado mais de
+    // uma sublinha, sincroniza só a primeira em vez de sobrescrever a
+    // conta inteira com um objeto plano incompatível.
+    const contaNorm = normalizarConta(linhas[chave]);
+    const [primeira, ...resto] = contaNorm.sublinhas;
+    const sublinhaAtualizada = { ...primeira, premissaTipo: 'direto', valores: computeViagensMes(novoArray) };
+    atualizar(['custos', 'linhas', chave], { ...contaNorm, sublinhas: [sublinhaAtualizada, ...resto] });
   }
   function togglePacote(pacoteId) {
     setPacotesAbertos(prev => ({ ...prev, [pacoteId]: !prev[pacoteId] }));
@@ -7074,10 +7239,13 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, i
                     ) : (
                       <LinhaConta
                         key={c.codigo} conta={c}
-                        linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
+                        linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
                         aberta={contaAberta === chaveLinha(c.codigo)}
                         onToggle={() => toggleConta(c.codigo)}
-                        onUpdate={(campo, valor) => updateLinha(chaveLinha(c.codigo), campo, valor)}
+                        onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                        onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                        onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                        onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
                         total={totalConta(c.codigo)}
                         receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                         ocultarClassificacao={unidadeId === 'corporativo'}
@@ -7111,10 +7279,13 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, i
               {contasSemPacote.map(c => (
                 <LinhaConta
                   key={c.codigo} conta={c}
-                  linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
+                  linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
                   aberta={contaAberta === chaveLinha(c.codigo)}
                   onToggle={() => toggleConta(c.codigo)}
-                  onUpdate={(campo, valor) => updateLinha(chaveLinha(c.codigo), campo, valor)}
+                  onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                  onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                  onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                  onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
                   total={totalConta(c.codigo)}
                   receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                   ocultarClassificacao={unidadeId === 'corporativo'}
