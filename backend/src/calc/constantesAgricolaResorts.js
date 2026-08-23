@@ -726,8 +726,8 @@ export const CCS_CORPORATIVO = [
 ];
 
 export const PACOTES_CORPORATIVO = [
-  { id: 'pessoal', nome: "Pessoal", ref: 'Base_Corporativo.xlsx (2 contas)' },
-  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Base_Corporativo.xlsx (4 contas)' },
+  { id: 'pessoal', nome: "Pessoal", ref: 'Base_Corporativo.xlsx (3 contas)' },
+  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Base_Corporativo.xlsx (3 contas)' },
   { id: 'locacao_utilidades', nome: "Locação, Ocupação e Utilidades", ref: 'Base_Corporativo.xlsx (4 contas)' },
   { id: 'administrativo', nome: "Administrativo", ref: 'Base_Corporativo.xlsx (6 contas)' },
   { id: 'manutencao', nome: "Manutenção", ref: 'Base_Corporativo.xlsx (1 conta)' },
@@ -737,13 +737,16 @@ export const PACOTES_CORPORATIVO = [
 ];
 
 export const PLANO_CONTAS_CORPORATIVO = {
+  // Consultórias PJs (2026-08-23) — espelho de frontend/src/OrcamentoARA.jsx
+  // (ver nota completa lá): CORP03 sai de 'servicos' e vira a 2ª conta
+  // analítica editável de Pessoal, só no Corporativo.
   pessoal: [
     { codigo: 'CORP01', nome: "Salários /Despesas com o pessoal", origem: 'Despesa' },
     { codigo: 'CORP13', nome: "Cursos e treinamentos", origem: 'Despesa' },
+    { codigo: 'CORP03', nome: "Consultórias PJs", origem: 'Despesa' },
   ],
   servicos: [
     { codigo: 'CORP02', nome: "Assessorias e Consultorias", origem: 'Despesa' },
-    { codigo: 'CORP03', nome: "Consultórias PJs", origem: 'Despesa' },
     { codigo: 'CORP04', nome: "Projetos", origem: 'Despesa' },
     { codigo: 'CORP08', nome: "Honorários Advocatícios", origem: 'Despesa' },
   ],

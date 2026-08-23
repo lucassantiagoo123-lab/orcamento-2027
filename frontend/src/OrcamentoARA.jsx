@@ -1375,8 +1375,8 @@ const CONTAS_REFERENCIA_CORPORATIVO = [
 // código de conta nenhum, só o nome) — servem só de identificador estável
 // para a chave CC|Conta do formulário, mesmo padrão do resto do app.
 export const PACOTES_CORPORATIVO = [
-  { id: 'pessoal', nome: "Pessoal", ref: 'Base_Corporativo.xlsx (2 contas)' },
-  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Base_Corporativo.xlsx (4 contas)' },
+  { id: 'pessoal', nome: "Pessoal", ref: 'Base_Corporativo.xlsx (3 contas)' },
+  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Base_Corporativo.xlsx (3 contas)' },
   { id: 'locacao_utilidades', nome: "Locação, Ocupação e Utilidades", ref: 'Base_Corporativo.xlsx (4 contas)' },
   { id: 'administrativo', nome: "Administrativo", ref: 'Base_Corporativo.xlsx (6 contas)' },
   { id: 'manutencao', nome: "Manutenção", ref: 'Base_Corporativo.xlsx (1 conta)' },
@@ -1386,13 +1386,22 @@ export const PACOTES_CORPORATIVO = [
 ];
 
 export const PLANO_CONTAS_CORPORATIVO = {
+  // Consultorias PJs (2026-08-23, pedido: "desconsidere essa conta
+  // analítica do pacote de Serviços de Terceiros e inclua no pacote
+  // Pessoal como uma nova linha analítica adicional a linha de CLT")
+  // — CORP03 sai de 'servicos' e vira a 2ª conta analítica editável de
+  // Pessoal, só no Corporativo (ver AbaCustos/CustosLeituraVersao, gate
+  // por UNIDADES_COM_PJ_PESSOAL/CONTA_CONSULTORIA_PJ). CORP01/CORP13
+  // continuam aqui só como referência do plano de contas — nunca viram
+  // LinhaConta editável (a folha CLT é sempre calculada via
+  // QuadroPessoal/funcionários, nunca lançada direto numa conta).
   pessoal: [
     { codigo: 'CORP01', nome: "Salários /Despesas com o pessoal", origem: 'Despesa' },
     { codigo: 'CORP13', nome: "Cursos e treinamentos", origem: 'Despesa' },
+    { codigo: 'CORP03', nome: "Consultórias PJs", origem: 'Despesa' },
   ],
   servicos: [
     { codigo: 'CORP02', nome: "Assessorias e Consultorias", origem: 'Despesa' },
-    { codigo: 'CORP03', nome: "Consultórias PJs", origem: 'Despesa' },
     { codigo: 'CORP04', nome: "Projetos", origem: 'Despesa' },
     { codigo: 'CORP08', nome: "Honorários Advocatícios", origem: 'Despesa' },
   ],
@@ -1674,11 +1683,17 @@ const UNIDADES_COM_CUSTO_POR_KG = ['textil', 'agricola_tds', 'agricola_fds'];
 // Mesmo racional do ajuste do 13º salário (ver ajuste13Mes em
 // computeFluxoIndiretoMensal), generalizado aqui pra qualquer conta.
 const UNIDADES_COM_COMPETENCIA_CAIXA = ['corporativo'];
-// Consultoria PJ como Pessoal (2026-08-23, pedido explícito: "Apenas no
-// corporativo, considere Consultorias PJs que estão em serviço de
-// terceiros para Pessoal") — só aqui o Novo Headcount ganha a opção
-// "Adicionar consultoria (PJ)", ver QuadroPessoal.
+// Consultoria PJ como conta analítica de Pessoal (2026-08-23, revisão do
+// pedido original de 2026-08-23: "não é para incluir no quadro de folha,
+// desconsidere essa conta analítica do pacote de Serviços de Terceiros e
+// inclua no pacote Pessoal como uma nova linha analítica adicional a
+// linha de CLT [...] apenas para o Corporativo") — CORP03 "Consultórias
+// PJs" (ver PLANO_CONTAS_CORPORATIVO, pacote 'pessoal') passa a ser uma
+// LinhaConta normal (premissa/grade mensal como qualquer outra conta),
+// exibida ao lado da folha CLT calculada — não mais uma linha na tabela
+// de funcionários. Só o Corporativo tem essa conta no plano de contas.
 const UNIDADES_COM_PJ_PESSOAL = ['corporativo'];
+const CONTA_CONSULTORIA_PJ = 'CORP03';
 const BASES_RATEIO = [
   { id: 'receita_bruta', nome: 'Receita Bruta do mês' },
   { id: 'receita_liquida', nome: 'Receita Líquida do mês' },
@@ -2111,18 +2126,15 @@ function somaMes(arr) { return (arr || []).reduce((a, v) => a + parseNum(v), 0);
 //
 // Dissídio (2026-08-23): mês + % de reajuste, padronizados pra unidade
 // inteira. A partir do mês escolhido (inclusive), o salário de cada
-// funcionário CLT sobe por esse % — INSS/FGTS/Férias/13º/meritocracia
-// (todos % sobre `salarios`) já refletem o valor reajustado automaticamente,
-// sem precisar de lógica própria. PJ (abaixo) não entra no dissídio — não é
-// reajuste coletivo de CLT.
+// funcionário sobe por esse % — INSS/FGTS/Férias/13º/meritocracia (todos %
+// sobre `salarios`) já refletem o valor reajustado automaticamente, sem
+// precisar de lógica própria.
 //
-// Consultoria PJ (2026-08-23, ver UNIDADES_COM_PJ_PESSOAL — só Corporativo):
-// funcionário com tipoContratacao 'pj' conta no headcount e no total de
-// Pessoal (`total`, o que entra na DRE via folhaAnualPorCC), mas por fora de
-// todo o resto — sem INSS/FGTS/Férias/13º/benefícios/meritocracia/dissídio,
-// que só fazem sentido pra CLT. Pedido explícito: o valor do PJ soma no
-// total de Pessoal — não lance essa mesma consultoria de novo como linha em
-// Serviços de Terceiros, duplicaria o custo.
+// Consultoria PJ (revisado em 2026-08-23, ver CONTA_CONSULTORIA_PJ/
+// UNIDADES_COM_PJ_PESSOAL — só Corporativo): NÃO entra mais nesta função —
+// desde 2026-08-23 é uma conta analítica normal do pacote Pessoal (CORP03
+// "Consultórias PJs"), somada como qualquer outra conta em custos.linhas
+// (ver computeDRE), não mais uma linha na tabela de funcionários.
 // ---------------------------------------------------------------------------
 function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
   const ativos = (funcionariosCC || []).filter(f => {
@@ -2130,23 +2142,20 @@ function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
     const idxAdm = MESES.indexOf(f.mesAdmissao);
     return idxAdm === -1 || idxAdm <= mIdx;
   });
-  const cltAtivos = ativos.filter(f => f.tipoContratacao !== 'pj');
-  const pjAtivos = ativos.filter(f => f.tipoContratacao === 'pj');
 
   const idxDissidio = premissas?.dissidioMes ? MESES.indexOf(premissas.dissidioMes) : -1;
   const fatorDissidio = (idxDissidio >= 0 && mIdx >= idxDissidio) ? (1 + parseNum(premissas?.dissidioPct) / 100) : 1;
-  const salarios = cltAtivos.reduce((acc, f) => acc + parseNum(f.salario) * fatorDissidio, 0);
+  const salarios = ativos.reduce((acc, f) => acc + parseNum(f.salario) * fatorDissidio, 0);
   const inss = salarios * (parseNum(premissas?.inssPct) / 100);
   const fgts = salarios * (parseNum(premissas?.fgtsPct) / 100);
   const ferias = salarios * (parseNum(premissas?.feriasPct) / 100);
   const decimoTerceiro = salarios * (parseNum(premissas?.decimoTerceiroPct) / 100);
   const meritocracia = salarios * (parseNum(premissas?.meritocraciaPct) / 100);
   const beneficiosPorFuncionario = parseNum(premissas?.valeTransporteValor) + parseNum(premissas?.cestaBasicaValor) + parseNum(premissas?.planoSaudeValor) + parseNum(premissas?.outrosBeneficiosValor);
-  const beneficios = cltAtivos.length * beneficiosPorFuncionario;
-  const valoresPj = pjAtivos.reduce((acc, f) => acc + parseNum(f.salario), 0);
+  const beneficios = ativos.length * beneficiosPorFuncionario;
   const encargos = inss + fgts + ferias;
-  const total = salarios + encargos + decimoTerceiro + meritocracia + beneficios + valoresPj;
-  return { qtdFuncionarios: ativos.length, salarios, inss, fgts, ferias, encargos, decimoTerceiro, meritocracia, beneficios, valoresPj, total };
+  const total = salarios + encargos + decimoTerceiro + meritocracia + beneficios;
+  return { qtdFuncionarios: ativos.length, salarios, inss, fgts, ferias, encargos, decimoTerceiro, meritocracia, beneficios, total };
 }
 function computeFolhaPessoalAnual(funcionariosCC, premissas) {
   const mensal = MESES.map((_, m) => computeFolhaPessoalMes(funcionariosCC, premissas, m));
@@ -2231,11 +2240,17 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
 
   const linhasCustos = Object.entries(data.custos.linhas || {});
 
+  // pacote 'pessoal' (2026-08-23): não exclui mais da soma — desde que
+  // CORP03 "Consultórias PJs" virou LinhaConta normal do pacote Pessoal
+  // (só Corporativo, ver CONTA_CONSULTORIA_PJ), a pacote pode ter
+  // lançamento de verdade em custos.linhas além da folha. Nas demais
+  // unidades, o pacote 'pessoal' nunca tem conta editável (só referência
+  // — ver AbaCustos), então soma sempre 0 ali, sem risco de duplicar a
+  // folha calculada.
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
-    if (ref.todasContas[contaCodigo]?.pacoteId === 'pessoal') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const lucroBruto = receitaLiquida - cpv;
@@ -2245,7 +2260,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-    if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao' || pacoteId === 'pessoal') return acc;
+    if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const ebitda = lucroBruto - despesasSemDA;
@@ -2607,10 +2622,14 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
-  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
+  // pacote 'pessoal' (2026-08-23): não exclui mais de totalLinhasMes — ver
+  // nota completa em computeDRE. Nome da variável mantido (cpvSemPessoalMes)
+  // porque também alimenta o capital de giro abaixo, mas não exclui nada
+  // "de pessoal" de verdade — só não soma a folha calculada duas vezes.
+  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
     + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
-  const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao', 'pessoal'], m)
+  const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao'], m)
     + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const ebitdaMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m] - despesasSemDAmes[m]);
 
@@ -2627,7 +2646,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // subtraiu despesasSemDAmes) e refletir a saída de caixa real do mês.
   // Zero em qualquer linha sem o descasamento marcado (comportamento de
   // sempre, sem mudança).
-  const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao', 'pessoal'], m)
+  const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m)
     + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const ajustePagamentoMes = MESES.map((_, m) => despesasSemDAmes[m] - despesasCaixaMes[m]);
 
@@ -2727,12 +2746,14 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
-  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
+  // pacote 'pessoal' (2026-08-23): não exclui mais — ver nota em
+  // computeFluxoIndiretoMensal/computeDRE.
+  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
   // Pagamentos de despesas de fato (caixa) — 2026-08-23: por padrão igual à
   // competência (totalLinhasMes); linhas marcadas com o descasamento
   // competência × caixa usam o valor de pagamento digitado à parte (ver
   // UNIDADES_COM_COMPETENCIA_CAIXA/valorLinhaMesCaixa).
-  const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao', 'pessoal'], m));
+  const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m));
   const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
@@ -3806,8 +3827,8 @@ export default function OrcamentoARA({ usuario }) {
   }
   // origem: 'novo' — pedido de 2026-08-17, "Novo Headcount a ser inserido
   // manualmente" (ver QuadroPessoal/ehExistente).
-  function addFuncionario(ccCodigo, tipoContratacao = 'clt') {
-    atualizar(['custos', 'funcionarios'], [...dados.custos.funcionarios, { id: uid(), nome: '', cargo: '', salario: '', ccCodigo, mesAdmissao: '', origem: 'novo', tipoContratacao }]);
+  function addFuncionario(ccCodigo) {
+    atualizar(['custos', 'funcionarios'], [...dados.custos.funcionarios, { id: uid(), nome: '', cargo: '', salario: '', ccCodigo, mesAdmissao: '', origem: 'novo' }]);
   }
   function updateFuncionario(id, campo, valor) {
     atualizar(['custos', 'funcionarios'], dados.custos.funcionarios.map(f => f.id === id ? { ...f, [campo]: valor } : f));
@@ -4929,7 +4950,9 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
     .filter(g => g.contas.length > 0);
   const funcionariosCC = funcionarios.filter(f => f.ccCodigo === ccSel);
   const folhaAtual = computeFolhaPessoalAnual(funcionariosCC, premissasPessoal);
-  const totalCC = gruposPacote.filter(g => g.id !== 'pessoal').reduce((acc, g) => acc + g.contas.reduce((a, c) => a + totalConta(c.codigo), 0), 0) + folhaAtual.totalAnual;
+  // Pessoal (2026-08-23): soma folha (CLT) + eventuais contas do pacote
+  // (Consultórias PJs, só Corporativo) — não exclui mais 'pessoal' da soma.
+  const totalCC = gruposPacote.reduce((acc, g) => acc + g.contas.reduce((a, c) => a + totalConta(c.codigo), 0), 0) + folhaAtual.totalAnual;
 
   return (
     <div>
@@ -4947,7 +4970,8 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
       <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 10 }}>Total anual — {ccAtual.nome}: {formatBRL(totalCC)}</div>
       {gruposPacote.map(g => {
         const pacoteAberto = !!pacotesAbertos[g.id];
-        const totalPacote = g.id === 'pessoal' ? folhaAtual.totalAnual : g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0);
+        const contasTotal = g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0);
+        const totalPacote = g.id === 'pessoal' ? folhaAtual.totalAnual + contasTotal : contasTotal;
         return (
           <div key={g.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
             <button
@@ -4963,7 +4987,24 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
             {pacoteAberto && (
               <div style={{ padding: 8 }}>
                 {g.id === 'pessoal' ? (
-                  <FolhaPessoalLeitura funcionarios={funcionariosCC} premissasPessoal={premissasPessoal} />
+                  <>
+                    <FolhaPessoalLeitura funcionarios={funcionariosCC} premissasPessoal={premissasPessoal} />
+                    {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
+                      <div key={c.codigo} style={{ marginTop: 14 }}>
+                        <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Consultórias PJs — conta analítica</h5>
+                        <LinhaContaLeitura
+                          conta={c}
+                          linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
+                          aberta={contaAberta === chaveLinha(c.codigo)}
+                          onToggle={() => setContaAberta(prev => prev === chaveLinha(c.codigo) ? null : chaveLinha(c.codigo))}
+                          total={totalConta(c.codigo)}
+                          receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                          ocultarClassificacao={unidadeId === 'corporativo'}
+                          ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
+                        />
+                      </div>
+                    ))}
+                  </>
                 ) : (
                   g.contas.map(c => (
                     c.codigo === CONTA_VIAGENS_CALCULADORA && unidadeId === 'corporativo' ? (
@@ -7008,20 +7049,12 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
   const novos = funcionarios.filter(f => !ehExistente(f));
   const folhaExistente = computeFolhaPessoalAnual(existentes, premissasPessoal);
   const folhaNovo = computeFolhaPessoalAnual(novos, premissasPessoal);
-  // Consultoria PJ (2026-08-23) — só Corporativo, ver UNIDADES_COM_PJ_PESSOAL.
-  const mostrarPj = UNIDADES_COM_PJ_PESSOAL.includes(unidadeId);
 
   function LinhaFuncionario(f, i, mostrarAdmissao) {
-    const ehPj = f.tipoContratacao === 'pj';
     return (
       <tr key={f.id} style={{ background: i % 2 ? COR.claro : COR.branco }}>
-        {mostrarPj && mostrarAdmissao && (
-          <td style={{ padding: 3, border: `1px solid ${COR.borda}`, textAlign: 'center' }}>
-            <span style={{ fontSize: 9.5, fontWeight: 700, color: ehPj ? COR.laranja : '#8A8F96' }}>{ehPj ? 'PJ' : 'CLT'}</span>
-          </td>
-        )}
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-          <CampoTexto value={f.nome} onChange={v => updateFuncionario(f.id, 'nome', v)} placeholder={ehPj ? 'Nome da consultoria/consultor' : 'Nome do funcionário'} />
+          <CampoTexto value={f.nome} onChange={v => updateFuncionario(f.id, 'nome', v)} placeholder="Nome do funcionário" />
         </td>
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
           <CampoTexto value={f.cargo || ''} onChange={v => updateFuncionario(f.id, 'cargo', v)} placeholder="Cargo" />
@@ -7072,7 +7105,6 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
       <table style={{ width: '100%', marginBottom: 10 }}>
         <thead>
           <tr>
-            {mostrarPj && <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 40 }}>Tipo</th>}
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left' }}>Funcionário</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Cargo</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Salário previsto</th>
@@ -7082,19 +7114,12 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
         </thead>
         <tbody>
           {novos.length === 0 ? (
-            <tr><td colSpan={mostrarPj ? 6 : 5} style={{ padding: '8px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#8A8F96' }}>Nenhuma contratação planejada ainda.</td></tr>
+            <tr><td colSpan={5} style={{ padding: '8px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#8A8F96' }}>Nenhuma contratação planejada ainda.</td></tr>
           ) : novos.map((f, i) => LinhaFuncionario(f, i, true))}
         </tbody>
       </table>
       <div style={{ display: 'flex', gap: 8 }}>
-        <Botao variante="fantasma" icone={Plus} onClick={() => addFuncionario(ccCodigo, 'clt')}>Adicionar funcionário (Novo Headcount)</Botao>
-        {mostrarPj && (
-          // Consultoria PJ (2026-08-23, só Corporativo — pedido: "considere
-          // Consultorias PJs que estão em serviço de terceiros para
-          // Pessoal"): entra no headcount/total de Pessoal, sem encargos —
-          // ver computeFolhaPessoalMes.
-          <Botao variante="fantasma" icone={Plus} onClick={() => addFuncionario(ccCodigo, 'pj')}>Adicionar consultoria (PJ)</Botao>
-        )}
+        <Botao variante="fantasma" icone={Plus} onClick={() => addFuncionario(ccCodigo)}>Adicionar funcionário (Novo Headcount)</Botao>
       </div>
 
       <div style={{ marginTop: 16 }}>
@@ -7173,7 +7198,7 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
         </div>
       </div>
 
-      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Folha calculada — {ccCodigo}, mês a mês (Existente + Novo Headcount)</h5>
+      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>CLT — Folha calculada — {ccCodigo}, mês a mês (Existente + Novo Headcount)</h5>
       <TabelaMensal
         linhas={[]}
         onChangeCelula={() => {}}
@@ -7183,8 +7208,7 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
           { key: 'decimo', label: '13º salário (provisão mensal)', valoresMensal: folha.mensal.map(m => m.decimoTerceiro), totalValor: folha.decimoTerceiroAnual, cor: COR.texto },
           { key: 'meritocracia', label: 'Meritocracia', valoresMensal: folha.mensal.map(m => m.meritocracia), totalValor: folha.mensal.reduce((a, m) => a + m.meritocracia, 0), cor: COR.texto },
           { key: 'beneficios', label: 'Benefícios', valoresMensal: folha.mensal.map(m => m.beneficios), totalValor: folha.mensal.reduce((a, m) => a + m.beneficios, 0), cor: COR.texto },
-          ...(mostrarPj ? [{ key: 'pj', label: 'Consultoria PJ', valoresMensal: folha.mensal.map(m => m.valoresPj), totalValor: folha.mensal.reduce((a, m) => a + m.valoresPj, 0), cor: COR.texto }] : []),
-          { key: 'total', label: 'Total da folha', valoresMensal: folha.mensal.map(m => m.total), totalValor: folha.totalAnual, cor: COR.azul },
+          { key: 'total', label: 'Total da folha CLT', valoresMensal: folha.mensal.map(m => m.total), totalValor: folha.totalAnual, cor: COR.azul },
         ]}
       />
     </div>
@@ -7332,10 +7356,14 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const ccsConsolidado = ccsVisiveis.filter(cc => !cc.nivel || cc.nivel === 3);
   function totalPacoteConsolidadoMes(pacoteId, m) {
     return ccsConsolidado.reduce((acc, cc) => {
-      if (pacoteId === 'pessoal') return acc + (folhaCC(cc.codigo).mensal[m]?.total || 0);
       const origem = cc.tipo === 'producao' ? 'Custo' : 'Despesa';
       const contas = (refUnidade.planoContas[pacoteId] || []).filter(c => c.origem === origem);
-      return acc + contas.reduce((a2, c) => a2 + totalContaMesCC(cc.codigo, c.codigo, m), 0);
+      const totalContas = contas.reduce((a2, c) => a2 + totalContaMesCC(cc.codigo, c.codigo, m), 0);
+      // Pessoal (2026-08-23): folha calculada (CLT) + eventuais contas
+      // analíticas do pacote (Consultórias PJs, só Corporativo — ver
+      // CONTA_CONSULTORIA_PJ). Nas outras unidades, `contas` nunca tem
+      // lançamento (nenhuma vira LinhaConta editável ali), soma 0.
+      return acc + totalContas + (pacoteId === 'pessoal' ? (folhaCC(cc.codigo).mensal[m]?.total || 0) : 0);
     }, 0);
   }
   function totalPacoteConsolidadoAnual(pacoteId) {
@@ -7534,9 +7562,9 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
           linhasCalculadas={[
             ...gruposPacote.map(g => g.id === 'pessoal' ? {
               key: g.id,
-              label: `${g.nome} (folha calculada)`,
-              valoresMensal: folhaAtual.mensal.map(m => m.total),
-              totalValor: folhaAtual.totalAnual,
+              label: `${g.nome} (CLT — folha calculada + Consultórias PJs)`,
+              valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + totalPacoteMes(g.contas, m)),
+              totalValor: folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0),
               cor: COR.azul,
             } : {
               key: g.id,
@@ -7579,7 +7607,11 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
       </div>
 
       {gruposPacoteExibidos.map(g => {
-        const totalPacote = g.id === 'pessoal' ? folhaAtual.totalAnual : g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0);
+        // Pessoal (2026-08-23): CLT (folha calculada) + eventuais contas
+        // analíticas do pacote (Consultórias PJs, só Corporativo).
+        const totalPacote = g.id === 'pessoal'
+          ? folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
+          : g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0);
         const pacoteAberto = !!pacotesAbertos[g.id];
         return (
           <div key={g.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
@@ -7599,18 +7631,43 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             {pacoteAberto && (
               <div style={{ padding: 8 }}>
                 {g.id === 'pessoal' ? (
-                  <QuadroPessoal
-                    ccCodigo={ccSel}
-                    unidadeId={unidadeId}
-                    funcionarios={(funcionarios || []).filter(f => f.ccCodigo === ccSel)}
-                    addFuncionario={addFuncionario}
-                    updateFuncionario={updateFuncionario}
-                    removeFuncionario={removeFuncionario}
-                    premissasPessoal={premissasPessoal}
-                    updatePremissaPessoal={updatePremissaPessoal}
-                    folha={folhaAtual}
-                    onImportarLote={lista => importarFuncionariosLote(ccSel, lista)}
-                  />
+                  <>
+                    <QuadroPessoal
+                      ccCodigo={ccSel}
+                      unidadeId={unidadeId}
+                      funcionarios={(funcionarios || []).filter(f => f.ccCodigo === ccSel)}
+                      addFuncionario={addFuncionario}
+                      updateFuncionario={updateFuncionario}
+                      removeFuncionario={removeFuncionario}
+                      premissasPessoal={premissasPessoal}
+                      updatePremissaPessoal={updatePremissaPessoal}
+                      folha={folhaAtual}
+                      onImportarLote={lista => importarFuncionariosLote(ccSel, lista)}
+                    />
+                    {/* Consultórias PJs (2026-08-23) — 2ª conta analítica do
+                        pacote Pessoal, só Corporativo (ver CONTA_CONSULTORIA_PJ/
+                        PLANO_CONTAS_CORPORATIVO). LinhaConta normal, igual a
+                        qualquer outra conta — sem premissa nenhuma dedicada. */}
+                    {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
+                      <div key={c.codigo} style={{ marginTop: 18 }}>
+                        <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Consultórias PJs — conta analítica</h5>
+                        <LinhaConta
+                          conta={c}
+                          linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                          aberta={contaAberta === chaveLinha(c.codigo)}
+                          onToggle={() => toggleConta(c.codigo)}
+                          onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                          onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                          onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                          onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                          total={totalConta(c.codigo)}
+                          receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                          ocultarClassificacao={unidadeId === 'corporativo'}
+                          unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
+                        />
+                      </div>
+                    ))}
+                  </>
                 ) : g.contas.length === 0 ? (
                   <div style={{ fontSize: 11.5, color: '#8A8F96', padding: '6px 2px' }}>Nenhuma conta encontrada para o filtro atual.</div>
                 ) : (

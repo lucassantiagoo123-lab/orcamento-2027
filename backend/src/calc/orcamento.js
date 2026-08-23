@@ -334,8 +334,11 @@ export function emptyFormData(unidadeId = 'textil') {
 // o pagamento em caixa (metade nov, metade dez) é tratado à parte, no fluxo
 // de caixa direto (aba Revisão, Análise e Envio), não aqui na DRE.
 //
-// Meritocracia/Dissídio/Consultoria PJ (2026-08-23) — espelho de
-// frontend/src/OrcamentoARA.jsx, ver nota completa lá.
+// Meritocracia/Dissídio (2026-08-23) — espelho de frontend/src/OrcamentoARA.jsx,
+// ver nota completa lá. Consultoria PJ (revisado em 2026-08-23) NÃO entra
+// mais aqui — é uma conta analítica normal do pacote Pessoal (CORP03
+// "Consultórias PJs", só Corporativo — ver CONTA_CONSULTORIA_PJ), somada
+// como qualquer outra conta em custos.linhas (ver computeDRE).
 // ---------------------------------------------------------------------------
 export function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
   const ativos = (funcionariosCC || []).filter(f => {
@@ -343,23 +346,20 @@ export function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
     const idxAdm = MESES.indexOf(f.mesAdmissao);
     return idxAdm === -1 || idxAdm <= mIdx;
   });
-  const cltAtivos = ativos.filter(f => f.tipoContratacao !== 'pj');
-  const pjAtivos = ativos.filter(f => f.tipoContratacao === 'pj');
 
   const idxDissidio = premissas?.dissidioMes ? MESES.indexOf(premissas.dissidioMes) : -1;
   const fatorDissidio = (idxDissidio >= 0 && mIdx >= idxDissidio) ? (1 + parseNum(premissas?.dissidioPct) / 100) : 1;
-  const salarios = cltAtivos.reduce((acc, f) => acc + parseNum(f.salario) * fatorDissidio, 0);
+  const salarios = ativos.reduce((acc, f) => acc + parseNum(f.salario) * fatorDissidio, 0);
   const inss = salarios * (parseNum(premissas?.inssPct) / 100);
   const fgts = salarios * (parseNum(premissas?.fgtsPct) / 100);
   const ferias = salarios * (parseNum(premissas?.feriasPct) / 100);
   const decimoTerceiro = salarios * (parseNum(premissas?.decimoTerceiroPct) / 100);
   const meritocracia = salarios * (parseNum(premissas?.meritocraciaPct) / 100);
   const beneficiosPorFuncionario = parseNum(premissas?.valeTransporteValor) + parseNum(premissas?.cestaBasicaValor) + parseNum(premissas?.planoSaudeValor) + parseNum(premissas?.outrosBeneficiosValor);
-  const beneficios = cltAtivos.length * beneficiosPorFuncionario;
-  const valoresPj = pjAtivos.reduce((acc, f) => acc + parseNum(f.salario), 0);
+  const beneficios = ativos.length * beneficiosPorFuncionario;
   const encargos = inss + fgts + ferias;
-  const total = salarios + encargos + decimoTerceiro + meritocracia + beneficios + valoresPj;
-  return { qtdFuncionarios: ativos.length, salarios, inss, fgts, ferias, encargos, decimoTerceiro, meritocracia, beneficios, valoresPj, total };
+  const total = salarios + encargos + decimoTerceiro + meritocracia + beneficios;
+  return { qtdFuncionarios: ativos.length, salarios, inss, fgts, ferias, encargos, decimoTerceiro, meritocracia, beneficios, total };
 }
 export function computeFolhaPessoalAnual(funcionariosCC, premissas) {
   const mensal = MESES.map((_, m) => computeFolhaPessoalMes(funcionariosCC, premissas, m));
@@ -444,11 +444,12 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
 
   const linhasCustos = Object.entries(data.custos.linhas || {});
 
+  // pacote 'pessoal' (2026-08-23): não exclui mais da soma — espelho de
+  // frontend/src/OrcamentoARA.jsx, ver nota completa lá.
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
-    if (ref.todasContas[contaCodigo]?.pacoteId === 'pessoal') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const lucroBruto = receitaLiquida - cpv;
@@ -458,7 +459,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-    if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao' || pacoteId === 'pessoal') return acc;
+    if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const ebitda = lucroBruto - despesasSemDA;
@@ -643,10 +644,12 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
-  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
+  // pacote 'pessoal' (2026-08-23): não exclui mais de totalLinhasMes — ver
+  // nota completa em computeDRE.
+  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
     + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
-  const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao', 'pessoal'], m)
+  const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao'], m)
     + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const ebitdaMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m] - despesasSemDAmes[m]);
 
@@ -659,7 +662,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 
   // Ajuste competência × caixa (2026-08-23) — espelho de
   // frontend/src/OrcamentoARA.jsx.
-  const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao', 'pessoal'], m)
+  const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m)
     + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const ajustePagamentoMes = MESES.map((_, m) => despesasSemDAmes[m] - despesasCaixaMes[m]);
 
@@ -752,10 +755,11 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
-  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
+  // pacote 'pessoal' (2026-08-23): não exclui mais — ver nota em computeDRE.
+  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
   // Pagamentos de despesas de fato (caixa) — 2026-08-23, espelho de
   // frontend/src/OrcamentoARA.jsx.
-  const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao', 'pessoal'], m));
+  const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m));
   const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
