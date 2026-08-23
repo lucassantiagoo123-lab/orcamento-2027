@@ -4062,202 +4062,502 @@ export default function OrcamentoARA({ usuario }) {
     XLSX.writeFile(wb, `Orcamento_2027_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}_DadosBrutos.xlsx`);
   }
 
-  // Excel - Cálculo (2026-08-23, pedido: "adicione uma exportação para
-  // excel contendo todas as projeções calculadas e seções por aba") —
-  // complementa o "Excel - Dados Brutos" acima (que é uma lista longa,
-  // 1 linha por mês por conta/produto — bom para auditoria linha a linha,
-  // ruim para visão gerencial). Aqui cada aba do formulário vira uma
-  // planilha própria, no formato "largo" (mês a mês em colunas, igual à
-  // tela) com os valores já CALCULADOS — DRE, Receita, Custos e Despesas,
-  // Kgiro e FC Operacional, FC Direto, CAPEX, FC Financiamentos, Provisões,
-  // Balanço e Plano 5Y — reaproveitando o mesmo motor de cálculo da tela
-  // (computeDRE/computeFluxoIndiretoMensal/computeFluxoCaixaDiretoMensal/
-  // computePlano5Y), nunca recalculando nada à parte.
-  function exportarExcelCalculo() {
+  // Excel - Cálculo (2026-08-23, pedido: "precisa ser uma modelagem
+  // financeira completa com todas as fórmulas e racionais presentes na
+  // plataforma") — reescrito do zero: em vez de escrever os números já
+  // calculados pelo JS (uma "foto"), agora cada aba de premissa vira uma
+  // planilha de INPUTS (azul) e cada aba calculada tem FÓRMULAS DE EXCEL
+  // de verdade (SheetJS `.f`, sem valor em cache — Excel recalcula ao
+  // abrir), linkadas entre si — exatamente o racional de valorLinhaMes/
+  // computeDRE/computeFluxoIndiretoMensal/computeFluxoCaixaDiretoMensal
+  // reescrito em fórmula. Escopo (confirmado com o usuário em 2026-08-23):
+  // sempre 1 unidade por vez (a atual, no Gestor; a aberta no drill-down,
+  // no FP&A — ver exportarExcelCalculo(unidadeIdParam)); núcleo com
+  // fórmula = Receita, Custos e Despesas, Pessoal, DRE e os 2 Fluxos de
+  // Caixa — CAPEX/FC Financiamentos/Provisões/Balanço/Plano 5Y continuam
+  // como valor calculado (são digitação direta hoje, sem racional de
+  // fórmula próprio pra replicar).
+  //
+  // Simplificações documentadas (decisão de escopo, não bug): saldos de
+  // abertura de Caixa/AR/AP/Estoque entram como premissa única (valor de
+  // saldosAberturaFc), não decompostos na malha granular do Balanço da
+  // Têxtil; a cascata de aging de recebimentos da Têxtil
+  // (premissasRecebimento) e os Pagamentos Manuais (idem, só Têxtil)
+  // entram como valor calculado — são funcionalidades muito específicas
+  // de uma unidade só, formularizar quebraria a paridade com as outras.
+  function exportarExcelCalculo(unidadeIdParam) {
+    // role 'fpa' (VisaoFPA) exige uma unidade aberta no drill-down — não
+    // existe "unidadeAtual" nesse contexto (é do Gestor); role 'gerente'
+    // sempre usa a unidade que ele está editando, mesmo sem param.
+    const uId = role === 'fpa' ? unidadeIdParam : (unidadeIdParam || unidadeAtual);
+    const uObj = UNIDADES.find(x => x.id === uId) || unidadeObj;
+    const d = uId ? (role === 'fpa' ? statusUnidades[uId] : dados) : null;
+    if (!uId || !d) { alert('Abra uma unidade no drill-down (ou selecione uma unidade) antes de exportar o modelo completo.'); return; }
+    if (ehSnapshotConsolidado(d)) { alert('O Consolidado não tem premissas próprias — abra uma das unidades que o compõem (ex.: Terra do Sol) para exportar o modelo completo.'); return; }
+    const refU = referenciaDaUnidade(uId);
+
     const wb = XLSX.utils.book_new();
-    const unidadesParaExportar = role === 'fpa' ? UNIDADES : [unidadeObj];
-    const cabecalhoMensal = ['Unidade', 'Linha', ...MESES, 'Total'];
-
-    function linhaWide(unidadeNome, label, valoresMensal) {
-      const vals = MESES.map((_, m) => parseNum(valoresMensal?.[m]));
-      return [unidadeNome, label, ...vals, vals.reduce((a, v) => a + v, 0)];
+    function colL(c) { return XLSX.utils.encode_col(c); }
+    function cellRef(r, c) { return XLSX.utils.encode_cell({ r, c }); }
+    function putS(ws, r, c, v) { ws[cellRef(r, c)] = { t: 's', v: String(v ?? '') }; }
+    function putN(ws, r, c, v) { ws[cellRef(r, c)] = { t: 'n', v: parseNum(v) }; }
+    function putF(ws, r, c, f) { ws[cellRef(r, c)] = { t: 'n', f }; }
+    function finish(ws, nRows, nCols, cols) {
+      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(nRows - 1, 0), c: Math.max(nCols - 1, 0) } });
+      if (cols) ws['!cols'] = cols;
     }
-    function addSheet(nome, linhas, larguraLabel) {
-      const ws = XLSX.utils.aoa_to_sheet(linhas);
-      ws['!cols'] = [{ wch: 16 }, { wch: larguraLabel || 30 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }];
-      XLSX.utils.book_append_sheet(wb, ws, nome);
-    }
+    function addSheet(nome, ws) { XLSX.utils.book_append_sheet(wb, ws, nome.slice(0, 31)); }
 
-    // ---- DRE mensal ----
-    const linhasDreCalc = [cabecalhoMensal];
-    // ---- Kgiro e FC Operacional (método indireto) ----
-    const linhasFcIndireto = [cabecalhoMensal];
-    // ---- FC Direto ----
-    const linhasFcDireto = [cabecalhoMensal];
-    // ---- Receita ----
-    const linhasReceitaCalc = [['Unidade', 'Produto', 'Mercado', ...MESES, 'Total']];
-    // ---- Custos e Despesas (por conta, uma linha por conta = soma das sublinhas) ----
-    const linhasCustosCalc = [['Unidade', 'Centro de Custo', 'Pacote', 'Conta', ...MESES, 'Total']];
-    // ---- CAPEX ----
-    const linhasCapexCalc = [['Unidade', 'Categoria', 'Projeto', 'Mês', 'Valor', 'Justificativa']];
-    // ---- FC Financiamentos ----
-    const linhasFinCalc = [['Unidade', 'Banco/Linha', 'Métrica', ...MESES, 'Total']];
-    // ---- Provisões ----
-    const linhasProvCalc = [cabecalhoMensal];
-    // ---- Balanço (saldos de abertura, escalares — sem mês) ----
-    const linhasBalancoCalc = [['Unidade', 'Item', 'Valor', 'Justificativa']];
-    // ---- Plano 5Y ----
-    const linhasPlano5yCalc = [['Unidade', 'Linha', 2027, 2028, 2029, 2030, 2031]];
+    // ================= Premissas_Macro (câmbio, IPCA) =================
+    const wsMacro = {};
+    putS(wsMacro, 0, 0, 'Indicador'); putS(wsMacro, 0, 1, 'Valor');
+    putS(wsMacro, 1, 0, 'Câmbio USD/BRL'); putN(wsMacro, 1, 1, cambios?.usd);
+    putS(wsMacro, 2, 0, 'Câmbio EUR/BRL'); putN(wsMacro, 2, 1, cambios?.eur);
+    putS(wsMacro, 3, 0, 'Câmbio GBP/BRL'); putN(wsMacro, 3, 1, cambios?.gbp);
+    putS(wsMacro, 4, 0, 'IPCA anual (%)'); putN(wsMacro, 4, 1, ipcaAnualPct);
+    finish(wsMacro, 5, 2, [{ wch: 22 }, { wch: 14 }]);
+    addSheet('Premissas_Macro', wsMacro);
+    const REF_CAMBIO = { usd: '$B$2', eur: '$B$3', gbp: '$B$4' };
+    const REF_IPCA = 'Premissas_Macro!$B$5';
 
-    unidadesParaExportar.forEach(u => {
-      const d = role === 'fpa' ? statusUnidades[u.id] : dados;
-      if (!d || ehSnapshotConsolidado(d)) return; // ver nota em exportarExcel (Custos_Despesas)
-      const refU = referenciaDaUnidade(u.id);
-      const dreU = computeDRE(d, refU, ipcaAnualPct, cambios);
-      const fdU = computeFluxoIndiretoMensal(d, dreU, refU, ipcaAnualPct);
-      const fcdU = computeFluxoCaixaDiretoMensal(d, dreU, refU, ipcaAnualPct);
+    // ================= Premissas_Receita + Receita =================
+    const wsPremRec = {}, wsRec = {};
+    const headerPremRec = ['Produto', 'Mercado', 'Moeda', 'Computa?', ...MESES.map(m => `Vol ${m}`), ...MESES.map(m => `Preço ${m}`)];
+    headerPremRec.forEach((h, c) => putS(wsPremRec, 0, c, h));
+    putS(wsRec, 0, 0, 'Produto'); putS(wsRec, 0, 1, 'Mercado'); putS(wsRec, 0, 2, 'Moeda');
+    MESES.forEach((m, i) => putS(wsRec, 0, 3 + i, m));
+    putS(wsRec, 0, 15, 'Total');
 
-      linhasDreCalc.push(
-        linhaWide(u.nome, 'Receita Bruta', fdU.receitaBrutaMes),
-        linhaWide(u.nome, '(-) Deduções', fdU.deducoesMes.map(v => -v)),
-        linhaWide(u.nome, '(=) Receita Líquida', fdU.receitaLiquidaMes),
-        linhaWide(u.nome, '(-) CPV', fdU.cpvMes.map(v => -v)),
-        linhaWide(u.nome, '(=) Lucro Bruto', fdU.lucroBrutoMes),
-        linhaWide(u.nome, '(-) Despesas Operacionais', fdU.despesasSemDAmes.map(v => -v)),
-        linhaWide(u.nome, '(=) EBITDA', fdU.ebitdaMes),
-        linhaWide(u.nome, '(-) Depreciação e Amortização', fdU.depreciacaoMes.map(v => -v)),
-        linhaWide(u.nome, '(+/-) Resultado Financeiro', fdU.resultadoFinanceiroMes),
-        linhaWide(u.nome, '(+/-) Outras Receitas e Despesas', fdU.outrasMes),
-        linhaWide(u.nome, '(-) IR/CSLL', fdU.ircslMes.map(v => -v)),
-        linhaWide(u.nome, '(=) Lucro Líquido', fdU.lucroLiquidoMes),
-      );
-
-      linhasFcIndireto.push(
-        linhaWide(u.nome, 'EBITDA', fdU.ebitdaMes),
-        linhaWide(u.nome, '(-) IR/CSLL proporcional', fdU.ircslMes.map(v => -v)),
-        linhaWide(u.nome, '(+/-) Variação de Capital de Giro', fdU.variacaoGiroMes),
-        linhaWide(u.nome, '(+/-) Ajuste 13º (competência × caixa)', fdU.ajuste13Mes),
-        linhaWide(u.nome, '(+/-) Ajuste de Pagamento (competência × caixa)', fdU.ajustePagamentoMes),
-        linhaWide(u.nome, '(=) FC Operacional (indireto)', fdU.fcOperacionalMes),
-      );
-
-      linhasFcDireto.push(
-        linhaWide(u.nome, 'Recebimentos de Clientes', fcdU.recebimentosClientesMes),
-        linhaWide(u.nome, '(-) Pagamentos a Fornecedores', fcdU.pagamentosFornecedoresMes.map(v => -v)),
-        linhaWide(u.nome, '(-) Pagamentos de Pessoal', fcdU.pessoalEmCaixaMes.map(v => -v)),
-        linhaWide(u.nome, '(-) Pagamentos de Despesas', fcdU.pagamentosDespesasMes.map(v => -v)),
-        linhaWide(u.nome, '(-) IR/CSLL', fcdU.ircslMes.map(v => -v)),
-        linhaWide(u.nome, '(-) Pagamentos Manuais', fcdU.pagamentosManuaisMes.map(v => -v)),
-        linhaWide(u.nome, '(=) FC Operacional (direto)', fcdU.fcOperacionalDiretoMes),
-      );
-
+    const linhasReceitaRows = [];
+    if ((d.receita.produtos || []).length > 0) {
       (d.receita.produtos || []).forEach(p => {
         const externo = p.mercado === 'externo';
-        const taxa = externo ? parseNum(cambios?.[p.moeda || 'usd']) : 1;
-        const receitaMensal = MESES.map((_, m) => externo
-          ? parseNum(p.volumes?.[m]) * parseNum(p.precoMoeda?.[m]) * taxa
-          : parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]));
-        linhasReceitaCalc.push([u.nome, p.nome, externo ? `Externo (${(p.moeda || 'usd').toUpperCase()})` : 'Interno', ...receitaMensal, receitaMensal.reduce((a, v) => a + v, 0)]);
-      });
-      if (d.receita.linhas) {
-        Object.entries(d.receita.linhas).forEach(([id, linha]) => {
-          const def = LINHAS_RECEITA_RESORTS.find(l => l.id === id);
-          const valoresMensal = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
-          linhasReceitaCalc.push([u.nome, def?.nome || id, '—', ...valoresMensal, valoresMensal.reduce((a, v) => a + v, 0)]);
+        linhasReceitaRows.push({
+          nome: p.nome, mercado: externo ? 'externo' : 'interno', moeda: externo ? (p.moeda || 'usd') : '', computa: 1,
+          volumes: MESES.map((_, m) => parseNum(p.volumes?.[m])),
+          precos: MESES.map((_, m) => externo ? parseNum(p.precoMoeda?.[m]) : parseNum(p.precos?.[m])),
         });
+      });
+    } else if (d.receita.linhas) {
+      Object.entries(d.receita.linhas).forEach(([id, linha]) => {
+        const def = LINHAS_RECEITA_RESORTS.find(l => l.id === id);
+        const ehQtdValor = def?.tipo === 'qtd_valor';
+        linhasReceitaRows.push({
+          id, nome: def?.nome || id, mercado: 'interno', moeda: '', computa: id === LINHA_RECEITA_INFORMATIVA_RESORTS ? 0 : 1,
+          volumes: MESES.map((_, m) => ehQtdValor ? parseNum(linha.quantidades?.[m]) : 1),
+          precos: MESES.map((_, m) => ehQtdValor ? parseNum(linha.valoresUnit?.[m]) : parseNum(linha.valores?.[m])),
+        });
+      });
+    }
+
+    let rRec = 1;
+    const linhaRowById = {};
+    linhasReceitaRows.forEach(row => {
+      putS(wsPremRec, rRec, 0, row.nome); putS(wsPremRec, rRec, 1, row.mercado); putS(wsPremRec, rRec, 2, row.moeda); putN(wsPremRec, rRec, 3, row.computa);
+      row.volumes.forEach((v, m) => putN(wsPremRec, rRec, 4 + m, v));
+      row.precos.forEach((v, m) => putN(wsPremRec, rRec, 16 + m, v));
+
+      putS(wsRec, rRec, 0, row.nome);
+      putS(wsRec, rRec, 1, row.mercado === 'externo' ? `Externo (${row.moeda.toUpperCase()})` : 'Interno');
+      putS(wsRec, rRec, 2, row.moeda);
+      const exRef = row.mercado === 'externo' ? REF_CAMBIO[row.moeda] : null;
+      const excelRowRec = rRec + 1;
+      for (let m = 0; m < 12; m++) {
+        const volRef = `Premissas_Receita!${colL(4 + m)}${excelRowRec}`;
+        const precoRef = `Premissas_Receita!${colL(16 + m)}${excelRowRec}`;
+        putF(wsRec, rRec, 3 + m, exRef ? `${volRef}*${precoRef}*Premissas_Macro!${exRef}` : `${volRef}*${precoRef}`);
       }
+      putF(wsRec, rRec, 15, `SUM(${colL(3)}${excelRowRec}:${colL(14)}${excelRowRec})`);
+      if (row.id) linhaRowById[row.id] = rRec;
+      rRec++;
+    });
+    const lastRecDataRow = Math.max(rRec, 2); // linha excel (1-based) da última linha de dado — mínimo 2 pra range nunca inverter
+    finish(wsPremRec, rRec, 28, [{ wch: 26 }, { wch: 10 }, { wch: 8 }, { wch: 8 }, ...MESES.map(() => ({ wch: 10 })), ...MESES.map(() => ({ wch: 10 }))]);
+    addSheet('Premissas_Receita', wsPremRec);
 
-      Object.entries(d.custos.linhas || {}).forEach(([chave, contaRaw]) => {
-        const [ccCodigo, contaCodigo] = chave.split('|');
-        const cc = refU.ccs.find(c => c.codigo === ccCodigo);
-        const conta = refU.todasContas[contaCodigo];
-        const pacote = (refU.pacotes || []).find(p => p.id === conta?.pacoteId);
-        const valoresMensal = MESES.map((_, m) => valorLinhaMes(contaRaw, m, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes));
-        if (valoresMensal.every(v => v === 0)) return;
-        linhasCustosCalc.push([u.nome, cc?.nome || ccCodigo, pacote?.nome || 'Sem pacote', conta?.nome || contaCodigo, ...valoresMensal, valoresMensal.reduce((a, v) => a + v, 0)]);
-      });
-      // Folha de Pessoal por CC — mesma mecânica de folhaAnualPorCC, um "conta
-      // sintética" a mais na aba, já que a folha nunca vira custos.linhas.
-      refU.ccs.forEach(cc => {
-        const folha = folhaAnualPorCC(d, cc.codigo);
-        if (folha.totalAnual === 0) return;
-        linhasCustosCalc.push([u.nome, cc.nome, 'Pessoal', 'Folha calculada (CLT)', ...folha.totalMes, folha.totalAnual]);
-      });
+    let r2 = rRec + 1;
+    const rowTotalBruta = r2;
+    putS(wsRec, r2, 0, 'Total Receita Bruta');
+    for (let m = 0; m < 12; m++) putF(wsRec, r2, 3 + m, `SUMIF(Premissas_Receita!$D$2:$D$${lastRecDataRow},1,${colL(3 + m)}2:${colL(3 + m)}${lastRecDataRow})`);
+    putF(wsRec, r2, 15, `SUM(${colL(3)}${r2 + 1}:${colL(14)}${r2 + 1})`);
+    r2++;
+    const rowVolumeKg = r2;
+    putS(wsRec, r2, 0, 'Volume Total (kg) — todos os produtos');
+    for (let m = 0; m < 12; m++) putF(wsRec, r2, 3 + m, `SUM(Premissas_Receita!${colL(4 + m)}2:${colL(4 + m)}${lastRecDataRow})*1000`);
+    r2++;
+    r2++; // linha em branco
+    putS(wsRec, r2, 0, 'Deduções sobre a Receita'); r2++;
+    const usaBaseLinhaIds = !!d.receita.linhas; // só Resorts — ver receitaBrutaPorMes
+    const dedRows = [];
+    (d.receita.deducoes || []).forEach(ded => {
+      const rowPct = r2;
+      putS(wsRec, r2, 0, `${ded.nome} (%)`);
+      for (let m = 0; m < 12; m++) putN(wsRec, r2, 3 + m, ded.pcts?.[m]);
+      r2++;
+      const rowValor = r2;
+      putS(wsRec, r2, 0, `${ded.nome} (R$)`);
+      for (let m = 0; m < 12; m++) {
+        const baseRef = (usaBaseLinhaIds && ded.baseLinhaIds?.length)
+          ? `(${ded.baseLinhaIds.map(id => linhaRowById[id] !== undefined ? `${colL(3 + m)}${linhaRowById[id] + 1}` : '0').join('+')})`
+          : `${colL(3 + m)}${rowTotalBruta + 1}`;
+        putF(wsRec, r2, 3 + m, `${baseRef}*${colL(3 + m)}${rowPct + 1}/100`);
+      }
+      putF(wsRec, r2, 15, `SUM(${colL(3)}${r2 + 1}:${colL(14)}${r2 + 1})`);
+      dedRows.push(rowValor);
+      r2++;
+    });
+    const rowTotalDeducoes = r2;
+    putS(wsRec, r2, 0, 'Total Deduções');
+    for (let m = 0; m < 12; m++) putF(wsRec, r2, 3 + m, dedRows.length ? dedRows.map(rr => `${colL(3 + m)}${rr + 1}`).join('+') : '0');
+    r2++;
+    const rowReceitaLiquida = r2;
+    putS(wsRec, r2, 0, '(=) Receita Líquida');
+    for (let m = 0; m < 12; m++) putF(wsRec, r2, 3 + m, `${colL(3 + m)}${rowTotalBruta + 1}-${colL(3 + m)}${rowTotalDeducoes + 1}`);
+    r2++;
+    finish(wsRec, r2, 16, [{ wch: 26 }, { wch: 14 }, { wch: 8 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }]);
+    addSheet('Receita', wsRec);
 
-      (d.capex.projetos || []).forEach(p => {
-        if (!parseNum(p.valor)) return;
-        linhasCapexCalc.push([u.nome, CATEGORIAS_CAPEX.find(c => c.id === p.categoria)?.nome || p.categoria, p.nome, p.mes || '', parseNum(p.valor), p.justificativa || '']);
-      });
+    // ================= Premissas_Custos + Custos_e_Despesas =================
+    const PC = { CC: 0, CCNOME: 1, CCTIPO: 2, PACID: 3, PACNOME: 4, CONTACOD: 5, CONTANOME: 6, SUB: 7, PREMISSA: 8, BASETIPO: 9, UNIDMED: 10, PAGDIF: 11, REAJTIPO: 12, REAJMES: 13, QTD: 14, VUNIT: 26, VBASE: 38, BMANUAL: 50, PERC: 62, VPAG: 74 };
+    const CD = { CC: 0, CCNOME: 1, CCTIPO: 2, PACID: 3, PACNOME: 4, CONTACOD: 5, CONTANOME: 6, SUB: 7, MES: 8, TOTAL: 20, CAIXA: 21 };
+    const wsPremCus = {}, wsCus = {};
+    const headerPC = ['CC Código', 'CC Nome', 'CC Tipo', 'Pacote ID', 'Pacote Nome', 'Conta Código', 'Conta Nome', 'Sublinha', 'Premissa', 'BaseTipo', 'UnidadeMedida', 'PagDiferente', 'ReajusteTipo', 'ReajusteMês',
+      ...MESES.map(m => `Qtd ${m}`), ...MESES.map(m => `ValorUnit ${m}`), ...MESES.map(m => `ValorBase ${m}`), ...MESES.map(m => `BaseManual ${m}`), ...MESES.map(m => `Percentual ${m}`), ...MESES.map(m => `ValorPagamento ${m}`)];
+    headerPC.forEach((h, c) => putS(wsPremCus, 0, c, h));
+    const headerCD = ['CC Código', 'CC Nome', 'CC Tipo', 'Pacote ID', 'Pacote Nome', 'Conta Código', 'Conta Nome', 'Sublinha', ...MESES, 'Total', ...MESES.map(m => `Caixa ${m}`)];
+    headerCD.forEach((h, c) => putS(wsCus, 0, c, h));
 
-      (d.fcFinanciamentos?.linhas || []).forEach(l => {
-        const nomeLinha = `${l.banco || '(sem banco)'} — ${l.linha || ''}`;
-        [
-          ['Captações', l.captacoes], ['Amortizações', l.amortizacoes], ['Juros Pagos', l.jurosPagos],
-          ['Variação Cambial', l.variacaoCambial], ['Provisão Desp. Financeira', l.provisaoDespesaFinanceira],
-        ].forEach(([metrica, arr]) => {
-          const vals = MESES.map((_, m) => parseNum(arr?.[m]));
-          if (vals.every(v => v === 0)) return;
-          linhasFinCalc.push([u.nome, nomeLinha, metrica, ...vals, vals.reduce((a, v) => a + v, 0)]);
-        });
-      });
-      (d.fcFinanciamentos?.movimentacoesAcionistas || []).forEach(mv => {
-        const vals = MESES.map((_, m) => parseNum(mv.valores?.[m]));
-        if (vals.every(v => v === 0)) return;
-        linhasFinCalc.push([u.nome, 'Movimentação de acionistas', mv.nome, ...vals, vals.reduce((a, v) => a + v, 0)]);
-      });
+    let rc = 1;
+    Object.entries(d.custos.linhas || {}).forEach(([chave, contaRaw]) => {
+      const [ccCodigo, contaCodigo] = chave.split('|');
+      const cc = (refU.ccs || []).find(c => c.codigo === ccCodigo);
+      if (!cc) return;
+      const conta = refU.todasContas?.[contaCodigo];
+      const pacote = (refU.pacotes || []).find(p => p.id === conta?.pacoteId);
+      normalizarConta(contaRaw).sublinhas.forEach(sub => {
+        const semNada = ['valores', 'quantidades', 'valoresUnit', 'baseManual', 'percentuais'].every(campo => (sub[campo] || []).every(v => !parseNum(v)));
+        if (semNada) return;
 
-      linhasProvCalc.push(
-        linhaWide(u.nome, 'Inadimplência (%)', d.provisoes.inadimplencia),
-        linhaWide(u.nome, 'Contingências (R$)', d.provisoes.contingencias),
-        linhaWide(u.nome, 'Perdas (R$)', d.provisoes.perdas),
-      );
+        putS(wsPremCus, rc, PC.CC, ccCodigo); putS(wsPremCus, rc, PC.CCNOME, cc.nome); putS(wsPremCus, rc, PC.CCTIPO, cc.tipo);
+        putS(wsPremCus, rc, PC.PACID, conta?.pacoteId || ''); putS(wsPremCus, rc, PC.PACNOME, pacote?.nome || 'Sem pacote');
+        putS(wsPremCus, rc, PC.CONTACOD, contaCodigo); putS(wsPremCus, rc, PC.CONTANOME, conta?.nome || contaCodigo); putS(wsPremCus, rc, PC.SUB, sub.descricao || '');
+        putS(wsPremCus, rc, PC.PREMISSA, sub.premissaTipo); putS(wsPremCus, rc, PC.BASETIPO, sub.baseTipo || ''); putS(wsPremCus, rc, PC.UNIDMED, sub.unidadeMedida || '');
+        putN(wsPremCus, rc, PC.PAGDIF, sub.pagamentoDiferente ? 1 : 0);
+        putS(wsPremCus, rc, PC.REAJTIPO, sub.reajusteInflacaoTipo || 'mensal'); putS(wsPremCus, rc, PC.REAJMES, sub.reajusteInflacaoMes || '');
+        for (let m = 0; m < 12; m++) {
+          putN(wsPremCus, rc, PC.QTD + m, sub.quantidades?.[m]);
+          putN(wsPremCus, rc, PC.VUNIT + m, sub.valoresUnit?.[m]);
+          putN(wsPremCus, rc, PC.VBASE + m, sub.valores?.[m]);
+          putN(wsPremCus, rc, PC.BMANUAL + m, sub.baseManual?.[m]);
+          putN(wsPremCus, rc, PC.PERC + m, sub.percentuais?.[m]);
+          putN(wsPremCus, rc, PC.VPAG + m, sub.valoresPagamento?.[m]);
+        }
 
-      const b = d.balanco;
-      linhasBalancoCalc.push(
-        [u.nome, 'Caixa inicial', parseNum(b.caixaInicial), ''],
-        [u.nome, 'Imobilizado inicial', parseNum(b.imobilizadoInicial), ''],
-        [u.nome, 'Depreciação acumulada inicial', parseNum(b.depreciacaoAcumuladaInicial), ''],
-        [u.nome, 'Contas a receber inicial', parseNum(b.contasAReceberInicial), ''],
-        [u.nome, 'Estoque inicial', parseNum(b.estoqueInicial), ''],
-        [u.nome, 'Contas a pagar inicial', parseNum(b.contasAPagarInicial), ''],
-        [u.nome, 'Saldo inicial de dívida', parseNum(b.emprestimos?.saldoInicial), b.emprestimos?.justificativa || ''],
-      );
+        putS(wsCus, rc, CD.CC, ccCodigo); putS(wsCus, rc, CD.CCNOME, cc.nome); putS(wsCus, rc, CD.CCTIPO, cc.tipo);
+        putS(wsCus, rc, CD.PACID, conta?.pacoteId || ''); putS(wsCus, rc, CD.PACNOME, pacote?.nome || 'Sem pacote');
+        putS(wsCus, rc, CD.CONTACOD, contaCodigo); putS(wsCus, rc, CD.CONTANOME, conta?.nome || contaCodigo); putS(wsCus, rc, CD.SUB, sub.descricao || '');
 
-      const plano5y = computePlano5Y(dreU, d.plano5y?.anos || {});
-      const camposPlano5y = [
-        ['receitaLiquida', 'Receita Líquida'], ['cpv', 'CPV'], ['lucroBruto', 'Lucro Bruto'],
-        ['despesasSemDA', 'Despesas Operacionais'], ['ebitda', 'EBITDA'], ['depreciacao', 'Depreciação e Amortização'],
-        ['lucroLiquido', 'Lucro Líquido'],
-      ];
-      camposPlano5y.forEach(([campo, label]) => {
-        linhasPlano5yCalc.push([u.nome, label, ...[2027, ...ANOS_PLANO_5Y].map(ano => plano5y[ano]?.[campo] ?? '')]);
+        const excelRow = rc + 1;
+        const idxReajusteMes = sub.reajusteInflacaoMes ? MESES.indexOf(sub.reajusteInflacaoMes) : -1;
+        for (let m = 0; m < 12; m++) {
+          let f;
+          if (sub.premissaTipo === 'qtd_valor') {
+            f = `Premissas_Custos!${colL(PC.QTD + m)}${excelRow}*Premissas_Custos!${colL(PC.VUNIT + m)}${excelRow}`;
+          } else if (sub.premissaTipo === 'rateio') {
+            const baseCel = sub.baseTipo === 'receita_bruta' ? `Receita!${colL(3 + m)}${rowTotalBruta + 1}`
+              : sub.baseTipo === 'receita_liquida' ? `Receita!${colL(3 + m)}${rowReceitaLiquida + 1}`
+              : `Premissas_Custos!${colL(PC.BMANUAL + m)}${excelRow}`;
+            f = `${baseCel}*Premissas_Custos!${colL(PC.PERC + m)}${excelRow}/100`;
+          } else if (sub.premissaTipo === 'reajuste_inflacao') {
+            const baseCel = `Premissas_Custos!${colL(PC.VBASE + m)}${excelRow}`;
+            if (sub.reajusteInflacaoTipo === 'unico') {
+              f = (idxReajusteMes >= 0 && m >= idxReajusteMes) ? `${baseCel}*(1+${REF_IPCA}/100)` : `${baseCel}`;
+            } else {
+              f = `${baseCel}*(1+${REF_IPCA}/100)^(${m + 1}/12)`;
+            }
+          } else if (sub.premissaTipo === 'custo_por_kg') {
+            f = `Receita!${colL(3 + m)}${rowVolumeKg + 1}*Premissas_Custos!${colL(PC.VUNIT + m)}${excelRow}`;
+          } else {
+            f = `Premissas_Custos!${colL(PC.VBASE + m)}${excelRow}`;
+          }
+          putF(wsCus, rc, CD.MES + m, f);
+        }
+        putF(wsCus, rc, CD.TOTAL, `SUM(${colL(CD.MES)}${excelRow}:${colL(CD.MES + 11)}${excelRow})`);
+        for (let m = 0; m < 12; m++) {
+          putF(wsCus, rc, CD.CAIXA + m, sub.pagamentoDiferente ? `Premissas_Custos!${colL(PC.VPAG + m)}${excelRow}` : `${colL(CD.MES + m)}${excelRow}`);
+        }
+        rc++;
       });
     });
+    finish(wsPremCus, rc, 86, undefined);
+    addSheet('Premissas_Custos', wsPremCus);
+    const lastCusRow = Math.max(rc, 2);
+    finish(wsCus, rc, 33, undefined);
+    addSheet('Custos_e_Despesas', wsCus);
+    function rngCus(col) { return `Custos_e_Despesas!${colL(col)}2:${colL(col)}${lastCusRow}`; }
 
-    addSheet('DRE_Mensal', linhasDreCalc, 34);
-    const wsReceita = XLSX.utils.aoa_to_sheet(linhasReceitaCalc);
-    wsReceita['!cols'] = [{ wch: 16 }, { wch: 24 }, { wch: 16 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }];
-    XLSX.utils.book_append_sheet(wb, wsReceita, 'Receita');
-    const wsCustos = XLSX.utils.aoa_to_sheet(linhasCustosCalc);
-    wsCustos['!cols'] = [{ wch: 16 }, { wch: 20 }, { wch: 22 }, { wch: 30 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }];
-    XLSX.utils.book_append_sheet(wb, wsCustos, 'Custos_e_Despesas');
-    addSheet('Kgiro_FC_Operacional', linhasFcIndireto, 40);
-    addSheet('FC_Direto', linhasFcDireto, 34);
-    const wsCapex = XLSX.utils.aoa_to_sheet(linhasCapexCalc);
-    wsCapex['!cols'] = [{ wch: 16 }, { wch: 20 }, { wch: 26 }, { wch: 10 }, { wch: 14 }, { wch: 40 }];
+    // ================= Premissas_Pessoal + Pessoal_Folha =================
+    const pp = d.custos.premissasPessoal || {};
+    const wsPremPes = {};
+    putS(wsPremPes, 0, 0, 'Premissa'); putS(wsPremPes, 0, 1, 'Valor');
+    const encargosDefs = [
+      ['inssPct', 'INSS (%)'], ['fgtsPct', 'FGTS (%)'], ['feriasPct', 'Férias (%)'], ['decimoTerceiroPct', '13º salário (%)'],
+      ['meritocraciaPct', 'Meritocracia (%)'], ['valeTransporteValor', 'Vale eletrônico (R$/func.)'], ['cestaBasicaValor', 'Cesta básica (R$/func.)'],
+      ['planoSaudeValor', 'Assistência médica (R$/func.)'], ['outrosBeneficiosValor', 'Outros benefícios (R$/func.)'],
+    ];
+    let rp = 1;
+    const refEncargo = {};
+    encargosDefs.forEach(([campo, label]) => { putS(wsPremPes, rp, 0, label); putN(wsPremPes, rp, 1, pp[campo]); refEncargo[campo] = rp; rp++; });
+    const dissidioMesIdx = pp.dissidioMes ? MESES.indexOf(pp.dissidioMes) : -1;
+    putS(wsPremPes, rp, 0, 'Dissídio — mês'); putS(wsPremPes, rp, 1, pp.dissidioMes || ''); rp++;
+    const rowDissidioPct = rp;
+    putS(wsPremPes, rp, 0, 'Dissídio — % reajuste'); putN(wsPremPes, rp, 1, pp.dissidioPct); rp++;
+    rp += 2; // 2 linhas em branco antes da tabela de funcionários
+    const headerFunc = ['Nome', 'CC', 'Cargo', 'Salário', 'Mês Admissão', ...MESES.map(m => `Salário Efetivo ${m}`), ...MESES.map(m => `Ativo ${m}`)];
+    headerFunc.forEach((h, c) => putS(wsPremPes, rp, c, h));
+    rp++;
+    const funcionarios = d.custos.funcionarios || [];
+    const rowsFuncByRow = [];
+    funcionarios.forEach(f => {
+      const idxAdm = f.mesAdmissao ? MESES.indexOf(f.mesAdmissao) : -1;
+      putS(wsPremPes, rp, 0, f.nome); putS(wsPremPes, rp, 1, f.ccCodigo); putS(wsPremPes, rp, 2, f.cargo || '');
+      putN(wsPremPes, rp, 3, f.salario); putS(wsPremPes, rp, 4, f.mesAdmissao || '');
+      const excelRow = rp + 1;
+      for (let m = 0; m < 12; m++) {
+        const ativo = idxAdm === -1 || idxAdm <= m;
+        if (ativo) {
+          const dissidioAtivo = dissidioMesIdx >= 0 && m >= dissidioMesIdx;
+          putF(wsPremPes, rp, 5 + m, dissidioAtivo ? `$D$${excelRow}*(1+$B$${rowDissidioPct + 1}/100)` : `$D$${excelRow}`);
+        } else {
+          putN(wsPremPes, rp, 5 + m, 0);
+        }
+        putN(wsPremPes, rp, 17 + m, ativo ? 1 : 0);
+      }
+      rowsFuncByRow.push({ row: rp, cc: f.ccCodigo });
+      rp++;
+    });
+    finish(wsPremPes, rp, 29, undefined);
+    addSheet('Premissas_Pessoal', wsPremPes);
+
+    const wsFolha = {};
+    putS(wsFolha, 0, 0, 'Centro de Custo'); putS(wsFolha, 0, 1, 'CC Tipo'); putS(wsFolha, 0, 2, 'Componente');
+    MESES.forEach((m, i) => putS(wsFolha, 0, 3 + i, m)); putS(wsFolha, 0, 15, 'Total');
+    let rf = 1;
+    const folhaRowsByCC = {};
+    (refU.ccs || []).forEach(cc => {
+      const funcsCC = rowsFuncByRow.filter(x => x.cc === cc.codigo);
+      if (funcsCC.length === 0) return;
+      function addFolhaRow(label, formulaPerMonth) {
+        const row = rf;
+        putS(wsFolha, rf, 0, cc.codigo); putS(wsFolha, rf, 1, cc.tipo); putS(wsFolha, rf, 2, label);
+        for (let m = 0; m < 12; m++) putF(wsFolha, rf, 3 + m, formulaPerMonth(m));
+        putF(wsFolha, rf, 15, `SUM(${colL(3)}${rf + 1}:${colL(14)}${rf + 1})`);
+        rf++;
+        return row;
+      }
+      const rowSal = addFolhaRow('Salários', m => funcsCC.map(x => `Premissas_Pessoal!${colL(5 + m)}${x.row + 1}`).join('+'));
+      const rowEnc = addFolhaRow('Encargos (INSS+FGTS+Férias)', m => `${colL(3 + m)}${rowSal + 1}*(Premissas_Pessoal!$B$${refEncargo.inssPct + 1}+Premissas_Pessoal!$B$${refEncargo.fgtsPct + 1}+Premissas_Pessoal!$B$${refEncargo.feriasPct + 1})/100`);
+      const row13 = addFolhaRow('13º salário (provisão)', m => `${colL(3 + m)}${rowSal + 1}*Premissas_Pessoal!$B$${refEncargo.decimoTerceiroPct + 1}/100`);
+      const rowMerit = addFolhaRow('Meritocracia', m => `${colL(3 + m)}${rowSal + 1}*Premissas_Pessoal!$B$${refEncargo.meritocraciaPct + 1}/100`);
+      const rowBenef = addFolhaRow('Benefícios', m => `(${funcsCC.map(x => `Premissas_Pessoal!${colL(17 + m)}${x.row + 1}`).join('+')})*(Premissas_Pessoal!$B$${refEncargo.valeTransporteValor + 1}+Premissas_Pessoal!$B$${refEncargo.cestaBasicaValor + 1}+Premissas_Pessoal!$B$${refEncargo.planoSaudeValor + 1}+Premissas_Pessoal!$B$${refEncargo.outrosBeneficiosValor + 1})`);
+      const rowTotal = addFolhaRow('Total da folha (CLT)', m => `${colL(3 + m)}${rowSal + 1}+${colL(3 + m)}${rowEnc + 1}+${colL(3 + m)}${row13 + 1}+${colL(3 + m)}${rowMerit + 1}+${colL(3 + m)}${rowBenef + 1}`);
+      folhaRowsByCC[cc.codigo] = { cc, totalRow: rowTotal, dec13Row: row13 };
+    });
+    finish(wsFolha, rf, 16, undefined);
+    addSheet('Pessoal_Folha', wsFolha);
+
+    // ================= DRE_Mensal =================
+    const wsDre = {};
+    putS(wsDre, 0, 0, 'Linha'); MESES.forEach((m, i) => putS(wsDre, 0, 1 + i, m)); putS(wsDre, 0, 13, 'Total');
+    let rd = 1;
+    function addDreRow(label, formulaPerMonth) {
+      const row = rd; putS(wsDre, rd, 0, label);
+      for (let m = 0; m < 12; m++) putF(wsDre, rd, 1 + m, formulaPerMonth(m));
+      putF(wsDre, rd, 13, `SUM(${colL(1)}${rd + 1}:${colL(12)}${rd + 1})`);
+      rd++; return row;
+    }
+    function addDreRowValues(label, valores) {
+      const row = rd; putS(wsDre, rd, 0, label);
+      valores.forEach((v, m) => putN(wsDre, rd, 1 + m, v));
+      putF(wsDre, rd, 13, `SUM(${colL(1)}${rd + 1}:${colL(12)}${rd + 1})`);
+      rd++; return row;
+    }
+    addDreRow('Receita Bruta', m => `Receita!${colL(3 + m)}${rowTotalBruta + 1}`);
+    addDreRow('(-) Deduções', m => `-Receita!${colL(3 + m)}${rowTotalDeducoes + 1}`);
+    const rowRecLiq = addDreRow('(=) Receita Líquida', m => `Receita!${colL(3 + m)}${rowReceitaLiquida + 1}`);
+    const folhaProducao = Object.values(folhaRowsByCC).filter(x => x.cc.tipo === 'producao');
+    const folhaDespesa = Object.values(folhaRowsByCC).filter(x => x.cc.tipo === 'despesa');
+    const rowCpv = addDreRow('(-) CPV', m => {
+      const custosParte = `SUMIFS(${rngCus(CD.MES + m)},${rngCus(CD.CCTIPO)},"producao")`;
+      const folhaParte = folhaProducao.length ? folhaProducao.map(x => `Pessoal_Folha!${colL(3 + m)}${x.totalRow + 1}`).join('+') : '0';
+      return `-((${custosParte})+(${folhaParte}))`;
+    });
+    const rowLucroBruto = addDreRow('(=) Lucro Bruto', m => `${colL(1 + m)}${rowRecLiq + 1}+${colL(1 + m)}${rowCpv + 1}`);
+    const rowDespesas = addDreRow('(-) Despesas Operacionais', m => {
+      const custosParte = `SUMIFS(${rngCus(CD.MES + m)},${rngCus(CD.CCTIPO)},"despesa",${rngCus(CD.PACID)},"<>depreciacao")`;
+      const folhaParte = folhaDespesa.length ? folhaDespesa.map(x => `Pessoal_Folha!${colL(3 + m)}${x.totalRow + 1}`).join('+') : '0';
+      return `-((${custosParte})+(${folhaParte}))`;
+    });
+    const rowEbitda = addDreRow('(=) EBITDA', m => `${colL(1 + m)}${rowLucroBruto + 1}+${colL(1 + m)}${rowDespesas + 1}`);
+    const rowDA = addDreRow('(-) Depreciação e Amortização', m => `-SUMIFS(${rngCus(CD.MES + m)},${rngCus(CD.CCTIPO)},"despesa",${rngCus(CD.PACID)},"depreciacao")`);
+    const rowResFin = addDreRowValues('(+/-) Resultado Financeiro (premissa)', MESES.map((_, m) => parseNum(d.resultado?.receitaFinanceira?.[m]) - parseNum(d.resultado?.despesaFinanceira?.[m])));
+    const rowOutras = addDreRowValues('(+/-) Outras Receitas e Despesas (premissa)', MESES.map((_, m) => parseNum(d.resultado?.outrasReceitasDespesas?.[m])));
+    const rowAliq = rd; putS(wsDre, rd, 0, 'Alíquota IR/CSLL (%) — premissa');
+    for (let m = 0; m < 12; m++) putN(wsDre, rd, 1 + m, d.resultado?.aliquotaIR ?? 34);
+    rd++;
+    const rowEbt = addDreRow('(=) EBT (antes do IR)', m => `${colL(1 + m)}${rowEbitda + 1}+${colL(1 + m)}${rowDA + 1}+${colL(1 + m)}${rowResFin + 1}+${colL(1 + m)}${rowOutras + 1}`);
+    const rowIrcsl = addDreRow('(-) IR/CSLL', m => `-IF(${colL(1 + m)}${rowEbt + 1}>0,${colL(1 + m)}${rowEbt + 1}*${colL(1 + m)}${rowAliq + 1}/100,0)`);
+    addDreRow('(=) Lucro Líquido', m => `${colL(1 + m)}${rowEbt + 1}+${colL(1 + m)}${rowIrcsl + 1}`);
+    finish(wsDre, rd, 14, [{ wch: 36 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }]);
+    addSheet('DRE_Mensal', wsDre);
+
+    // ================= Kgiro_FC_Operacional (método indireto) =================
+    const wsKg = {};
+    putS(wsKg, 0, 0, 'Linha'); MESES.forEach((m, i) => putS(wsKg, 0, 1 + i, m)); putS(wsKg, 0, 13, 'Total');
+    let rk = 1;
+    function addKgRow(label, formulaPerMonth) {
+      const row = rk; putS(wsKg, rk, 0, label);
+      for (let m = 0; m < 12; m++) putF(wsKg, rk, 1 + m, formulaPerMonth(m));
+      putF(wsKg, rk, 13, `SUM(${colL(1)}${rk + 1}:${colL(12)}${rk + 1})`);
+      rk++; return row;
+    }
+    const saldos = saldosAberturaFc(d);
+    const rowArIni = rk; putS(wsKg, rk, 0, 'Saldo inicial — Contas a Receber (premissa)'); putN(wsKg, rk, 1, saldos.arInicial); rk++;
+    const rowApIni = rk; putS(wsKg, rk, 0, 'Saldo inicial — Contas a Pagar (premissa)'); putN(wsKg, rk, 1, saldos.apInicial); rk++;
+    const rowEstIni = rk; putS(wsKg, rk, 0, 'Saldo inicial — Estoque (premissa)'); putN(wsKg, rk, 1, saldos.estoqueInicial); rk++;
+    const cg = d.capitalGiro || {};
+    const rowPrazoReceb = rk; putS(wsKg, rk, 0, 'Prazo de Recebimento (dias, premissa)'); for (let m = 0; m < 12; m++) putN(wsKg, rk, 1 + m, cg.prazoRecebimento?.[m]); rk++;
+    const rowPrazoPag = rk; putS(wsKg, rk, 0, 'Prazo de Pagamento (dias, premissa)'); for (let m = 0; m < 12; m++) putN(wsKg, rk, 1 + m, cg.prazoPagamento?.[m]); rk++;
+    const rowGiroEst = rk; putS(wsKg, rk, 0, 'Giro de Estoque (dias, premissa)'); for (let m = 0; m < 12; m++) putN(wsKg, rk, 1 + m, cg.giroEstoque?.[m]); rk++;
+    const rowAr = rk; putS(wsKg, rk, 0, 'Contas a Receber (saldo)'); for (let m = 0; m < 12; m++) putF(wsKg, rk, 1 + m, `DRE_Mensal!${colL(1 + m)}${rowRecLiq + 1}*${colL(1 + m)}${rowPrazoReceb + 1}/30`); rk++;
+    const rowAp = rk; putS(wsKg, rk, 0, 'Contas a Pagar (saldo)'); for (let m = 0; m < 12; m++) putF(wsKg, rk, 1 + m, `-DRE_Mensal!${colL(1 + m)}${rowCpv + 1}*${colL(1 + m)}${rowPrazoPag + 1}/30`); rk++;
+    const rowEst = rk; putS(wsKg, rk, 0, 'Estoque (saldo)'); for (let m = 0; m < 12; m++) putF(wsKg, rk, 1 + m, `-DRE_Mensal!${colL(1 + m)}${rowCpv + 1}*${colL(1 + m)}${rowGiroEst + 1}/30`); rk++;
+    const rowVarGiro = addKgRow('(+/-) Variação de Capital de Giro', m => {
+      const arCur = `${colL(1 + m)}${rowAr + 1}`, arPrev = m === 0 ? `$B$${rowArIni + 1}` : `${colL(m)}${rowAr + 1}`;
+      const apCur = `${colL(1 + m)}${rowAp + 1}`, apPrev = m === 0 ? `$B$${rowApIni + 1}` : `${colL(m)}${rowAp + 1}`;
+      const estCur = `${colL(1 + m)}${rowEst + 1}`, estPrev = m === 0 ? `$B$${rowEstIni + 1}` : `${colL(m)}${rowEst + 1}`;
+      return `-(${arCur}-${arPrev})-(${estCur}-${estPrev})+(${apCur}-${apPrev})`;
+    });
+    const folhaTodos = Object.values(folhaRowsByCC);
+    const rowDec13Total = addKgRow('13º salário — provisão total (referência)', m => folhaTodos.length ? folhaTodos.map(x => `Pessoal_Folha!${colL(3 + m)}${x.dec13Row + 1}`).join('+') : '0');
+    const rowPag13 = addKgRow('Pagamento do 13º (nov/dez, metade cada)', m => (m === 10 || m === 11) ? `SUM(${colL(1)}${rowDec13Total + 1}:${colL(12)}${rowDec13Total + 1})/2` : '0');
+    const rowAjuste13 = addKgRow('(+/-) Ajuste 13º (competência × caixa)', m => `${colL(1 + m)}${rowDec13Total + 1}-${colL(1 + m)}${rowPag13 + 1}`);
+    const rowDespesasCaixa = addKgRow('Despesas — caixa (competência × caixa)', m => {
+      const custosParte = `SUMIFS(${rngCus(CD.CAIXA + m)},${rngCus(CD.CCTIPO)},"despesa",${rngCus(CD.PACID)},"<>depreciacao")`;
+      const folhaParte = folhaDespesa.length ? folhaDespesa.map(x => `Pessoal_Folha!${colL(3 + m)}${x.totalRow + 1}`).join('+') : '0';
+      return `(${custosParte})+(${folhaParte})`;
+    });
+    const rowAjustePag = addKgRow('(+/-) Ajuste de Pagamento (competência × caixa)', m => `-DRE_Mensal!${colL(1 + m)}${rowDespesas + 1}-${colL(1 + m)}${rowDespesasCaixa + 1}`);
+    const rowIrcslProp = addKgRow('(-) IR/CSLL proporcional', m => `DRE_Mensal!${colL(1 + m)}${rowIrcsl + 1}`);
+    addKgRow('(=) FC Operacional (indireto)', m => `DRE_Mensal!${colL(1 + m)}${rowEbitda + 1}+${colL(1 + m)}${rowIrcslProp + 1}+${colL(1 + m)}${rowVarGiro + 1}+${colL(1 + m)}${rowAjuste13 + 1}+${colL(1 + m)}${rowAjustePag + 1}`);
+    finish(wsKg, rk, 14, [{ wch: 40 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }]);
+    addSheet('Kgiro_FC_Operacional', wsKg);
+
+    // ================= FC_Direto =================
+    const wsFd = {};
+    putS(wsFd, 0, 0, 'Linha'); MESES.forEach((m, i) => putS(wsFd, 0, 1 + i, m)); putS(wsFd, 0, 13, 'Total');
+    let rfd = 1;
+    function addFdRow(label, formulaPerMonth) {
+      const row = rfd; putS(wsFd, rfd, 0, label);
+      for (let m = 0; m < 12; m++) putF(wsFd, rfd, 1 + m, formulaPerMonth(m));
+      putF(wsFd, rfd, 13, `SUM(${colL(1)}${rfd + 1}:${colL(12)}${rfd + 1})`);
+      rfd++; return row;
+    }
+    addFdRow('Recebimentos de Clientes', m => {
+      const arCur = `Kgiro_FC_Operacional!${colL(1 + m)}${rowAr + 1}`;
+      const arPrev = m === 0 ? `Kgiro_FC_Operacional!$B$${rowArIni + 1}` : `Kgiro_FC_Operacional!${colL(m)}${rowAr + 1}`;
+      return `DRE_Mensal!${colL(1 + m)}${rowRecLiq + 1}-(${arCur}-${arPrev})`;
+    });
+    addFdRow('(-) Pagamentos a Fornecedores', m => {
+      const estCur = `Kgiro_FC_Operacional!${colL(1 + m)}${rowEst + 1}`;
+      const estPrev = m === 0 ? `Kgiro_FC_Operacional!$B$${rowEstIni + 1}` : `Kgiro_FC_Operacional!${colL(m)}${rowEst + 1}`;
+      const apCur = `Kgiro_FC_Operacional!${colL(1 + m)}${rowAp + 1}`;
+      const apPrev = m === 0 ? `Kgiro_FC_Operacional!$B$${rowApIni + 1}` : `Kgiro_FC_Operacional!${colL(m)}${rowAp + 1}`;
+      return `-(-DRE_Mensal!${colL(1 + m)}${rowCpv + 1}+(${estCur}-${estPrev})-(${apCur}-${apPrev}))`;
+    });
+    addFdRow('(-) Pagamentos de Pessoal', m => {
+      const totalFolha = folhaTodos.length ? folhaTodos.map(x => `Pessoal_Folha!${colL(3 + m)}${x.totalRow + 1}`).join('+') : '0';
+      return `-((${totalFolha})-(Kgiro_FC_Operacional!${colL(1 + m)}${rowDec13Total + 1})+(Kgiro_FC_Operacional!${colL(1 + m)}${rowPag13 + 1}))`;
+    });
+    addFdRow('(-) Pagamentos de Despesas', m => `-Kgiro_FC_Operacional!${colL(1 + m)}${rowDespesasCaixa + 1}`);
+    const rowIrcslFd = addFdRow('(-) IR/CSLL', m => `DRE_Mensal!${colL(1 + m)}${rowIrcsl + 1}`);
+    // Pagamentos Manuais (só Têxtil, ver PLANO_CONTAS_PAGAMENTOS_TEXTIL) — valor
+    // calculado (simplificação de escopo, ver nota no topo da função).
+    const pagamentosManuaisMes = cg.pagamentosManuais ? computePagamentosManuaisMes(cg.pagamentosManuais) : MESES.map(() => 0);
+    const rowPagManual = rfd; putS(wsFd, rfd, 0, '(-) Pagamentos Manuais (Têxtil, valor calculado)');
+    pagamentosManuaisMes.forEach((v, m) => putN(wsFd, rfd, 1 + m, -parseNum(v)));
+    putF(wsFd, rfd, 13, `SUM(${colL(1)}${rfd + 1}:${colL(12)}${rfd + 1})`);
+    const linhasSomarFd = [1, 2, 3, 4, rowIrcslFd, rowPagManual]; // linhas já escritas acima (0-based rows)
+    rfd++;
+    addFdRow('(=) FC Operacional (direto)', m => linhasSomarFd.map(r => `${colL(1 + m)}${r + 1}`).join('+'));
+    finish(wsFd, rfd, 14, [{ wch: 40 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }]);
+    addSheet('FC_Direto', wsFd);
+
+    // ================= CAPEX, FC Financiamentos, Provisões, Balanço, Plano 5Y =================
+    // Continuam como valor calculado (digitação direta hoje, sem racional de
+    // fórmula próprio pra replicar — ver nota no topo da função).
+    const linhasCapex = [['Categoria', 'Projeto', 'Mês', 'Valor', 'Justificativa']];
+    (d.capex.projetos || []).forEach(p => {
+      if (!parseNum(p.valor)) return;
+      linhasCapex.push([CATEGORIAS_CAPEX.find(c => c.id === p.categoria)?.nome || p.categoria, p.nome, p.mes || '', parseNum(p.valor), p.justificativa || '']);
+    });
+    const wsCapex = XLSX.utils.aoa_to_sheet(linhasCapex);
+    wsCapex['!cols'] = [{ wch: 22 }, { wch: 26 }, { wch: 10 }, { wch: 14 }, { wch: 40 }];
     XLSX.utils.book_append_sheet(wb, wsCapex, 'CAPEX');
-    const wsFin = XLSX.utils.aoa_to_sheet(linhasFinCalc);
-    wsFin['!cols'] = [{ wch: 16 }, { wch: 26 }, { wch: 22 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }];
+
+    const linhasFin = [['Banco/Linha', 'Métrica', ...MESES, 'Total']];
+    (d.fcFinanciamentos?.linhas || []).forEach(l => {
+      const nomeLinha = `${l.banco || '(sem banco)'} — ${l.linha || ''}`;
+      [['Captações', l.captacoes], ['Amortizações', l.amortizacoes], ['Juros Pagos', l.jurosPagos], ['Variação Cambial', l.variacaoCambial], ['Provisão Desp. Financeira', l.provisaoDespesaFinanceira]]
+        .forEach(([metrica, arr]) => {
+          const vals = MESES.map((_, m) => parseNum(arr?.[m]));
+          if (vals.every(v => v === 0)) return;
+          linhasFin.push([nomeLinha, metrica, ...vals, vals.reduce((a, v) => a + v, 0)]);
+        });
+    });
+    (d.fcFinanciamentos?.movimentacoesAcionistas || []).forEach(mv => {
+      const vals = MESES.map((_, m) => parseNum(mv.valores?.[m]));
+      if (vals.every(v => v === 0)) return;
+      linhasFin.push(['Movimentação de acionistas', mv.nome, ...vals, vals.reduce((a, v) => a + v, 0)]);
+    });
+    const wsFin = XLSX.utils.aoa_to_sheet(linhasFin);
+    wsFin['!cols'] = [{ wch: 26 }, { wch: 22 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, wsFin, 'FC_Financiamentos');
-    addSheet('Provisoes', linhasProvCalc, 20);
-    const wsBal = XLSX.utils.aoa_to_sheet(linhasBalancoCalc);
-    wsBal['!cols'] = [{ wch: 16 }, { wch: 30 }, { wch: 16 }, { wch: 40 }];
+
+    const linhasProv = [['Linha', ...MESES, 'Total']];
+    [['Inadimplência (%)', d.provisoes?.inadimplencia], ['Contingências (R$)', d.provisoes?.contingencias], ['Perdas (R$)', d.provisoes?.perdas]].forEach(([label, arr]) => {
+      const vals = MESES.map((_, m) => parseNum(arr?.[m]));
+      linhasProv.push([label, ...vals, vals.reduce((a, v) => a + v, 0)]);
+    });
+    const wsProv = XLSX.utils.aoa_to_sheet(linhasProv);
+    wsProv['!cols'] = [{ wch: 20 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsProv, 'Provisoes');
+
+    const b = d.balanco || {};
+    const linhasBal = [['Item', 'Valor', 'Justificativa']];
+    linhasBal.push(
+      ['Caixa inicial', parseNum(b.caixaInicial), ''],
+      ['Imobilizado inicial', parseNum(b.imobilizadoInicial), ''],
+      ['Depreciação acumulada inicial', parseNum(b.depreciacaoAcumuladaInicial), ''],
+      ['Contas a receber inicial', parseNum(b.contasAReceberInicial), ''],
+      ['Estoque inicial', parseNum(b.estoqueInicial), ''],
+      ['Contas a pagar inicial', parseNum(b.contasAPagarInicial), ''],
+      ['Saldo inicial de dívida', parseNum(b.emprestimos?.saldoInicial), b.emprestimos?.justificativa || ''],
+    );
+    const wsBal = XLSX.utils.aoa_to_sheet(linhasBal);
+    wsBal['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 40 }];
     XLSX.utils.book_append_sheet(wb, wsBal, 'Balanco_Patrimonial');
-    const wsP5y = XLSX.utils.aoa_to_sheet(linhasPlano5yCalc);
-    wsP5y['!cols'] = [{ wch: 16 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+
+    const dreU = computeDRE(d, refU, ipcaAnualPct, cambios);
+    const plano5y = computePlano5Y(dreU, d.plano5y?.anos || {});
+    const linhasP5y = [['Linha', 2027, ...ANOS_PLANO_5Y]];
+    [['receitaLiquida', 'Receita Líquida'], ['cpv', 'CPV'], ['lucroBruto', 'Lucro Bruto'], ['despesasSemDA', 'Despesas Operacionais'], ['ebitda', 'EBITDA'], ['depreciacao', 'Depreciação e Amortização'], ['lucroLiquido', 'Lucro Líquido']]
+      .forEach(([campo, label]) => linhasP5y.push([label, ...[2027, ...ANOS_PLANO_5Y].map(ano => plano5y[ano]?.[campo] ?? '')]));
+    const wsP5y = XLSX.utils.aoa_to_sheet(linhasP5y);
+    wsP5y['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, wsP5y, 'Plano_5Y');
 
-    XLSX.writeFile(wb, `Orcamento_2027_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}_Calculo.xlsx`);
+    XLSX.writeFile(wb, `Orcamento_2027_${uObj.nome.replace(/\s/g, '_')}_ModeloCompleto.xlsx`);
   }
 
   // Resumo Executivo em PPT de verdade (3 slides, para apresentação ao
@@ -4986,7 +5286,7 @@ function VisaoGerente(props) {
               Dados Brutos (1 linha por mês por conta/produto, para
               auditoria — exportarExcel) × Apresentação (PPT pro CAD). */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcelCalculo}>Excel — Cálculo</Botao>
+            <Botao variante="secundario" icone={FileSpreadsheet} onClick={() => exportarExcelCalculo()}>Excel — Cálculo</Botao>
             <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Excel — Dados Brutos</Botao>
             <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>Apresentação (PPT)</Botao>
           </div>
@@ -9534,7 +9834,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <h2 style={{ fontSize: 17, color: COR.azul, margin: 0 }}>Visão consolidada do Grupo</h2>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcelCalculo}>Excel — Cálculo</Botao>
+          <Botao variante="secundario" icone={FileSpreadsheet} onClick={() => exportarExcelCalculo(unidadeDrill)}>Excel — Cálculo{unidadeDrill ? '' : ' (abra uma unidade)'}</Botao>
           <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Excel — Dados Brutos</Botao>
           <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>Apresentação (PPT)</Botao>
         </div>
