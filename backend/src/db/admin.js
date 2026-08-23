@@ -4,8 +4,11 @@
 import { pool } from './pool.js';
 
 export async function listarUsuarios() {
+  // senha_texto (2026-08-23, ver migração 0005_senha_texto_visivel.sql):
+  // exposto aqui porque esta função só é chamada pelas rotas /api/admin/*,
+  // todas atrás de exigirPerfil('admin_fpa') — nunca exposta a outro perfil.
   const { rows: usuarios } = await pool.query(
-    `SELECT id, nome, email, perfil, ativo, criado_em, ultimo_login FROM usuarios ORDER BY nome`
+    `SELECT id, nome, email, perfil, ativo, criado_em, ultimo_login, senha_texto FROM usuarios ORDER BY nome`
   );
   const [unidades, ccs] = await Promise.all([
     pool.query(`SELECT usuario_id, unidade_id FROM usuario_unidade`),

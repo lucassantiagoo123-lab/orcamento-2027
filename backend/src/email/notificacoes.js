@@ -20,18 +20,24 @@ function getTransporter() {
   return transporter;
 }
 
+// Devolve se o e-mail realmente saiu ou não — notificarEnvioParaFpa (abaixo)
+// não usa esse retorno (é best-effort, disparado sem await por quem chama),
+// mas enviarAcesso precisa saber pra responder certo pro admin que clicou
+// no botão "Enviar acesso por e-mail" (2026-08-23).
 async function enviarEmail({ to, subject, html, text }) {
   const t = getTransporter();
   if (!t || to.length === 0) {
     console.warn(
       `[email] não enviado (${!t ? 'SMTP não configurado — ver SMTP_HOST/SMTP_USER/SMTP_PASS' : 'sem destinatário'}): "${subject}"`
     );
-    return;
+    return false;
   }
   try {
     await t.sendMail({ from: config.smtp.from, to: to.join(', '), subject, html, text });
+    return true;
   } catch (err) {
     console.error(`[email] falha ao enviar "${subject}":`, err.message);
+    return false;
   }
 }
 
@@ -68,6 +74,38 @@ export async function notificarEnvioParaFpa({ unidadeNome, autorNome, comentario
       ${linhaTotais ? `<p>${linhaTotais}</p>` : ''}
       <p>O envio ficará travado (sem permitir reenvio) até um Admin FP&A liberar.</p>
       <p><a href="${link}">Abrir a plataforma</a></p>
+    `,
+  });
+}
+
+/** Manda login + senha atual pro próprio usuário — pedido de 2026-08-23,
+ * disparado pelo botão "Enviar acesso por e-mail" no Painel de
+ * Administração (routes/admin.js, POST /usuarios/:id/enviar-acesso). Ao
+ * contrário de notificarEnvioParaFpa, quem chama aguarda (await) o
+ * resultado — a rota precisa saber se saiu de verdade pra responder certo
+ * pro admin (SMTP pode não estar configurado, ver enviarEmail acima). */
+export async function enviarAcesso({ nome, email, senha }) {
+  const link = config.frontendOrigin;
+  return enviarEmail({
+    to: [email],
+    subject: '[Orçamento 2027] Seu acesso à plataforma',
+    text: [
+      `Olá, ${nome}.`,
+      '',
+      'Seu acesso à plataforma de Orçamento 2027 do Grupo ARA:',
+      `Login: ${email}`,
+      `Senha: ${senha}`,
+      '',
+      `Acessar: ${link}`,
+      '',
+      'Guarde este e-mail em local seguro. Se precisar trocar a senha, peça a um Admin FP&A.',
+    ].join('\n'),
+    html: `
+      <p>Olá, <strong>${nome}</strong>.</p>
+      <p>Seu acesso à plataforma de Orçamento 2027 do Grupo ARA:</p>
+      <p><strong>Login:</strong> ${email}<br/><strong>Senha:</strong> ${senha}</p>
+      <p><a href="${link}">Acessar a plataforma</a></p>
+      <p>Guarde este e-mail em local seguro. Se precisar trocar a senha, peça a um Admin FP&A.</p>
     `,
   });
 }

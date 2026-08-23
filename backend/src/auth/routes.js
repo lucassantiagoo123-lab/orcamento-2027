@@ -165,7 +165,7 @@ authRouter.post('/alterar-senha', authenticate, async (req, res, next) => {
       if (!ok) return res.status(401).json({ erro: 'senha_atual_incorreta' });
     }
 
-    await definirSenha(req.usuario.id, await gerarHashSenha(senhaNova));
+    await definirSenha(req.usuario.id, await gerarHashSenha(senhaNova), senhaNova);
     res.status(204).end();
   } catch (err) {
     next(err);

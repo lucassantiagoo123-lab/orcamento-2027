@@ -1,0 +1,18 @@
+-- Pedido explícito de 2026-08-23: "todas as senhas precisam estar visíveis
+-- no Administração para os Admins". senha_hash (bcrypt) é criptografia de
+-- mão única — não dá pra "ver" a senha a partir dele, só validar um
+-- palpite. A única forma de atender o pedido é guardar o valor em texto
+-- puro também, numa coluna separada.
+--
+-- Isto é uma REDUÇÃO DELIBERADA da postura de segurança do sistema (se o
+-- banco vazar, as senhas de todos os usuários vazam em texto puro junto,
+-- sem precisar quebrar hash nenhum) — não é a prática recomendada pela
+-- indústria. Decisão tomada pelo dono do sistema depois de eu explicar o
+-- trade-off e oferecer a alternativa mais segura (mostrar só no momento de
+-- definir/resetar, sem guardar depois). Nulo pra quem nunca teve senha
+-- definida (login só por SSO).
+--
+-- Preenchida em conjunto com senha_hash sempre que a senha é definida (ver
+-- db/usuarios.js::definirSenha) — nunca sozinha, pra nunca ficar
+-- dessincronizada do hash de verdade que o login usa pra autenticar.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS senha_texto TEXT;

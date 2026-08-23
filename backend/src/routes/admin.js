@@ -8,8 +8,9 @@ import {
   vincularUnidade, desvincularUnidade, vincularCc, desvincularCc, removerTodosCcUsuario,
   listarConcessoes, criarConcessao, revogarConcessao,
 } from '../db/admin.js';
-import { definirSenha } from '../db/usuarios.js';
+import { definirSenha, buscarUsuarioParaEnvioAcesso } from '../db/usuarios.js';
 import { validarSenha, gerarHashSenha } from '../auth/senha.js';
+import { enviarAcesso } from '../email/notificacoes.js';
 
 export const adminRouter = Router();
 adminRouter.use(exigirPerfil('admin_fpa'));
@@ -77,7 +78,27 @@ adminRouter.post('/usuarios/:id/senha', async (req, res, next) => {
     const erroValidacao = validarSenha(senha);
     if (erroValidacao) return res.status(400).json({ erro: 'senha_invalida', mensagem: erroValidacao });
 
-    await definirSenha(req.params.id, await gerarHashSenha(senha));
+    await definirSenha(req.params.id, await gerarHashSenha(senha), senha);
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+/** Manda a senha ATUAL (a que já está guardada em texto puro, ver
+ * senha_texto) por e-mail pro próprio usuário — pedido de 2026-08-23,
+ * complementa a visibilidade de senha na tela. Best-effort, mesmo padrão de
+ * email/notificacoes.js: se SMTP não estiver configurado, retorna erro
+ * explícito em vez de fingir que enviou. */
+adminRouter.post('/usuarios/:id/enviar-acesso', async (req, res, next) => {
+  try {
+    const usuario = await buscarUsuarioParaEnvioAcesso(req.params.id);
+    if (!usuario) return res.status(404).json({ erro: 'usuario_nao_encontrado' });
+    if (!usuario.senha_texto) {
+      return res.status(400).json({ erro: 'sem_senha_definida', mensagem: 'Defina uma senha para este usuário antes de enviar o acesso por e-mail.' });
+    }
+    const enviado = await enviarAcesso({ nome: usuario.nome, email: usuario.email, senha: usuario.senha_texto });
+    if (!enviado) {
+      return res.status(503).json({ erro: 'smtp_nao_configurado', mensagem: 'E-mail não configurado no servidor (SMTP_HOST/SMTP_USER/SMTP_PASS) — copie a senha manualmente.' });
+    }
     res.status(204).end();
   } catch (err) { next(err); }
 });

@@ -55,8 +55,25 @@ export async function buscarUsuarioComSenhaPorEmail(email) {
   return rows[0] || null;
 }
 
-export async function definirSenha(usuarioId, senhaHash) {
-  await pool.query(`UPDATE usuarios SET senha_hash = $2 WHERE id = $1`, [usuarioId, senhaHash]);
+// senhaTexto (2026-08-23, pedido explícito — ver migração
+// 0005_senha_texto_visivel.sql para o trade-off completo): guardado sempre
+// junto com o hash, nunca sozinho, pra nunca ficar dessincronizado do que o
+// login de verdade usa (senha_hash).
+export async function definirSenha(usuarioId, senhaHash, senhaTexto) {
+  await pool.query(
+    `UPDATE usuarios SET senha_hash = $2, senha_texto = $3 WHERE id = $1`,
+    [usuarioId, senhaHash, senhaTexto]
+  );
+}
+
+/** Só para POST /api/admin/usuarios/:id/enviar-acesso (2026-08-23) — busca
+ * o que o e-mail de acesso precisa (nome, e-mail, senha atual em texto). */
+export async function buscarUsuarioParaEnvioAcesso(usuarioId) {
+  const { rows } = await pool.query(
+    `SELECT nome, email, senha_texto, ativo FROM usuarios WHERE id = $1`,
+    [usuarioId]
+  );
+  return rows[0] || null;
 }
 
 export async function registrarLogin(usuarioId) {

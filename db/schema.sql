@@ -23,6 +23,12 @@ CREATE TABLE usuarios (
   nome          TEXT NOT NULL,
   email         TEXT NOT NULL UNIQUE,
   senha_hash    TEXT,              -- NULL: login via SSO (Entra ID) — decisão registrada em Fase 0
+  -- senha_texto (2026-08-23, ver migração 0005_senha_texto_visivel.sql):
+  -- pedido explícito do dono do sistema pra Admin FP&A ver a senha atual de
+  -- qualquer usuário no Painel de Administração. Reduz deliberadamente a
+  -- postura de segurança do sistema (não é prática recomendada) — sempre
+  -- escrita junto com senha_hash, nunca sozinha.
+  senha_texto   TEXT,
   perfil        TEXT NOT NULL CHECK (perfil IN ('admin_fpa', 'gerente_unidade', 'gerente_cc_corporativo')),
   ativo         BOOLEAN NOT NULL DEFAULT true,
   criado_em     TIMESTAMPTZ NOT NULL DEFAULT now(),

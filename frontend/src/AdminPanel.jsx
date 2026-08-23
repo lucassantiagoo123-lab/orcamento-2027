@@ -7,7 +7,7 @@ import {
   listarUsuarios, criarUsuario, atualizarUsuario, vincularUnidade, desvincularUnidade,
   vincularCc, desvincularCc, removerTodosCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
 } from './api/admin.js';
-import { definirSenhaUsuario } from './api/senha.js';
+import { definirSenhaUsuario, enviarAcessoUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
 import { CCS_TEXTIL, CCS_AGRICOLA, CCS_RESORTS, CCS_CORPORATIVO } from './OrcamentoARA.jsx';
 
@@ -225,6 +225,8 @@ function LinhaUsuario({ usuario, numero, onMudou }) {
   const [senhaNova, setSenhaNova] = useState('');
   const [erroSenha, setErroSenha] = useState(null);
   const [salvandoSenha, setSalvandoSenha] = useState(false);
+  const [enviandoAcesso, setEnviandoAcesso] = useState(false);
+  const [msgAcesso, setMsgAcesso] = useState(null); // { texto, erro }
   const [nome, setNome] = useState(usuario.nome);
   const [email, setEmail] = useState(usuario.email);
   const [erroPerfilBasico, setErroPerfilBasico] = useState(null);
@@ -262,10 +264,24 @@ function LinhaUsuario({ usuario, numero, onMudou }) {
       await definirSenhaUsuario(usuario.id, senhaNova);
       setSenhaNova('');
       setEditandoSenha(false);
+      onMudou();
     } catch (err) {
       setErroSenha(err instanceof ApiError ? err.message : 'Falha ao definir senha.');
     }
     setSalvandoSenha(false);
+  }
+
+  async function handleEnviarAcesso() {
+    setEnviandoAcesso(true);
+    setMsgAcesso(null);
+    try {
+      await enviarAcessoUsuario(usuario.id);
+      setMsgAcesso({ texto: 'Enviado!', erro: false });
+    } catch (err) {
+      setMsgAcesso({ texto: err instanceof ApiError ? err.message : 'Falha ao enviar.', erro: true });
+    }
+    setEnviandoAcesso(false);
+    setTimeout(() => setMsgAcesso(null), 5000);
   }
 
   async function mudarPerfil(perfil) {
@@ -384,7 +400,26 @@ function LinhaUsuario({ usuario, numero, onMudou }) {
             {erroSenha && <div style={{ color: '#C00000', fontSize: 10.5, width: '100%' }}>{erroSenha}</div>}
           </form>
         ) : (
-          <button onClick={() => setEditandoSenha(true)} style={botaoSecundario}>Definir senha</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {usuario.senha_texto ? (
+              <span style={{ fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{usuario.senha_texto}</span>
+            ) : (
+              <span style={{ color: '#B5BAC0', fontSize: 11 }}>Sem senha definida</span>
+            )}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              <button onClick={() => setEditandoSenha(true)} style={{ ...botaoSecundario, padding: '3px 7px', fontSize: 10.5 }}>
+                {usuario.senha_texto ? 'Redefinir' : 'Definir'}
+              </button>
+              {usuario.senha_texto && (
+                <button onClick={handleEnviarAcesso} disabled={enviandoAcesso} style={{ ...botaoSecundario, padding: '3px 7px', fontSize: 10.5 }}>
+                  {enviandoAcesso ? 'Enviando…' : 'Enviar e-mail'}
+                </button>
+              )}
+            </div>
+            {msgAcesso && (
+              <span style={{ fontSize: 10.5, color: msgAcesso.erro ? '#C00000' : '#008000' }}>{msgAcesso.texto}</span>
+            )}
+          </div>
         )}
       </td>
       <td style={td}>
