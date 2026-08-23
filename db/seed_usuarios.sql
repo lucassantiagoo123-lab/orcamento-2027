@@ -363,6 +363,11 @@ ON CONFLICT DO NOTHING;
 -- entre várias pessoas (ex.: 03 Administração), todas recebem o sintético
 -- em conjunto (usuario_cc_corporativo aceita múltiplos titulares por CC).
 -- ---------------------------------------------------------------------------
+INSERT INTO unidades (id, nome) VALUES
+  ('samoa_beach', 'ARA Resorts — Samoa Beach'),
+  ('samoa_villa', 'ARA Resorts — Samoa Villa')
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO usuarios (nome, email, perfil) VALUES
   ('Kleber Ribeiro',      'kleber.ribeiro@samoaresort.com.br',     'gerente_cc_corporativo'),
   ('Agildo Junior',       'agildo.junior@samoaresort.com.br',      'gerente_cc_corporativo'),
