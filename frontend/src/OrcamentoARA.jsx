@@ -1656,6 +1656,16 @@ const TIPOS_PREMISSA = [
 // Receita tem Volume em toneladas por produto (Têxtil/Agrícola usam o
 // modelo `produtos`; Resorts/Corporativo não têm essa noção de volume).
 const UNIDADES_COM_CUSTO_POR_KG = ['textil', 'agricola_tds', 'agricola_fds'];
+// Unidades onde a pergunta "competência × caixa" aparece em toda conta
+// analítica (pedido de 2026-08-23: "precisamos ter a visão de DRE e FC" do
+// Corporativo). Só Corporativo por enquanto — é a única unidade 100%
+// back-office (sem CPV/produção, sem Kgiro próprio de cliente), onde o
+// descasamento entre o mês do fato gerador (competência, usado na DRE) e o
+// mês do pagamento de fato (caixa, usado no FC) é a regra, não a exceção
+// (ex.: nota fiscal de consultoria emitida em dezembro, paga em janeiro).
+// Mesmo racional do ajuste do 13º salário (ver ajuste13Mes em
+// computeFluxoIndiretoMensal), generalizado aqui pra qualquer conta.
+const UNIDADES_COM_COMPETENCIA_CAIXA = ['corporativo'];
 const BASES_RATEIO = [
   { id: 'receita_bruta', nome: 'Receita Bruta do mês' },
   { id: 'receita_liquida', nome: 'Receita Líquida do mês' },
@@ -1683,6 +1693,14 @@ function novaLinhaVazia() {
     baseManual: mesesVazios(),
     percentuais: mesesVazios(),
     justificativa: '',
+    // Competência × caixa (2026-08-23, ver UNIDADES_COM_COMPETENCIA_CAIXA):
+    // por padrão o fato gerador e o pagamento ocorrem no mesmo mês
+    // (pagamentoDiferente false — comportamento de sempre, DRE e FC usam o
+    // mesmo valor de valorLinhaMes). Quando o gestor marca que não, o FC usa
+    // valoresPagamento (mês a mês, digitado à parte) em vez do valor de
+    // competência — a DRE nunca muda, só a leitura de caixa no FC.
+    pagamentoDiferente: false,
+    valoresPagamento: mesesVazios(),
   };
 }
 
@@ -1763,6 +1781,20 @@ function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPc
 }
 function valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
   return MESES.reduce((acc, _, m) => acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
+}
+// Valor de CAIXA (pagamento) de uma linha num mês — usado só pelo Fluxo de
+// Caixa (Indireto e Direto), nunca pela DRE (que continua 100% em
+// competência, sem mudança nenhuma). Pedido de 2026-08-23 ("o fato gerador
+// [competência] ocorre no mesmo mês do pagamento?"): por padrão (linha
+// .pagamentoDiferente false) o caixa é igual à competência — mesmo
+// valorLinhaMes de sempre. Quando o gestor marca que não, usa o valor
+// digitado à parte em linha.valoresPagamento (mês a mês, independente do
+// valor de competência — o total pago no ano pode até ser diferente do
+// total incorrido, ex.: parte fica a pagar em janeiro do ano seguinte).
+function valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  if (!linha) return 0;
+  if (linha.pagamentoDiferente) return parseNum(linha.valoresPagamento?.[m]);
+  return valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
 }
 // Checagem de coerência: premissa qtd_valor/rateio com apenas um dos dois campos preenchido em algum mês.
 function linhaIncoerente(linha) {
@@ -2282,6 +2314,20 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
+  // Versão em caixa (pagamento) do mesmo total — só difere de totalLinhasMes
+  // nas linhas marcadas pelo gestor como "competência ≠ pagamento" (ver
+  // UNIDADES_COM_COMPETENCIA_CAIXA/valorLinhaMesCaixa). Escopo restrito à
+  // 'despesa' (é onde a pergunta aparece hoje — Corporativo não tem CC de
+  // produção) — 'producao' continua só na competência aqui.
+  function totalLinhasMesCaixa(tipoAlvo, excluirPacotes, m) {
+    return linhasCustos.reduce((acc, [chave, linha]) => {
+      const [ccCodigo, contaCodigo] = chave.split('|');
+      const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+      const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
+      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+    }, 0);
+  }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
     + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
@@ -2296,6 +2342,16 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
   const ajuste13Mes = MESES.map((_, m) => decimoTerceiroMes[m] - pagamento13Mes[m]);
 
+  // Ajuste competência × caixa (2026-08-23, ver UNIDADES_COM_COMPETENCIA_CAIXA):
+  // mesmo racional do ajuste13Mes acima — "acrual menos caixa", somado ao FC
+  // Operacional pra desfazer o efeito de competência do EBITDA (que já
+  // subtraiu despesasSemDAmes) e refletir a saída de caixa real do mês.
+  // Zero em qualquer linha sem o descasamento marcado (comportamento de
+  // sempre, sem mudança).
+  const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao', 'pessoal'], m)
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+  const ajustePagamentoMes = MESES.map((_, m) => despesasSemDAmes[m] - despesasCaixaMes[m]);
+
   const cg = data.capitalGiro;
   const arMes = MESES.map((_, m) => receitaLiquidaMes[m] * (parseNum(cg.prazoRecebimento?.[m]) / 30));
   const apMes = MESES.map((_, m) => cpvSemPessoalMes[m] * (parseNum(cg.prazoPagamento?.[m]) / 30));
@@ -2308,7 +2364,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     return -(arMes[m] - arAnt) - (estoqueMes[m] - estAnt) + (apMes[m] - apAnt);
   });
 
-  const fcOperacionalMes = MESES.map((_, m) => ebitdaMes[m] - ircslMes[m] + ajuste13Mes[m] + variacaoGiroMes[m]);
+  const fcOperacionalMes = MESES.map((_, m) => ebitdaMes[m] - ircslMes[m] + ajuste13Mes[m] + variacaoGiroMes[m] + ajustePagamentoMes[m]);
 
   const capexMes = MESES.map((_, m) => (data.capex.projetos || []).reduce((acc, p) => acc + (p.mes === MESES[m] ? parseNum(p.valor) : 0), 0));
   const fcInvestimentoMes = capexMes.map(v => -v);
@@ -2349,7 +2405,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   return {
     receitaBrutaMes, receitaLiquidaMes, deducoesMes, cpvMes, lucroBrutoMes, despesasSemDAmes,
     ebitdaMes, depreciacaoMes, resultadoFinanceiroMes, outrasMes, ircslMes, lucroLiquidoMes,
-    ajuste13Mes, variacaoGiroMes, fcOperacionalMes,
+    ajuste13Mes, ajustePagamentoMes, variacaoGiroMes, fcOperacionalMes,
     fcInvestimentoMes, fcFinanciamentoMes, variacaoCaixaMes, caixaInicial, caixaAcumuladoMes,
   };
 }
@@ -2382,8 +2438,22 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
+  // Versão em caixa — ver mesma nota em computeFluxoIndiretoMensal.
+  function totalLinhasMesCaixa(tipoAlvo, excluirPacotes, m) {
+    return linhasCustos.reduce((acc, [chave, linha]) => {
+      const [ccCodigo, contaCodigo] = chave.split('|');
+      const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+      const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
+      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+    }, 0);
+  }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
-  const despesasSemPessoalMes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao', 'pessoal'], m));
+  // Pagamentos de despesas de fato (caixa) — 2026-08-23: por padrão igual à
+  // competência (totalLinhasMes); linhas marcadas com o descasamento
+  // competência × caixa usam o valor de pagamento digitado à parte (ver
+  // UNIDADES_COM_COMPETENCIA_CAIXA/valorLinhaMesCaixa).
+  const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao', 'pessoal'], m));
   const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
@@ -2415,7 +2485,7 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
     const estAnt = m === 0 ? estoqueInicial : estoqueMes[m - 1];
     return cpvSemPessoalMes[m] + (estoqueMes[m] - estAnt) - (apMes[m] - apAnt);
   });
-  const pagamentosDespesasMes = despesasSemPessoalMes;
+  const pagamentosDespesasMes = despesasCaixaSemPessoalMes;
   const ircslMes = MESES.map(() => dre.ircsl / 12);
 
   // "Deixe a opção de incluir manualmente algum pagamento" (pedido de
@@ -3723,6 +3793,7 @@ export default function OrcamentoARA({ usuario }) {
         const totalIrcslAno = fd.ircslMes.reduce((a, v) => a + v, 0);
         const totalGiroAno = fd.variacaoGiroMes.reduce((a, v) => a + v, 0);
         const totalAjuste13Ano = fd.ajuste13Mes.reduce((a, v) => a + v, 0);
+        const totalAjustePagamentoAno = fd.ajustePagamentoMes.reduce((a, v) => a + v, 0);
 
         function cumulativo(etapas) {
           let acumulado = 0;
@@ -3752,7 +3823,7 @@ export default function OrcamentoARA({ usuario }) {
           { label: 'EBITDA', valor: dre.ebitda, tipo: 'inicio' },
           { label: 'Impostos', valor: -totalIrcslAno, tipo: 'incremento' },
           { label: 'Var. Capital de Giro', valor: totalGiroAno, tipo: 'incremento' },
-          { label: 'Outros Ajustes', valor: totalAjuste13Ano, tipo: 'incremento' },
+          { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
           { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
         ];
 
@@ -3817,6 +3888,7 @@ export default function OrcamentoARA({ usuario }) {
           { label: '(-) IRCSL proporcional', valoresMensal: fd.ircslMes.map(v => -v), totalValor: -fd.ircslMes.reduce((a, v) => a + v, 0) },
           { label: '(+/-) Ajuste 13º (competência × caixa)', valoresMensal: fd.ajuste13Mes, totalValor: fd.ajuste13Mes.reduce((a, v) => a + v, 0) },
           { label: '(+/-) Variação de Capital de Giro', valoresMensal: fd.variacaoGiroMes, totalValor: fd.variacaoGiroMes.reduce((a, v) => a + v, 0) },
+          { label: '(+/-) Ajuste de Pagamento (competência × caixa)', valoresMensal: fd.ajustePagamentoMes, totalValor: fd.ajustePagamentoMes.reduce((a, v) => a + v, 0) },
           { label: '(=) FC Operacional', valoresMensal: fd.fcOperacionalMes, totalValor: totalFcOperacional },
           { label: '(=) FC Investimentos', valoresMensal: fd.fcInvestimentoMes, totalValor: fd.fcInvestimentoMes.reduce((a, v) => a + v, 0) },
           { label: '(=) FC Financiamentos', valoresMensal: fd.fcFinanciamentoMes, totalValor: fd.fcFinanciamentoMes.reduce((a, v) => a + v, 0) },
@@ -5876,6 +5948,32 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
           <div style={{ marginBottom: 8, maxWidth: 260 }}>
             <Selecao value={linha.premissaTipo} onChange={v => onUpdate('premissaTipo', v)} opcoes={opcoesPremissa} />
           </div>
+          {/* Competência × caixa (2026-08-23, ver UNIDADES_COM_COMPETENCIA_CAIXA)
+              — pergunta em toda conta analítica do Corporativo, pra dar
+              insumo ao FC (a DRE nunca muda, é sempre em competência). */}
+          {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && (
+            <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: COR.texto }}>O fato gerador (competência) desta despesa ocorre no mesmo mês do pagamento?</span>
+              <div style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
+                <button
+                  onClick={() => onUpdate('pagamentoDiferente', false)}
+                  style={{
+                    fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
+                    background: !linha.pagamentoDiferente ? COR.azul : COR.branco,
+                    color: !linha.pagamentoDiferente ? COR.branco : '#8A8F96',
+                  }}
+                >Sim</button>
+                <button
+                  onClick={() => onUpdate('pagamentoDiferente', true)}
+                  style={{
+                    fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
+                    background: linha.pagamentoDiferente ? COR.laranja : COR.branco,
+                    color: linha.pagamentoDiferente ? COR.branco : '#8A8F96',
+                  }}
+                >Não</button>
+              </div>
+            </div>
+          )}
           <div style={{ overflowX: 'auto', marginBottom: 8 }}>
             <table>
               <thead>
@@ -5931,6 +6029,13 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
                     <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
                   </>
                 )}
+                {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && linha.pagamentoDiferente && (
+                  <GradeMensalLinha
+                    label="Valor do pagamento — caixa (R$)"
+                    valores={linha.valoresPagamento}
+                    onChange={(mi, v) => onUpdate('valoresPagamento', atualizarArray(linha.valoresPagamento, mi, v))}
+                  />
+                )}
               </tbody>
             </table>
           </div>
@@ -5942,6 +6047,11 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
           {linha.premissaTipo === 'custo_por_kg' && (
             <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
               Volume vem da aba Receita (soma dos produtos, toneladas × 1000). O gestor digita o R$/kg; o valor calculado é Volume (kg) × R$/kg.
+            </p>
+          )}
+          {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && linha.pagamentoDiferente && (
+            <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
+              A DRE continua usando o valor de competência (acima). O valor do pagamento (caixa) alimenta só o Fluxo de Caixa — aba Revisão, Análise e Envio.
             </p>
           )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -6177,9 +6287,17 @@ function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBruta
                     <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
                   </>
                 )}
+                {linha.pagamentoDiferente && (
+                  <LinhaCalculadaMensal label="Valor do pagamento — caixa (R$)" valoresMensal={(linha.valoresPagamento || mesesVazios()).map(parseNum)} />
+                )}
               </tbody>
             </table>
           </div>
+          {linha.pagamentoDiferente && (
+            <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
+              Fato gerador (competência) em mês diferente do pagamento — a DRE usa o valor de competência acima; o Fluxo de Caixa usa o valor do pagamento.
+            </p>
+          )}
           {linha.justificativa && (
             <div style={{ fontSize: 10.5, color: COR.texto, background: COR.claro, borderRadius: 6, padding: 8 }}>
               <b>Justificativa:</b> {linha.justificativa}
@@ -7865,12 +7983,16 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
   ];
   const totalIrcslAno = fd.ircslMes.reduce((a, v) => a + v, 0);
   const totalGiroAno = fd.variacaoGiroMes.reduce((a, v) => a + v, 0);
+  // "Outros Ajustes" = 13º (competência × caixa) + Ajuste de Pagamento
+  // (competência × caixa, 2026-08-23) — dois ajustes de mesma natureza,
+  // dobrados aqui pra manter a bridge em 5 passos e reconciliar com o FCO.
   const totalAjuste13Ano = fd.ajuste13Mes.reduce((a, v) => a + v, 0);
+  const totalAjustePagamentoAno = fd.ajustePagamentoMes.reduce((a, v) => a + v, 0);
   const bridgeEbitdaFco = [
     { label: 'EBITDA', valor: dre.ebitda, tipo: 'inicio' },
     { label: 'Impostos', valor: -totalIrcslAno, tipo: 'incremento' },
     { label: 'Var. Capital de Giro', valor: totalGiroAno, tipo: 'incremento' },
-    { label: 'Outros Ajustes', valor: totalAjuste13Ano, tipo: 'incremento' },
+    { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
     { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
   ];
 
@@ -7939,7 +8061,7 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Fluxo de Caixa Indireto — mensal, a partir do EBITDA</h4>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
-        FC Operacional: EBITDA menos IRCSL proporcional, mais variação de capital de giro (prazos da aba 5 sobre os saldos de abertura da aba 8) e o ajuste de competência × caixa do 13º salário (provisionado mês a mês, pago metade em novembro e metade em dezembro).
+        FC Operacional: EBITDA menos IRCSL proporcional, mais variação de capital de giro (prazos da aba 5 sobre os saldos de abertura da aba 8), o ajuste de competência × caixa do 13º salário (provisionado mês a mês, pago metade em novembro e metade em dezembro) e o ajuste de pagamento (competência × caixa) de qualquer conta analítica marcada com fato gerador em mês diferente do pagamento (aba 3 — hoje só no Corporativo, ver pergunta em cada conta).
         FC Investimentos: mês de cada projeto de CAPEX (aba 6). FC Financiamentos: linhas por banco e movimentações de acionistas (aba 7).
       </p>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -7957,6 +8079,7 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
             { key: 'ircsl', label: '(-) IRCSL proporcional', valoresMensal: fd.ircslMes.map(v => -v), totalValor: -fd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
             { key: 'ajuste13', label: '(+/-) Ajuste 13º (competência × caixa)', valoresMensal: fd.ajuste13Mes, totalValor: fd.ajuste13Mes.reduce((a, v) => a + v, 0), cor: COR.texto },
             { key: 'giro', label: '(+/-) Variação de Capital de Giro', valoresMensal: fd.variacaoGiroMes, totalValor: fd.variacaoGiroMes.reduce((a, v) => a + v, 0), cor: COR.texto },
+            { key: 'ajustePagamento', label: '(+/-) Ajuste de Pagamento (competência × caixa)', valoresMensal: fd.ajustePagamentoMes, totalValor: fd.ajustePagamentoMes.reduce((a, v) => a + v, 0), cor: COR.texto },
             { key: 'fcop', label: '(=) FC Operacional', valoresMensal: fd.fcOperacionalMes, totalValor: totalFcOperacional, cor: COR.verde },
             { key: 'fcinv', label: '(=) FC Investimentos', valoresMensal: fd.fcInvestimentoMes, totalValor: totalFcInvestimento, cor: COR.vermelho },
             { key: 'fcfin', label: '(=) FC Financiamentos', valoresMensal: fd.fcFinanciamentoMes, totalValor: totalFcFinanciamento, cor: COR.azul },

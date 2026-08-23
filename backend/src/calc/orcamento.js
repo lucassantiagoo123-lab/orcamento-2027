@@ -49,6 +49,13 @@ export function novaLinhaVazia() {
     baseManual: mesesVazios(),
     percentuais: mesesVazios(),
     justificativa: '',
+    // Competência × caixa (2026-08-23, ver UNIDADES_COM_COMPETENCIA_CAIXA no
+    // frontend) — por padrão o fato gerador e o pagamento ocorrem no mesmo
+    // mês (pagamentoDiferente false); a DRE nunca usa estes 2 campos, só o
+    // FC (ver valorLinhaMesCaixa/computeFluxoIndiretoMensal/
+    // computeFluxoCaixaDiretoMensal).
+    pagamentoDiferente: false,
+    valoresPagamento: mesesVazios(),
   };
 }
 
@@ -92,6 +99,13 @@ export function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipca
 }
 export function valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
   return MESES.reduce((acc, _, m) => acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
+}
+// Valor de CAIXA (pagamento) de uma linha num mês — usado só pelo Fluxo de
+// Caixa, nunca pela DRE. Espelho exato de frontend/src/OrcamentoARA.jsx.
+export function valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  if (!linha) return 0;
+  if (linha.pagamentoDiferente) return parseNum(linha.valoresPagamento?.[m]);
+  return valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
 }
 // Checagem de coerência: premissa qtd_valor/rateio com apenas um dos dois campos preenchido em algum mês.
 export function linhaIncoerente(linha) {
@@ -526,6 +540,16 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
+  // Versão em caixa — espelho de frontend/src/OrcamentoARA.jsx.
+  function totalLinhasMesCaixa(tipoAlvo, excluirPacotes, m) {
+    return linhasCustos.reduce((acc, [chave, linha]) => {
+      const [ccCodigo, contaCodigo] = chave.split('|');
+      const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+      const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
+      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+    }, 0);
+  }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
     + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
@@ -540,6 +564,12 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
   const ajuste13Mes = MESES.map((_, m) => decimoTerceiroMes[m] - pagamento13Mes[m]);
 
+  // Ajuste competência × caixa (2026-08-23) — espelho de
+  // frontend/src/OrcamentoARA.jsx.
+  const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao', 'pessoal'], m)
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+  const ajustePagamentoMes = MESES.map((_, m) => despesasSemDAmes[m] - despesasCaixaMes[m]);
+
   const cg = data.capitalGiro;
   const arMes = MESES.map((_, m) => receitaLiquidaMes[m] * (parseNum(cg.prazoRecebimento?.[m]) / 30));
   const apMes = MESES.map((_, m) => cpvSemPessoalMes[m] * (parseNum(cg.prazoPagamento?.[m]) / 30));
@@ -552,7 +582,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     return -(arMes[m] - arAnt) - (estoqueMes[m] - estAnt) + (apMes[m] - apAnt);
   });
 
-  const fcOperacionalMes = MESES.map((_, m) => ebitdaMes[m] - ircslMes[m] + ajuste13Mes[m] + variacaoGiroMes[m]);
+  const fcOperacionalMes = MESES.map((_, m) => ebitdaMes[m] - ircslMes[m] + ajuste13Mes[m] + variacaoGiroMes[m] + ajustePagamentoMes[m]);
 
   const capexMes = MESES.map((_, m) => (data.capex.projetos || []).reduce((acc, p) => acc + (p.mes === MESES[m] ? parseNum(p.valor) : 0), 0));
   const fcInvestimentoMes = capexMes.map(v => -v);
@@ -593,7 +623,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   return {
     receitaBrutaMes, receitaLiquidaMes, deducoesMes, cpvMes, lucroBrutoMes, despesasSemDAmes,
     ebitdaMes, depreciacaoMes, resultadoFinanceiroMes, outrasMes, ircslMes, lucroLiquidoMes,
-    ajuste13Mes, variacaoGiroMes, fcOperacionalMes,
+    ajuste13Mes, ajustePagamentoMes, variacaoGiroMes, fcOperacionalMes,
     fcInvestimentoMes, fcFinanciamentoMes, variacaoCaixaMes, caixaInicial, caixaAcumuladoMes,
   };
 }
@@ -619,8 +649,20 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
+  // Versão em caixa — espelho de frontend/src/OrcamentoARA.jsx.
+  function totalLinhasMesCaixa(tipoAlvo, excluirPacotes, m) {
+    return linhasCustos.reduce((acc, [chave, linha]) => {
+      const [ccCodigo, contaCodigo] = chave.split('|');
+      const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+      const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
+      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+    }, 0);
+  }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
-  const despesasSemPessoalMes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao', 'pessoal'], m));
+  // Pagamentos de despesas de fato (caixa) — 2026-08-23, espelho de
+  // frontend/src/OrcamentoARA.jsx.
+  const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao', 'pessoal'], m));
   const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
@@ -653,7 +695,7 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
     const estAnt = m === 0 ? estoqueInicial : estoqueMes[m - 1];
     return cpvSemPessoalMes[m] + (estoqueMes[m] - estAnt) - (apMes[m] - apAnt);
   });
-  const pagamentosDespesasMes = despesasSemPessoalMes;
+  const pagamentosDespesasMes = despesasCaixaSemPessoalMes;
   const ircslMes = MESES.map(() => dre.ircsl / 12);
 
   // "Deixe a opção de incluir manualmente algum pagamento" (pedido de
