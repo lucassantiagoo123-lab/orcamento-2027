@@ -1666,6 +1666,11 @@ const UNIDADES_COM_CUSTO_POR_KG = ['textil', 'agricola_tds', 'agricola_fds'];
 // Mesmo racional do ajuste do 13º salário (ver ajuste13Mes em
 // computeFluxoIndiretoMensal), generalizado aqui pra qualquer conta.
 const UNIDADES_COM_COMPETENCIA_CAIXA = ['corporativo'];
+// Consultoria PJ como Pessoal (2026-08-23, pedido explícito: "Apenas no
+// corporativo, considere Consultorias PJs que estão em serviço de
+// terceiros para Pessoal") — só aqui o Novo Headcount ganha a opção
+// "Adicionar consultoria (PJ)", ver QuadroPessoal.
+const UNIDADES_COM_PJ_PESSOAL = ['corporativo'];
 const BASES_RATEIO = [
   { id: 'receita_bruta', nome: 'Receita Bruta do mês' },
   { id: 'receita_liquida', nome: 'Receita Líquida do mês' },
@@ -1701,6 +1706,12 @@ function novaLinhaVazia() {
     // competência — a DRE nunca muda, só a leitura de caixa no FC.
     pagamentoDiferente: false,
     valoresPagamento: mesesVazios(),
+    // Reajuste Inflação — único × mensal (2026-08-23): 'mensal' (padrão,
+    // comportamento de sempre) composta o IPCA mês a mês desde Janeiro.
+    // 'unico' aplica o IPCA anual inteiro de uma vez só a partir do mês
+    // escolhido (reajusteInflacaoMes) — antes dele, sem reajuste nenhum.
+    reajusteInflacaoTipo: 'mensal',
+    reajusteInflacaoMes: '',
   };
 }
 
@@ -1770,6 +1781,14 @@ function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPc
   }
   if (linha.premissaTipo === 'reajuste_inflacao') {
     const base = parseNum(linha.valores?.[m]);
+    // Único (2026-08-23): o IPCA anual inteiro entra de uma vez só a partir
+    // do mês escolhido (reajusteInflacaoMes) — sem composição mensal. Sem
+    // mês escolhido, cai no mesmo degrade de sempre (sem reajuste).
+    if (linha.reajusteInflacaoTipo === 'unico') {
+      const idxReajuste = linha.reajusteInflacaoMes ? MESES.indexOf(linha.reajusteInflacaoMes) : -1;
+      const fatorUnico = (idxReajuste >= 0 && m >= idxReajuste) ? (1 + parseNum(ipcaAnualPct) / 100) : 1;
+      return base * fatorUnico;
+    }
     const fatorAcumulado = Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1);
     return base * fatorAcumulado;
   }
@@ -1922,7 +1941,15 @@ function emptyFormData(unidadeId = 'textil') {
     },
     custos: {
       linhas: {}, detalhes: [], funcionarios: [],
-      premissasPessoal: { inssPct: '', fgtsPct: '', feriasPct: '', decimoTerceiroPct: '', valeTransporteValor: '', cestaBasicaValor: '', planoSaudeValor: '', outrosBeneficiosValor: '' },
+      // meritocraciaPct (2026-08-23): % sobre o total de salários, mesmo
+      // racional dos demais percentuais desta premissa. dissidioMes/
+      // dissidioPct (2026-08-23): a partir do mês escolhido, o salário de
+      // todo mundo na unidade sobe por esse % — ver computeFolhaPessoalMes.
+      premissasPessoal: {
+        inssPct: '', fgtsPct: '', feriasPct: '', decimoTerceiroPct: '', meritocraciaPct: '',
+        valeTransporteValor: '', cestaBasicaValor: '', planoSaudeValor: '', outrosBeneficiosValor: '',
+        dissidioMes: '', dissidioPct: '',
+      },
       // Só Corporativo, conta CORP18 "Passagem e Hospedagem" (decisão de
       // 2026-08-19) — { [ccCodigo]: [viagem, ...] }, ver
       // CONTA_VIAGENS_CALCULADORA/novaViagem/computeViagensMes.
@@ -2000,6 +2027,24 @@ function somaMes(arr) { return (arr || []).reduce((a, v) => a + parseNum(v), 0);
 // 13º salário é provisionado mês a mês por competência (1/12 do salário);
 // o pagamento em caixa (metade nov, metade dez) é tratado à parte, no fluxo
 // de caixa direto (aba Revisão, Análise e Envio), não aqui na DRE.
+//
+// Meritocracia (2026-08-23): % sobre o total de salários CLT do mês,
+// mesmo racional dos demais percentuais (INSS/FGTS/Férias/13º).
+//
+// Dissídio (2026-08-23): mês + % de reajuste, padronizados pra unidade
+// inteira. A partir do mês escolhido (inclusive), o salário de cada
+// funcionário CLT sobe por esse % — INSS/FGTS/Férias/13º/meritocracia
+// (todos % sobre `salarios`) já refletem o valor reajustado automaticamente,
+// sem precisar de lógica própria. PJ (abaixo) não entra no dissídio — não é
+// reajuste coletivo de CLT.
+//
+// Consultoria PJ (2026-08-23, ver UNIDADES_COM_PJ_PESSOAL — só Corporativo):
+// funcionário com tipoContratacao 'pj' conta no headcount e no total de
+// Pessoal (`total`, o que entra na DRE via folhaAnualPorCC), mas por fora de
+// todo o resto — sem INSS/FGTS/Férias/13º/benefícios/meritocracia/dissídio,
+// que só fazem sentido pra CLT. Pedido explícito: o valor do PJ soma no
+// total de Pessoal — não lance essa mesma consultoria de novo como linha em
+// Serviços de Terceiros, duplicaria o custo.
 // ---------------------------------------------------------------------------
 function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
   const ativos = (funcionariosCC || []).filter(f => {
@@ -2007,16 +2052,23 @@ function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
     const idxAdm = MESES.indexOf(f.mesAdmissao);
     return idxAdm === -1 || idxAdm <= mIdx;
   });
-  const salarios = ativos.reduce((acc, f) => acc + parseNum(f.salario), 0);
+  const cltAtivos = ativos.filter(f => f.tipoContratacao !== 'pj');
+  const pjAtivos = ativos.filter(f => f.tipoContratacao === 'pj');
+
+  const idxDissidio = premissas?.dissidioMes ? MESES.indexOf(premissas.dissidioMes) : -1;
+  const fatorDissidio = (idxDissidio >= 0 && mIdx >= idxDissidio) ? (1 + parseNum(premissas?.dissidioPct) / 100) : 1;
+  const salarios = cltAtivos.reduce((acc, f) => acc + parseNum(f.salario) * fatorDissidio, 0);
   const inss = salarios * (parseNum(premissas?.inssPct) / 100);
   const fgts = salarios * (parseNum(premissas?.fgtsPct) / 100);
   const ferias = salarios * (parseNum(premissas?.feriasPct) / 100);
   const decimoTerceiro = salarios * (parseNum(premissas?.decimoTerceiroPct) / 100);
+  const meritocracia = salarios * (parseNum(premissas?.meritocraciaPct) / 100);
   const beneficiosPorFuncionario = parseNum(premissas?.valeTransporteValor) + parseNum(premissas?.cestaBasicaValor) + parseNum(premissas?.planoSaudeValor) + parseNum(premissas?.outrosBeneficiosValor);
-  const beneficios = ativos.length * beneficiosPorFuncionario;
+  const beneficios = cltAtivos.length * beneficiosPorFuncionario;
+  const valoresPj = pjAtivos.reduce((acc, f) => acc + parseNum(f.salario), 0);
   const encargos = inss + fgts + ferias;
-  const total = salarios + encargos + decimoTerceiro + beneficios;
-  return { qtdFuncionarios: ativos.length, salarios, inss, fgts, ferias, encargos, decimoTerceiro, beneficios, total };
+  const total = salarios + encargos + decimoTerceiro + meritocracia + beneficios + valoresPj;
+  return { qtdFuncionarios: ativos.length, salarios, inss, fgts, ferias, encargos, decimoTerceiro, meritocracia, beneficios, valoresPj, total };
 }
 function computeFolhaPessoalAnual(funcionariosCC, premissas) {
   const mensal = MESES.map((_, m) => computeFolhaPessoalMes(funcionariosCC, premissas, m));
@@ -3501,8 +3553,8 @@ export default function OrcamentoARA({ usuario }) {
   }
   // origem: 'novo' — pedido de 2026-08-17, "Novo Headcount a ser inserido
   // manualmente" (ver QuadroPessoal/ehExistente).
-  function addFuncionario(ccCodigo) {
-    atualizar(['custos', 'funcionarios'], [...dados.custos.funcionarios, { id: uid(), nome: '', cargo: '', salario: '', ccCodigo, mesAdmissao: '', origem: 'novo' }]);
+  function addFuncionario(ccCodigo, tipoContratacao = 'clt') {
+    atualizar(['custos', 'funcionarios'], [...dados.custos.funcionarios, { id: uid(), nome: '', cargo: '', salario: '', ccCodigo, mesAdmissao: '', origem: 'novo', tipoContratacao }]);
   }
   function updateFuncionario(id, campo, valor) {
     atualizar(['custos', 'funcionarios'], dados.custos.funcionarios.map(f => f.id === id ? { ...f, [campo]: valor } : f));
@@ -5912,7 +5964,15 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
   // Linha de referência não-editável do IPCA acumulado mês a mês, a partir
   // da premissa macro do FP&A Corporativo (ipcaAnualPct) — pedido de
   // 2026-08-20.
-  const ipcaAcumuladoMensal = MESES.map((_, m) => (Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1) - 1) * 100);
+  // Único (2026-08-23): a referência mostra 0% antes do mês escolhido e o
+  // IPCA anual cheio dele em diante (sem composição) — reflete exatamente
+  // o fator usado em valorLinhaMes.
+  const ipcaAcumuladoMensal = linha.reajusteInflacaoTipo === 'unico'
+    ? MESES.map((_, m) => {
+        const idxReajuste = linha.reajusteInflacaoMes ? MESES.indexOf(linha.reajusteInflacaoMes) : -1;
+        return (idxReajuste >= 0 && m >= idxReajuste) ? parseNum(ipcaAnualPct) : 0;
+      })
+    : MESES.map((_, m) => (Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1) - 1) * 100);
 
   return (
     <div style={{ border: `1px solid ${incoerente ? COR.vermelho : COR.borda}`, borderRadius: 6, marginBottom: 6, background: COR.branco, overflow: 'hidden' }}>
@@ -5987,6 +6047,41 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
               </div>
             </div>
           )}
+          {/* Reajuste único × mensal (2026-08-23): "mensal" compõe o IPCA
+              mês a mês desde Janeiro (comportamento de sempre); "único"
+              aplica o IPCA anual inteiro de uma vez só a partir de um mês
+              escolhido. */}
+          {linha.premissaTipo === 'reajuste_inflacao' && (
+            <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: COR.texto }}>Reajuste:</span>
+              <div style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
+                <button
+                  onClick={() => onUpdate('reajusteInflacaoTipo', 'unico')}
+                  style={{
+                    fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
+                    background: linha.reajusteInflacaoTipo === 'unico' ? COR.azul : COR.branco,
+                    color: linha.reajusteInflacaoTipo === 'unico' ? COR.branco : '#8A8F96',
+                  }}
+                >Único</button>
+                <button
+                  onClick={() => onUpdate('reajusteInflacaoTipo', 'mensal')}
+                  style={{
+                    fontFamily: FONT, fontSize: 9.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
+                    background: linha.reajusteInflacaoTipo !== 'unico' ? COR.azul : COR.branco,
+                    color: linha.reajusteInflacaoTipo !== 'unico' ? COR.branco : '#8A8F96',
+                  }}
+                >Mensal</button>
+              </div>
+              {linha.reajusteInflacaoTipo === 'unico' && (
+                <div style={{ maxWidth: 160 }}>
+                  <Selecao
+                    value={linha.reajusteInflacaoMes} onChange={v => onUpdate('reajusteInflacaoMes', v)}
+                    opcoes={[{ id: '', nome: 'Mês do reajuste…' }, ...MESES.map(m => ({ id: m, nome: m }))]}
+                  />
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ overflowX: 'auto', marginBottom: 8 }}>
             <table>
               <thead>
@@ -6021,7 +6116,7 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
                 {linha.premissaTipo === 'reajuste_inflacao' && (
                   <>
                     <LinhaCalculadaMensal
-                      label={`IPCA acumulado (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
+                      label={`IPCA ${linha.reajusteInflacaoTipo === 'unico' ? `único (${linha.reajusteInflacaoMes || 'sem mês'})` : 'acumulado'} (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
                       valoresMensal={ipcaAcumuladoMensal}
                       formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
                       formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}%`}
@@ -6054,7 +6149,10 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
           </div>
           {linha.premissaTipo === 'reajuste_inflacao' && (
             <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
-              IPCA vem da premissa macro do FP&A Corporativo (tela "Gestão do Orçamento"). O gestor digita o valor-base mensal (R$); o sistema aplica o reajuste acumulado a partir de Janeiro automaticamente.
+              IPCA vem da premissa macro do FP&A Corporativo (tela "Gestão do Orçamento"). O gestor digita o valor-base mensal (R$);
+              {linha.reajusteInflacaoTipo === 'unico'
+                ? ' no modo Único, o sistema aplica o IPCA anual inteiro de uma vez só a partir do mês escolhido (sem reajuste antes dele).'
+                : ' no modo Mensal, o sistema aplica o reajuste acumulado mês a mês a partir de Janeiro automaticamente.'}
             </p>
           )}
           {linha.premissaTipo === 'custo_por_kg' && (
@@ -6220,7 +6318,15 @@ function LinhaContaViagens({ conta, viagens, aberta, onToggle, onUpdateViagens, 
 function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, ipcaAnualPct, volumeTotalKgMes }) {
   const valoresMensaisCalc = MESES.map((_, m) => valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes));
   const formatarPct = (v) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
-  const ipcaAcumuladoMensal = MESES.map((_, m) => (Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1) - 1) * 100);
+  // Único (2026-08-23): a referência mostra 0% antes do mês escolhido e o
+  // IPCA anual cheio dele em diante (sem composição) — reflete exatamente
+  // o fator usado em valorLinhaMes.
+  const ipcaAcumuladoMensal = linha.reajusteInflacaoTipo === 'unico'
+    ? MESES.map((_, m) => {
+        const idxReajuste = linha.reajusteInflacaoMes ? MESES.indexOf(linha.reajusteInflacaoMes) : -1;
+        return (idxReajuste >= 0 && m >= idxReajuste) ? parseNum(ipcaAnualPct) : 0;
+      })
+    : MESES.map((_, m) => (Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1) - 1) * 100);
   return (
     <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 6, marginBottom: 6, background: COR.branco, overflow: 'hidden' }}>
       <button
@@ -6279,7 +6385,7 @@ function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBruta
                 {linha.premissaTipo === 'reajuste_inflacao' && (
                   <>
                     <LinhaCalculadaMensal
-                      label={`IPCA acumulado (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
+                      label={`IPCA ${linha.reajusteInflacaoTipo === 'unico' ? `único (${linha.reajusteInflacaoMes || '—'})` : 'acumulado'} (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
                       valoresMensal={ipcaAcumuladoMensal}
                       formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
                       formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}%`}
@@ -6445,17 +6551,25 @@ function ImportarFuncionariosExcel({ onImportarLote }) {
 // não uma contratação nova planejada).
 function ehExistente(f) { return f.origem !== 'novo'; }
 
-function QuadroPessoal({ ccCodigo, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, folha, onImportarLote }) {
+function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, folha, onImportarLote }) {
   const existentes = funcionarios.filter(ehExistente);
   const novos = funcionarios.filter(f => !ehExistente(f));
   const folhaExistente = computeFolhaPessoalAnual(existentes, premissasPessoal);
   const folhaNovo = computeFolhaPessoalAnual(novos, premissasPessoal);
+  // Consultoria PJ (2026-08-23) — só Corporativo, ver UNIDADES_COM_PJ_PESSOAL.
+  const mostrarPj = UNIDADES_COM_PJ_PESSOAL.includes(unidadeId);
 
   function LinhaFuncionario(f, i, mostrarAdmissao) {
+    const ehPj = f.tipoContratacao === 'pj';
     return (
       <tr key={f.id} style={{ background: i % 2 ? COR.claro : COR.branco }}>
+        {mostrarPj && mostrarAdmissao && (
+          <td style={{ padding: 3, border: `1px solid ${COR.borda}`, textAlign: 'center' }}>
+            <span style={{ fontSize: 9.5, fontWeight: 700, color: ehPj ? COR.laranja : '#8A8F96' }}>{ehPj ? 'PJ' : 'CLT'}</span>
+          </td>
+        )}
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-          <CampoTexto value={f.nome} onChange={v => updateFuncionario(f.id, 'nome', v)} placeholder="Nome do funcionário" />
+          <CampoTexto value={f.nome} onChange={v => updateFuncionario(f.id, 'nome', v)} placeholder={ehPj ? 'Nome da consultoria/consultor' : 'Nome do funcionário'} />
         </td>
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
           <CampoTexto value={f.cargo || ''} onChange={v => updateFuncionario(f.id, 'cargo', v)} placeholder="Cargo" />
@@ -6506,6 +6620,7 @@ function QuadroPessoal({ ccCodigo, funcionarios, addFuncionario, updateFuncionar
       <table style={{ width: '100%', marginBottom: 10 }}>
         <thead>
           <tr>
+            {mostrarPj && <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 40 }}>Tipo</th>}
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left' }}>Funcionário</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Cargo</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Salário previsto</th>
@@ -6515,11 +6630,20 @@ function QuadroPessoal({ ccCodigo, funcionarios, addFuncionario, updateFuncionar
         </thead>
         <tbody>
           {novos.length === 0 ? (
-            <tr><td colSpan={5} style={{ padding: '8px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#8A8F96' }}>Nenhuma contratação planejada ainda.</td></tr>
+            <tr><td colSpan={mostrarPj ? 6 : 5} style={{ padding: '8px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#8A8F96' }}>Nenhuma contratação planejada ainda.</td></tr>
           ) : novos.map((f, i) => LinhaFuncionario(f, i, true))}
         </tbody>
       </table>
-      <Botao variante="fantasma" icone={Plus} onClick={addFuncionario}>Adicionar funcionário (Novo Headcount)</Botao>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Botao variante="fantasma" icone={Plus} onClick={() => addFuncionario(ccCodigo, 'clt')}>Adicionar funcionário (Novo Headcount)</Botao>
+        {mostrarPj && (
+          // Consultoria PJ (2026-08-23, só Corporativo — pedido: "considere
+          // Consultorias PJs que estão em serviço de terceiros para
+          // Pessoal"): entra no headcount/total de Pessoal, sem encargos —
+          // ver computeFolhaPessoalMes.
+          <Botao variante="fantasma" icone={Plus} onClick={() => addFuncionario(ccCodigo, 'pj')}>Adicionar consultoria (PJ)</Botao>
+        )}
+      </div>
 
       <div style={{ marginTop: 16 }}>
         <TabelaMensal
@@ -6570,20 +6694,44 @@ function QuadroPessoal({ ccCodigo, funcionarios, addFuncionario, updateFuncionar
           <Rotulo>Outros benefícios (por func.)</Rotulo>
           <CampoNumero value={premissasPessoal.outrosBeneficiosValor} onChange={v => updatePremissaPessoal('outrosBeneficiosValor', v)} prefixo="R$" placeholder="0,00" />
         </div>
+        <div>
+          <Rotulo>Meritocracia (% sobre salários)</Rotulo>
+          <CampoNumero value={premissasPessoal.meritocraciaPct} onChange={v => updatePremissaPessoal('meritocraciaPct', v)} sufixo="%" placeholder="0,0" />
+        </div>
       </div>
       <p style={{ fontSize: 10.5, color: '#8A8F96', marginBottom: 12 }}>
         13º salário é provisionado mês a mês por competência (1/12 do salário, acima). No fluxo de caixa (aba Revisão, Análise e Envio), o pagamento é reconhecido metade em novembro e metade em dezembro.
       </p>
+
+      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Dissídio</h5>
+      <p style={{ fontSize: 10.5, color: '#8A8F96', marginBottom: 8 }}>
+        A partir do mês escolhido (inclusive), o salário de todo mundo na unidade sobe pelo % informado — INSS/FGTS/Férias/13º/Meritocracia (tudo % sobre salário) já refletem automaticamente o valor reajustado. Sem mês escolhido, nenhum reajuste é aplicado.
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 }}>
+        <div>
+          <Rotulo>Mês do dissídio</Rotulo>
+          <Selecao
+            value={premissasPessoal.dissidioMes} onChange={v => updatePremissaPessoal('dissidioMes', v)}
+            opcoes={[{ id: '', nome: 'Sem dissídio' }, ...MESES.map(m => ({ id: m, nome: m }))]}
+          />
+        </div>
+        <div>
+          <Rotulo>Reajuste do dissídio</Rotulo>
+          <CampoNumero value={premissasPessoal.dissidioPct} onChange={v => updatePremissaPessoal('dissidioPct', v)} sufixo="%" placeholder="0,0" />
+        </div>
+      </div>
 
       <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Folha calculada — {ccCodigo}, mês a mês (Existente + Novo Headcount)</h5>
       <TabelaMensal
         linhas={[]}
         onChangeCelula={() => {}}
         linhasCalculadas={[
-          { key: 'salarios', label: 'Salários', valoresMensal: folha.mensal.map(m => m.salarios), totalValor: folha.mensal.reduce((a, m) => a + m.salarios, 0), cor: COR.texto },
+          { key: 'salarios', label: 'Salários (CLT, já com dissídio se houver)', valoresMensal: folha.mensal.map(m => m.salarios), totalValor: folha.mensal.reduce((a, m) => a + m.salarios, 0), cor: COR.texto },
           { key: 'encargos', label: 'Encargos (INSS+FGTS+Férias)', valoresMensal: folha.mensal.map(m => m.encargos), totalValor: folha.mensal.reduce((a, m) => a + m.encargos, 0), cor: COR.texto },
           { key: 'decimo', label: '13º salário (provisão mensal)', valoresMensal: folha.mensal.map(m => m.decimoTerceiro), totalValor: folha.decimoTerceiroAnual, cor: COR.texto },
+          { key: 'meritocracia', label: 'Meritocracia', valoresMensal: folha.mensal.map(m => m.meritocracia), totalValor: folha.mensal.reduce((a, m) => a + m.meritocracia, 0), cor: COR.texto },
           { key: 'beneficios', label: 'Benefícios', valoresMensal: folha.mensal.map(m => m.beneficios), totalValor: folha.mensal.reduce((a, m) => a + m.beneficios, 0), cor: COR.texto },
+          ...(mostrarPj ? [{ key: 'pj', label: 'Consultoria PJ', valoresMensal: folha.mensal.map(m => m.valoresPj), totalValor: folha.mensal.reduce((a, m) => a + m.valoresPj, 0), cor: COR.texto }] : []),
           { key: 'total', label: 'Total da folha', valoresMensal: folha.mensal.map(m => m.total), totalValor: folha.totalAnual, cor: COR.azul },
         ]}
       />
@@ -6900,8 +7048,9 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, i
                 {g.id === 'pessoal' ? (
                   <QuadroPessoal
                     ccCodigo={ccSel}
+                    unidadeId={unidadeId}
                     funcionarios={(funcionarios || []).filter(f => f.ccCodigo === ccSel)}
-                    addFuncionario={() => addFuncionario(ccSel)}
+                    addFuncionario={addFuncionario}
                     updateFuncionario={updateFuncionario}
                     removeFuncionario={removeFuncionario}
                     premissasPessoal={premissasPessoal}
@@ -6977,22 +7126,15 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, i
         </div>
       )}
 
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 16, marginBottom: 8 }}>Detalhamento dos pacotes de decisão</h4>
-      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Dono, nível de serviço, prioridade e justificativa — o porquê do zero de cada pacote, agregando as contas lançadas acima.</p>
-      {detalhes.map(d => (
-        <div key={d.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 10, marginBottom: 10, background: COR.claro }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr 1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-            <Selecao value={d.cc} onChange={v => updateDetalhe(d.id, 'cc', v)} opcoes={ccsVisiveis.map(c => ({ id: c.codigo, nome: c.nome }))} />
-            <Selecao value={d.pacote} onChange={v => updateDetalhe(d.id, 'pacote', v)} opcoes={refUnidade.pacotes} />
-            <CampoTexto value={d.dono} onChange={v => updateDetalhe(d.id, 'dono', v)} placeholder="Dono do pacote" />
-            <Selecao value={d.nivelServico} onChange={v => updateDetalhe(d.id, 'nivelServico', v)} opcoes={NIVEIS_SERVICO} />
-            <Selecao value={d.prioridade} onChange={v => updateDetalhe(d.id, 'prioridade', v)} opcoes={PRIORIDADES} />
-            <button onClick={() => removeDetalhe(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={14} /></button>
-          </div>
-          <CampoJustificativa value={d.justificativa} onChange={v => updateDetalhe(d.id, 'justificativa', v)} />
-        </div>
-      ))}
-      <Botao variante="fantasma" icone={Plus} onClick={addDetalhe}>Adicionar pacote de decisão</Botao>
+      {/* "Detalhamento dos pacotes de decisão" (Dono/Nível de Serviço/
+          Prioridade/Justificativa por CC×Pacote) retirado em 2026-08-23,
+          pedido explícito: "Desconsidere a opção de adicionar pacote de
+          decisão em todas as empresas". `detalhes`/addDetalhe/updateDetalhe/
+          removeDetalhe continuam existindo no estado e nas props (dados já
+          salvos de antes não se perdem, e o histórico de versões enviadas
+          antes desta mudança preserva o que foi preenchido) — só a UI de
+          edição saiu daqui. Nunca alimentou nenhum cálculo (DRE/FC), então
+          a remoção não muda nenhum número. */}
 
       <PainelPlanoContas refUnidade={refUnidade} />
     </div>

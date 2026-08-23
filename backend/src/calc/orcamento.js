@@ -56,6 +56,10 @@ export function novaLinhaVazia() {
     // computeFluxoCaixaDiretoMensal).
     pagamentoDiferente: false,
     valoresPagamento: mesesVazios(),
+    // Reajuste Inflação — único × mensal (2026-08-23) — espelho de
+    // frontend/src/OrcamentoARA.jsx.
+    reajusteInflacaoTipo: 'mensal',
+    reajusteInflacaoMes: '',
   };
 }
 
@@ -88,6 +92,12 @@ export function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipca
   }
   if (linha.premissaTipo === 'reajuste_inflacao') {
     const base = parseNum(linha.valores?.[m]);
+    // Único × mensal (2026-08-23) — espelho de frontend/src/OrcamentoARA.jsx.
+    if (linha.reajusteInflacaoTipo === 'unico') {
+      const idxReajuste = linha.reajusteInflacaoMes ? MESES.indexOf(linha.reajusteInflacaoMes) : -1;
+      const fatorUnico = (idxReajuste >= 0 && m >= idxReajuste) ? (1 + parseNum(ipcaAnualPct) / 100) : 1;
+      return base * fatorUnico;
+    }
     const fatorAcumulado = Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1);
     return base * fatorAcumulado;
   }
@@ -183,7 +193,14 @@ export function emptyFormData(unidadeId = 'textil') {
     },
     custos: {
       linhas: {}, detalhes: [], funcionarios: [],
-      premissasPessoal: { inssPct: '', fgtsPct: '', feriasPct: '', decimoTerceiroPct: '', valeTransporteValor: '', cestaBasicaValor: '', planoSaudeValor: '', outrosBeneficiosValor: '' },
+      // meritocraciaPct/dissidioMes/dissidioPct (2026-08-23) — espelho de
+      // frontend/src/OrcamentoARA.jsx, ver nota completa em
+      // computeFolhaPessoalMes.
+      premissasPessoal: {
+        inssPct: '', fgtsPct: '', feriasPct: '', decimoTerceiroPct: '', meritocraciaPct: '',
+        valeTransporteValor: '', cestaBasicaValor: '', planoSaudeValor: '', outrosBeneficiosValor: '',
+        dissidioMes: '', dissidioPct: '',
+      },
       // Só Corporativo, conta CORP18 "Passagem e Hospedagem" (decisão de
       // 2026-08-19) — { [ccCodigo]: [viagem, ...] }. O backend nunca
       // calcula em cima disto: o frontend sincroniza o total já pronto em
@@ -263,6 +280,9 @@ export function emptyFormData(unidadeId = 'textil') {
 // 13º salário é provisionado mês a mês por competência (1/12 do salário);
 // o pagamento em caixa (metade nov, metade dez) é tratado à parte, no fluxo
 // de caixa direto (aba Revisão, Análise e Envio), não aqui na DRE.
+//
+// Meritocracia/Dissídio/Consultoria PJ (2026-08-23) — espelho de
+// frontend/src/OrcamentoARA.jsx, ver nota completa lá.
 // ---------------------------------------------------------------------------
 export function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
   const ativos = (funcionariosCC || []).filter(f => {
@@ -270,16 +290,23 @@ export function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
     const idxAdm = MESES.indexOf(f.mesAdmissao);
     return idxAdm === -1 || idxAdm <= mIdx;
   });
-  const salarios = ativos.reduce((acc, f) => acc + parseNum(f.salario), 0);
+  const cltAtivos = ativos.filter(f => f.tipoContratacao !== 'pj');
+  const pjAtivos = ativos.filter(f => f.tipoContratacao === 'pj');
+
+  const idxDissidio = premissas?.dissidioMes ? MESES.indexOf(premissas.dissidioMes) : -1;
+  const fatorDissidio = (idxDissidio >= 0 && mIdx >= idxDissidio) ? (1 + parseNum(premissas?.dissidioPct) / 100) : 1;
+  const salarios = cltAtivos.reduce((acc, f) => acc + parseNum(f.salario) * fatorDissidio, 0);
   const inss = salarios * (parseNum(premissas?.inssPct) / 100);
   const fgts = salarios * (parseNum(premissas?.fgtsPct) / 100);
   const ferias = salarios * (parseNum(premissas?.feriasPct) / 100);
   const decimoTerceiro = salarios * (parseNum(premissas?.decimoTerceiroPct) / 100);
+  const meritocracia = salarios * (parseNum(premissas?.meritocraciaPct) / 100);
   const beneficiosPorFuncionario = parseNum(premissas?.valeTransporteValor) + parseNum(premissas?.cestaBasicaValor) + parseNum(premissas?.planoSaudeValor) + parseNum(premissas?.outrosBeneficiosValor);
-  const beneficios = ativos.length * beneficiosPorFuncionario;
+  const beneficios = cltAtivos.length * beneficiosPorFuncionario;
+  const valoresPj = pjAtivos.reduce((acc, f) => acc + parseNum(f.salario), 0);
   const encargos = inss + fgts + ferias;
-  const total = salarios + encargos + decimoTerceiro + beneficios;
-  return { qtdFuncionarios: ativos.length, salarios, inss, fgts, ferias, encargos, decimoTerceiro, beneficios, total };
+  const total = salarios + encargos + decimoTerceiro + meritocracia + beneficios + valoresPj;
+  return { qtdFuncionarios: ativos.length, salarios, inss, fgts, ferias, encargos, decimoTerceiro, meritocracia, beneficios, valoresPj, total };
 }
 export function computeFolhaPessoalAnual(funcionariosCC, premissas) {
   const mensal = MESES.map((_, m) => computeFolhaPessoalMes(funcionariosCC, premissas, m));
