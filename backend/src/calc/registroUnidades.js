@@ -5,9 +5,9 @@
 // contas nenhum ainda (nem placeholder: não há dado-fonte pra basear um).
 import { CCS_TEXTIL, PLANO_CONTAS, TODAS_CONTAS } from './constantesTextil.js';
 import {
-  CCS_PLACEHOLDER_AGRICOLA_RESORTS,
   CCS_AGRICOLA,
   PLANO_CONTAS_AGRICOLA, TODAS_CONTAS_AGRICOLA,
+  CCS_RESORTS,
   PLANO_CONTAS_RESORTS, TODAS_CONTAS_RESORTS,
   CCS_CORPORATIVO, PLANO_CONTAS_CORPORATIVO, TODAS_CONTAS_CORPORATIVO,
 } from './constantesAgricolaResorts.js';
@@ -22,7 +22,13 @@ export const UNIDADES_ORCAMENTO = {
   agricola: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA },
   agricola_tds: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA },
   agricola_fds: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA },
-  resorts: { ccs: CCS_PLACEHOLDER_AGRICOLA_RESORTS, todasContas: TODAS_CONTAS_RESORTS, planoContas: PLANO_CONTAS_RESORTS },
+  // Resorts ganhou CC real em 2026-08-20 (Centros de Custos - ARA Resorts
+  // 1.xlsx) — mesmo padrão: samoa_beach/samoa_villa são os sites editáveis
+  // (cada um só com os CCs que existem naquele resort, ver `resorts` em
+  // CCS_RESORTS), 'resorts' é o Consolidado.
+  resorts: { ccs: CCS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, planoContas: PLANO_CONTAS_RESORTS },
+  samoa_beach: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('beach')), todasContas: TODAS_CONTAS_RESORTS, planoContas: PLANO_CONTAS_RESORTS },
+  samoa_villa: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('villa')), todasContas: TODAS_CONTAS_RESORTS, planoContas: PLANO_CONTAS_RESORTS },
   // Habilitada em 2026-08-16 — ver nota completa em constantesAgricolaResorts.js.
   corporativo: { ccs: CCS_CORPORATIVO, todasContas: TODAS_CONTAS_CORPORATIVO, planoContas: PLANO_CONTAS_CORPORATIVO },
 };

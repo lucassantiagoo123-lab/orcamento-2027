@@ -122,7 +122,7 @@ function receitaVazia(unidadeId) {
       deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
     };
   }
-  if (unidadeId === 'resorts') {
+  if (unidadeId === 'resorts' || unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa') {
     const linhas = {};
     LINHAS_RECEITA_RESORTS.forEach((l) => { linhas[l.id] = novaLinhaVazia(); });
     return {
@@ -391,22 +391,40 @@ export function somarDRE(a, b) {
   };
 }
 
+// Consolidados multi-site — espelho de CONSOLIDADOS_MULTISITE em
+// frontend/src/OrcamentoARA.jsx. A chave de cada site no wrapper é o
+// próprio unidadeId dele (ex.: {_tipo:'consolidado_agricola', agricola_tds:
+// {...}, agricola_fds: {...}}). Cada site resolve a própria referência —
+// necessário de verdade pro Resorts, já que Beach e Villa não têm
+// exatamente os mesmos CCs.
+const CONSOLIDADOS_MULTISITE = {
+  agricola: { tipo: 'consolidado_agricola', sites: ['agricola_tds', 'agricola_fds'] },
+  resorts: { tipo: 'consolidado_resorts', sites: ['samoa_beach', 'samoa_villa'] },
+};
+// true se `d` é um dos wrappers acima (qualquer família) — espelho de
+// ehSnapshotConsolidado em frontend/src/OrcamentoARA.jsx.
+export function ehSnapshotConsolidado(d) {
+  return !!(d && Object.values(CONSOLIDADOS_MULTISITE).some(c => c.tipo === d._tipo));
+}
+
 // computeDRE "unidade-aware" — espelho de dreDaUnidade em OrcamentoARA.jsx.
 // GET /:unidadeId e POST /:unidadeId/enviar chamam computeDRE direto sobre
-// `orcamento.dados`; pra 'agricola' (Consolidado) depois do primeiro envio,
-// esse `dados` é o snapshot combinado {_tipo:'consolidado_agricola', tds,
-// fds} gravado pelo frontend (ver ConsolidadoAgricola) — computeDRE
-// quebraria tentando ler `dados.receita` direto do wrapper. `ref` continua
-// sendo passado pra manter a assinatura igual a computeDRE nos outros
-// casos, mas não é usado no ramo do wrapper (usa sempre a referência de
-// agricola_tds/agricola_fds, que são as unidades de verdade por trás dele).
+// `orcamento.dados`; pra 'agricola'/'resorts' (Consolidado) depois do
+// primeiro envio, esse `dados` é o snapshot combinado (ver
+// CONSOLIDADOS_MULTISITE) gravado pelo frontend (ver ConsolidadoAgricola/
+// ConsolidadoResorts) — computeDRE quebraria tentando ler `dados.receita`
+// direto do wrapper. `ref` continua sendo passado pra manter a assinatura
+// igual a computeDRE nos outros casos, mas não é usado no ramo do wrapper
+// (usa sempre a referência de cada site, que são as unidades de verdade
+// por trás dele).
 export function dreDaUnidade(dadosUnidade, unidadeId, ref) {
-  if (unidadeId === 'agricola' && dadosUnidade && dadosUnidade._tipo === 'consolidado_agricola') {
-    const refAg = buscarReferencia('agricola_tds') || ref;
-    return somarDRE(
-      computeDRE(dadosUnidade.tds || emptyFormData('agricola_tds'), refAg),
-      computeDRE(dadosUnidade.fds || emptyFormData('agricola_fds'), refAg),
-    );
+  const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
+  if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
+    const [dreA, dreB] = consolidado.sites.map(siteId => {
+      const refSite = buscarReferencia(siteId) || ref;
+      return computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), refSite);
+    });
+    return somarDRE(dreA, dreB);
   }
   return computeDRE(dadosUnidade, ref);
 }

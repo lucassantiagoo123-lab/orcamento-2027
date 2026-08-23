@@ -9,16 +9,17 @@ import {
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
-import { CCS_TEXTIL, CCS_PLACEHOLDER_AGRICOLA_RESORTS, CCS_AGRICOLA, CCS_CORPORATIVO } from './OrcamentoARA.jsx';
+import { CCS_TEXTIL, CCS_AGRICOLA, CCS_RESORTS, CCS_CORPORATIVO } from './OrcamentoARA.jsx';
 
 const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9D9D9', claro: '#F7F7F7' };
-// 2026-08-20: Agrícola virou 3 "unidades" — agricola_tds/agricola_fds (as
-// fazendas, onde o lançamento de verdade acontece) e agricola (Consolidado,
-// só leitura + envio — ver ConsolidadoAgricola no OrcamentoARA.jsx). Um
-// Gestor da Unidade normalmente precisa das 3 vinculadas pra ter o pacote
-// completo (editar as duas fazendas + enviar o Consolidado); um Gestor de
-// CC só precisa das duas fazendas (não acessa o Consolidado).
-const UNIDADES_IDS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'resorts', 'ei', 'energia', 'corporativo'];
+// 2026-08-20: Agrícola e Resorts viraram 3 "unidades" cada — os 2 sites
+// (fazendas/resorts, onde o lançamento de verdade acontece) e o Consolidado
+// (só leitura + envio — ver ConsolidadoAgricola/ConsolidadoResorts no
+// OrcamentoARA.jsx). Um Gestor da Unidade normalmente precisa das 3
+// vinculadas pra ter o pacote completo (editar os dois sites + enviar o
+// Consolidado); um Gestor de CC só precisa dos dois sites (não acessa o
+// Consolidado).
+const UNIDADES_IDS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'resorts', 'ei', 'energia', 'corporativo'];
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
   gerente_unidade: 'Gestor da Unidade',
@@ -29,16 +30,16 @@ const PERFIL_LABEL = {
 // unidade (inclusive Corporativo) e, dentro dela, marca 1 ou mais CCs
 // (checklist — "um gestor pode ser gestor de mais de um CC", correção do
 // mesmo dia). Reaproveita as mesmas listas de CC já usadas no orçamento.
-// Têxtil ganhou o CC real em 2026-08-19 (nível de subárea, 14 CCs,
-// CCS_TEXTIL) — Agrícola/Resorts continuam no placeholder genérico
-// (CCS_PLACEHOLDER_AGRICOLA_RESORTS — CLAUDE.md, "pendência de
-// dado-fonte", ainda sem CC oficial pra elas). EI/Energia ainda não têm CC.
+// Têxtil (2026-08-19), Agrícola (2026-08-20) e Resorts (2026-08-20) já têm
+// CC real. EI/Energia ainda não têm CC.
 const CCS_POR_UNIDADE = {
   textil: CCS_TEXTIL,
   agricola_tds: CCS_AGRICOLA,
   agricola_fds: CCS_AGRICOLA,
   agricola: [], // Consolidado — sem CC próprio pra vincular Gestor de CC (ver nota acima)
-  resorts: CCS_PLACEHOLDER_AGRICOLA_RESORTS,
+  samoa_beach: CCS_RESORTS.filter(cc => cc.resorts.includes('beach')),
+  samoa_villa: CCS_RESORTS.filter(cc => cc.resorts.includes('villa')),
+  resorts: [], // Consolidado — idem
   corporativo: CCS_CORPORATIVO,
   ei: [],
   energia: [],

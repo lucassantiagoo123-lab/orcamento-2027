@@ -297,6 +297,83 @@ export const PLANO_CONTAS_AGRICOLA = {
   ],
 };
 
+// CCs reais da ARA Resorts (Centros de Custos - ARA Resorts 1.xlsx,
+// 2026-08-20) — 12 áreas (nivel:2) e seus CCs analíticos (nivel:3).
+// `resorts: ['beach'|'villa']` indica em qual(is) resort(s) o CC existe —
+// a maioria nos dois, mas "AT Ampliação Beach" só no Beach, "Villa Muro
+// Alto"/"AT Ampliação Villa" só na Villa. Sem De/Para de conta × CC pro
+// Resorts (diferente da Agrícola) — todo CC analítico recebe o plano de
+// contas completo (PLANO_CONTAS_RESORTS, sem alteração), mesmo critério do
+// Corporativo. Espelho exato de CCS_RESORTS em frontend/src/OrcamentoARA.jsx.
+export const CCS_RESORTS = [
+  { codigo: '00', nome: 'Diretoria', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0002', nome: 'Conselho', tipo: 'despesa', nivel: 3, areaCodigo: '00', resorts: ['beach', 'villa'] },
+
+  { codigo: '01', nome: 'Hospedagem', tipo: 'producao', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0101', nome: 'Apartamentos', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+  { codigo: '0102', nome: 'Recepção', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+  { codigo: '0103', nome: 'Reservas', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+  { codigo: '0105', nome: 'Esporte e Lazer', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+  { codigo: '0106', nome: 'Governança', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+  { codigo: '0107', nome: 'Experiências', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+
+  { codigo: '02', nome: 'Alimentos e Bebidas', tipo: 'producao', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0201', nome: 'Restaurante', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0202', nome: 'Room Service', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0203', nome: 'Cozinha', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0204', nome: 'Frigobar', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0205', nome: 'Café da Manhã', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0206', nome: 'Refeitório', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0207', nome: 'Bar Piscina', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0208', nome: 'Bar Praia', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0209', nome: 'Eventos A&B', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0210', nome: 'Produção de Alimentos', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0212', nome: 'Padaria', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0213', nome: 'Confeitaria', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0214', nome: 'Deck Praia', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0215', nome: 'Praia Polinésia', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0216', nome: 'Piscina Polinésia', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0217', nome: 'Lobby Bar', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['villa'] },
+
+  { codigo: '03', nome: 'Administração', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0301', nome: 'Diretoria', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0302', nome: 'Apoio Administrativo', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0303', nome: 'Almoxarifado', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0304', nome: 'RH/Departamento Pessoal', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0306', nome: 'Financeiro', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0307', nome: 'Compras', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0308', nome: 'Tecnologia da Informação', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0310', nome: 'Portaria/Segurança', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+
+  { codigo: '04', nome: 'Serviços', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0402', nome: 'Lavanderia', tipo: 'despesa', nivel: 3, areaCodigo: '04', resorts: ['beach', 'villa'] },
+
+  { codigo: '05', nome: 'Comercial', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0502', nome: 'Propaganda e Marketing', tipo: 'despesa', nivel: 3, areaCodigo: '05', resorts: ['beach', 'villa'] },
+
+  { codigo: '06', nome: 'Manutenção', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0601', nome: 'Manutenção Predial Adm', tipo: 'despesa', nivel: 3, areaCodigo: '06', resorts: ['beach', 'villa'] },
+  { codigo: '0602', nome: 'Obras e Reformas', tipo: 'despesa', nivel: 3, areaCodigo: '06', resorts: ['beach', 'villa'] },
+
+  { codigo: '94', nome: 'AT Ampliação Beach', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach'] },
+  { codigo: '9401', nome: 'Ampliação Construção', tipo: 'despesa', nivel: 3, areaCodigo: '94', resorts: ['beach'] },
+  { codigo: '9402', nome: 'Ampliação Montagem', tipo: 'despesa', nivel: 3, areaCodigo: '94', resorts: ['beach'] },
+
+  { codigo: '95', nome: 'Villa Muro Alto', tipo: 'producao', nivel: 2, areaCodigo: null, resorts: ['villa'] },
+  { codigo: '9501', nome: 'Operação Villa Muro Alto', tipo: 'producao', nivel: 3, areaCodigo: '95', resorts: ['villa'] },
+
+  { codigo: '96', nome: 'AT Ampliação Villa', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['villa'] },
+  { codigo: '9601', nome: 'Ampliação Construção', tipo: 'despesa', nivel: 3, areaCodigo: '96', resorts: ['villa'] },
+  { codigo: '9602', nome: 'Ampliação Montagem', tipo: 'despesa', nivel: 3, areaCodigo: '96', resorts: ['villa'] },
+
+  { codigo: '97', nome: 'Condomínio Polinésia', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '9701', nome: 'Condomínio Polinésia', tipo: 'despesa', nivel: 3, areaCodigo: '97', resorts: ['beach', 'villa'] },
+  { codigo: '9702', nome: 'La Fleur Collection', tipo: 'despesa', nivel: 3, areaCodigo: '97', resorts: ['beach', 'villa'] },
+
+  { codigo: '99', nome: 'Bloco 3', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '9901', nome: 'Bloco 3', tipo: 'despesa', nivel: 3, areaCodigo: '99', resorts: ['beach', 'villa'] },
+];
+
 // Resorts_Contas_x_Pacote: 260 contas classificadas (OK), 16 fora do escopo (CAPEX/obra, conta sintética, despesa financeira, ou sem pacote) — excluídas
 
 export const PACOTES_RESORTS = [

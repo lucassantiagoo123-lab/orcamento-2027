@@ -27,12 +27,14 @@ const PERFIL_LABEL = {
 // REFERENCIA_POR_UNIDADE). Corporativo continua painel de referência
 // (pendência diferente — falta De/Para conta×CC); ARA EI segue de fora,
 // sem plano de contas nenhum ainda.
-// 2026-08-20: Agrícola virou TDS/FDS/Consolidado (ver FAMILIA_AGRICOLA) —
-// 'agricola_tds'/'agricola_fds' têm lançamento próprio; 'agricola'
-// (Consolidado) continua na lista só porque o envio/histórico dela reaproveita
-// o mesmo PUT/POST de qualquer unidade (ver ConsolidadoAgricola) — não tem
-// formulário de premissa próprio (a tela não deixa editar `dados` nela).
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'corporativo'];
+// 2026-08-20: Agrícola e Resorts viraram Família (2 sites + Consolidado —
+// ver FAMILIAS_MULTISITE). Os sites (agricola_tds/agricola_fds/samoa_beach/
+// samoa_villa) têm lançamento próprio; 'agricola'/'resorts' (Consolidado)
+// continuam na lista só porque o envio/histórico deles reaproveita o mesmo
+// PUT/POST de qualquer unidade (ver ConsolidadoAgricola/ConsolidadoResorts)
+// — não têm formulário de premissa próprio (a tela não deixa editar `dados`
+// neles).
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo'];
 
 const COR = {
   azul: '#0C4391',
@@ -55,7 +57,12 @@ const UNIDADES = [
   { id: 'agricola', nome: 'ARA Agrícola — Consolidado', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
   { id: 'agricola_tds', nome: 'ARA Agrícola — Terra do Sol', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
   { id: 'agricola_fds', nome: 'ARA Agrícola — Frutos do Sol', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
-  { id: 'resorts', nome: 'ARA Resorts', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
+  // Mesmo padrão da Agrícola, aplicado ao Resorts em 2026-08-20: Samoa
+  // Beach e Samoa Villa são as unidades editáveis, 'resorts' é o
+  // Consolidado — ver FAMILIA_RESORTS/ConsolidadoResorts.
+  { id: 'resorts', nome: 'ARA Resorts — Consolidado', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
+  { id: 'samoa_beach', nome: 'ARA Resorts — Samoa Beach', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
+  { id: 'samoa_villa', nome: 'ARA Resorts — Samoa Villa', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
   { id: 'ei', nome: 'ARA EI', cor: '#F07D00', logo: null }, // pendente: arquivo não recebido ainda
   // Renomeado de "ARA Energia" em 2026-08-09 — id interno continua 'energia'
   // (evita mexer em schema/seed/perfis), mas essa unidade não segue a mesma
@@ -74,14 +81,29 @@ const SUBUNIDADES_AGRICOLA = [
   { id: 'agricola_fds', nome: 'Frutos do Sol (FDS)' },
   { id: 'agricola', nome: 'Consolidado' },
 ];
+// Mesmo padrão, aplicado ao Resorts em 2026-08-20 (ver ConsolidadoResorts).
+const FAMILIA_RESORTS = ['samoa_beach', 'samoa_villa', 'resorts'];
+const SUBUNIDADES_RESORTS = [
+  { id: 'samoa_beach', nome: 'Samoa Beach' },
+  { id: 'samoa_villa', nome: 'Samoa Villa' },
+  { id: 'resorts', nome: 'Consolidado' },
+];
+// Toda "família" de unidades multi-site (fazendas, resorts) — usada pra
+// agrupar a barra de navegação genericamente (ver VisaoGerente) sem
+// precisar de um bloco de código separado por família.
+const FAMILIAS_MULTISITE = [
+  { ids: FAMILIA_AGRICOLA, subunidades: SUBUNIDADES_AGRICOLA, nome: 'ARA Agrícola', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
+  { ids: FAMILIA_RESORTS, subunidades: SUBUNIDADES_RESORTS, nome: 'ARA Resorts', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
+];
 // Pra somar "o Grupo inteiro" (dashboard do FP&A, PPT, Resultados
-// Consolidados) sem contar a Agrícola 3 vezes — 'agricola' (Consolidado)
-// já é Terra do Sol + Frutos do Sol somados (ver dreDaUnidade/somarDRE),
-// então as duas fazendas ficam de fora dessa lista específica. Listagens
-// que mostram cada "unidade" como linha própria (Status por unidade, por
-// exemplo) continuam usando UNIDADES sem filtro — lá não tem soma, então
-// não tem risco de duplicar.
-const UNIDADES_PARA_TOTAL_GRUPO = UNIDADES.filter(u => u.id !== 'agricola_tds' && u.id !== 'agricola_fds');
+// Consolidados) sem contar Agrícola/Resorts em dobro — 'agricola'/'resorts'
+// (Consolidado) já são as duas fazendas/resorts somados (ver
+// dreDaUnidade/somarDRE), então os sites individuais ficam de fora dessa
+// lista específica. Listagens que mostram cada "unidade" como linha
+// própria (Status por unidade, por exemplo) continuam usando UNIDADES sem
+// filtro — lá não tem soma, então não tem risco de duplicar.
+const IDS_MULTISITE_FILHOS = FAMILIAS_MULTISITE.flatMap(f => f.ids.slice(0, -1)); // tudo, menos o Consolidado (último da lista) de cada família
+const UNIDADES_PARA_TOTAL_GRUPO = UNIDADES.filter(u => !IDS_MULTISITE_FILHOS.includes(u.id));
 
 const FONT = "'Aptos Narrow','Aptos','Segoe UI',system-ui,sans-serif";
 
@@ -1430,6 +1452,94 @@ Object.entries(PLANO_CONTAS_RESORTS).forEach(([pacoteId, contas]) => {
   contas.forEach(c => { TODAS_CONTAS_RESORTS[c.codigo] = { ...c, pacoteId }; });
 });
 
+// ---------------------------------------------------------------------------
+// CCs reais da ARA Resorts (Centros de Custos - ARA Resorts 1.xlsx,
+// fornecida em 2026-08-20) — 12 áreas (nivel:2, sintético/consolidador) e
+// seus CCs analíticos (nivel:3, areaCodigo aponta pro código da área-mãe).
+// Coluna "Status" da planilha: S = sintético, A = analítico. Coluna
+// "Unidade" virou `resorts: ['beach'|'villa']` — a maioria dos CCs existe
+// nos dois resorts (Samoa Beach e Samoa Villa), mas "AT Ampliação Beach"
+// (94) só existe no Beach, "Villa Muro Alto" (95) e "AT Ampliação Villa"
+// (96) só na Villa — ver samoa_beach/samoa_villa em REFERENCIA_POR_UNIDADE
+// (cada uma filtra CCS_RESORTS pelo próprio resort).
+// tipo: 'producao' pras áreas que geram o CPV do hotel (Hospedagem, A&B,
+// Villa Muro Alto — que é outra operação de hospedagem); 'despesa' pras
+// demais (Administração, Serviços, Comercial, Manutenção, Ampliação/obras,
+// Condomínio, Bloco 3) — classificação interpretada por mim a partir do
+// nome de cada área, a planilha-fonte não trazia essa coluna.
+// Sem De/Para de conta analítica × CC pro Resorts ainda (diferente da
+// Agrícola, que tinha a Camadas.xlsx pra 5 CCs) — decisão de 2026-08-20:
+// todo CC analítico recebe o plano de contas completo (PLANO_CONTAS_RESORTS,
+// sem alteração), mesmo critério já usado no Corporativo.
+export const CCS_RESORTS = [
+  { codigo: '00', nome: 'Diretoria', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0002', nome: 'Conselho', tipo: 'despesa', nivel: 3, areaCodigo: '00', resorts: ['beach', 'villa'] },
+
+  { codigo: '01', nome: 'Hospedagem', tipo: 'producao', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0101', nome: 'Apartamentos', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+  { codigo: '0102', nome: 'Recepção', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+  { codigo: '0103', nome: 'Reservas', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+  { codigo: '0105', nome: 'Esporte e Lazer', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+  { codigo: '0106', nome: 'Governança', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+  { codigo: '0107', nome: 'Experiências', tipo: 'producao', nivel: 3, areaCodigo: '01', resorts: ['beach', 'villa'] },
+
+  { codigo: '02', nome: 'Alimentos e Bebidas', tipo: 'producao', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0201', nome: 'Restaurante', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0202', nome: 'Room Service', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0203', nome: 'Cozinha', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0204', nome: 'Frigobar', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0205', nome: 'Café da Manhã', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0206', nome: 'Refeitório', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0207', nome: 'Bar Piscina', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0208', nome: 'Bar Praia', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0209', nome: 'Eventos A&B', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0210', nome: 'Produção de Alimentos', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0212', nome: 'Padaria', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0213', nome: 'Confeitaria', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0214', nome: 'Deck Praia', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0215', nome: 'Praia Polinésia', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0216', nome: 'Piscina Polinésia', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['beach', 'villa'] },
+  { codigo: '0217', nome: 'Lobby Bar', tipo: 'producao', nivel: 3, areaCodigo: '02', resorts: ['villa'] },
+
+  { codigo: '03', nome: 'Administração', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0301', nome: 'Diretoria', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0302', nome: 'Apoio Administrativo', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0303', nome: 'Almoxarifado', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0304', nome: 'RH/Departamento Pessoal', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0306', nome: 'Financeiro', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0307', nome: 'Compras', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0308', nome: 'Tecnologia da Informação', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+  { codigo: '0310', nome: 'Portaria/Segurança', tipo: 'despesa', nivel: 3, areaCodigo: '03', resorts: ['beach', 'villa'] },
+
+  { codigo: '04', nome: 'Serviços', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0402', nome: 'Lavanderia', tipo: 'despesa', nivel: 3, areaCodigo: '04', resorts: ['beach', 'villa'] },
+
+  { codigo: '05', nome: 'Comercial', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0502', nome: 'Propaganda e Marketing', tipo: 'despesa', nivel: 3, areaCodigo: '05', resorts: ['beach', 'villa'] },
+
+  { codigo: '06', nome: 'Manutenção', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '0601', nome: 'Manutenção Predial Adm', tipo: 'despesa', nivel: 3, areaCodigo: '06', resorts: ['beach', 'villa'] },
+  { codigo: '0602', nome: 'Obras e Reformas', tipo: 'despesa', nivel: 3, areaCodigo: '06', resorts: ['beach', 'villa'] },
+
+  { codigo: '94', nome: 'AT Ampliação Beach', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach'] },
+  { codigo: '9401', nome: 'Ampliação Construção', tipo: 'despesa', nivel: 3, areaCodigo: '94', resorts: ['beach'] },
+  { codigo: '9402', nome: 'Ampliação Montagem', tipo: 'despesa', nivel: 3, areaCodigo: '94', resorts: ['beach'] },
+
+  { codigo: '95', nome: 'Villa Muro Alto', tipo: 'producao', nivel: 2, areaCodigo: null, resorts: ['villa'] },
+  { codigo: '9501', nome: 'Operação Villa Muro Alto', tipo: 'producao', nivel: 3, areaCodigo: '95', resorts: ['villa'] },
+
+  { codigo: '96', nome: 'AT Ampliação Villa', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['villa'] },
+  { codigo: '9601', nome: 'Ampliação Construção', tipo: 'despesa', nivel: 3, areaCodigo: '96', resorts: ['villa'] },
+  { codigo: '9602', nome: 'Ampliação Montagem', tipo: 'despesa', nivel: 3, areaCodigo: '96', resorts: ['villa'] },
+
+  { codigo: '97', nome: 'Condomínio Polinésia', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '9701', nome: 'Condomínio Polinésia', tipo: 'despesa', nivel: 3, areaCodigo: '97', resorts: ['beach', 'villa'] },
+  { codigo: '9702', nome: 'La Fleur Collection', tipo: 'despesa', nivel: 3, areaCodigo: '97', resorts: ['beach', 'villa'] },
+
+  { codigo: '99', nome: 'Bloco 3', tipo: 'despesa', nivel: 2, areaCodigo: null, resorts: ['beach', 'villa'] },
+  { codigo: '9901', nome: 'Bloco 3', tipo: 'despesa', nivel: 3, areaCodigo: '99', resorts: ['beach', 'villa'] },
+];
+
 // Decisão de 2026-08-09: Agrícola e Resorts habilitadas com lançamento
 // completo, usando 8 CCs genéricos como PLACEHOLDER (CCS_PLACEHOLDER_
 // AGRICOLA_RESORTS, ver definição acima) — a matriz de governança não traz
@@ -1448,7 +1558,14 @@ const REFERENCIA_POR_UNIDADE = {
   agricola: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
   agricola_tds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
   agricola_fds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
-  resorts: { ccs: CCS_PLACEHOLDER_AGRICOLA_RESORTS, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
+  // Resorts ganhou CC real em 2026-08-20 (Centros de Custos - ARA Resorts
+  // 1.xlsx) — mesmo padrão da Agrícola: Samoa Beach e Samoa Villa são as
+  // unidades editáveis (cada uma só com os CCs que existem naquele resort —
+  // ver `resorts` em CCS_RESORTS), 'resorts' é o Consolidado (soma das
+  // duas, nunca editado direto — ver ConsolidadoResorts).
+  resorts: { ccs: CCS_RESORTS, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
+  samoa_beach: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('beach')), planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
+  samoa_villa: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('villa')), planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
   // Decisão de 2026-08-16: Corporativo usa os 20 CCs reais (CCS_CORPORATIVO,
   // fonte confiável) — diferente de Agrícola/Resorts, que usam CC
   // placeholder. Todo CC recebe o mesmo plano de contas completo, ver nota
@@ -1700,7 +1817,7 @@ function receitaVazia(unidadeId) {
       deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
     };
   }
-  if (unidadeId === 'resorts') {
+  if (unidadeId === 'resorts' || unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa') {
     const linhas = {};
     LINHAS_RECEITA_RESORTS.forEach((l) => { linhas[l.id] = novaLinhaVazia(); });
     // Hospedagem ganha o racional Total de Acomodações × Taxa de Ocupação =
@@ -1970,23 +2087,46 @@ function somarDRE(a, b) {
   };
 }
 
+// Consolidados multi-site (2026-08-20): cada família (Agrícola, Resorts —
+// ver FAMILIAS_MULTISITE) grava, no envio do Consolidado, um wrapper
+// { _tipo, [idSiteA]: dadosSiteA, [idSiteB]: dadosSiteB } em vez de um
+// `dados` normal — a chave de cada site é o próprio unidadeId dele (ex.:
+// { _tipo: 'consolidado_agricola', agricola_tds: {...}, agricola_fds: {...} })
+// — ver ConsolidadoAgricola/ConsolidadoResorts. Isto mapeia cada _tipo pros
+// sites reais por trás, usado por dreDaUnidade/dfcDaUnidade pra saber como
+// desmontar o wrapper. Cada família resolve a referência (CCs/plano de
+// contas) pelo próprio site — Resorts precisa disso de verdade, já que
+// Beach e Villa não têm exatamente os mesmos CCs ("AT Ampliação Beach" só
+// existe no Beach, por exemplo); a Agrícola só coincide por TDS/FDS
+// compartilharem a mesma estrutura.
+const CONSOLIDADOS_MULTISITE = {
+  agricola: { tipo: 'consolidado_agricola', sites: ['agricola_tds', 'agricola_fds'], labels: ['Terra do Sol', 'Frutos do Sol'] },
+  resorts: { tipo: 'consolidado_resorts', sites: ['samoa_beach', 'samoa_villa'], labels: ['Samoa Beach', 'Samoa Villa'] },
+};
+// true se `d` é um dos wrappers acima (qualquer família) — usado pra pular
+// (não crashar) em painéis que assumem o formato normal de `dados`
+// (exportarExcel, runAuditoria) e não sabem nada sobre Consolidados.
+function ehSnapshotConsolidado(d) {
+  return !!(d && Object.values(CONSOLIDADOS_MULTISITE).some(c => c.tipo === d._tipo));
+}
+
 // computeDRE "unidade-aware" — usado nos painéis que iteram todas as
 // UNIDADES (dashboard do FP&A). Pra qualquer unidade normal é idêntico a
 // computeDRE(dadosUnidade, referenciaDaUnidade(unidadeId)); só desvia pra
-// 'agricola' (Consolidado) quando o documento salvo já é o snapshot
-// combinado gravado no envio (marcado com _tipo — ver ConsolidadoAgricola),
-// caso em que soma os DREs de TDS e FDS em vez de tentar interpretar o
-// wrapper como se fosse um `dados` normal (ia quebrar: não tem
-// `dados.receita`/`dados.custos` no formato esperado). Antes do primeiro
-// envio do Consolidado, `dadosUnidade` de 'agricola' é só um emptyFormData
-// comum — cai no caminho normal, mostra zero, não quebra nada.
+// 'agricola'/'resorts' (Consolidado) quando o documento salvo já é o
+// snapshot combinado gravado no envio (ver CONSOLIDADOS_MULTISITE), caso
+// em que soma os DREs dos sites em vez de tentar interpretar o wrapper
+// como se fosse um `dados` normal (ia quebrar: não tem `dados.receita`/
+// `dados.custos` no formato esperado). Antes do primeiro envio do
+// Consolidado, `dadosUnidade` é só um emptyFormData comum — cai no caminho
+// normal, mostra zero, não quebra nada.
 function dreDaUnidade(dadosUnidade, unidadeId) {
-  if (unidadeId === 'agricola' && dadosUnidade && dadosUnidade._tipo === 'consolidado_agricola') {
-    const refAg = referenciaDaUnidade('agricola_tds');
-    return somarDRE(
-      computeDRE(dadosUnidade.tds || emptyFormData('agricola_tds'), refAg),
-      computeDRE(dadosUnidade.fds || emptyFormData('agricola_fds'), refAg),
+  const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
+  if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
+    const [dreA, dreB] = consolidado.sites.map(siteId =>
+      computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId))
     );
+    return somarDRE(dreA, dreB);
   }
   return computeDRE(dadosUnidade, referenciaDaUnidade(unidadeId));
 }
@@ -2047,18 +2187,17 @@ function somarDFC(a, b) {
 
 // computeDFC "unidade-aware" — mesmo racional de dreDaUnidade, pro dashboard
 // do FP&A (VisaoResultadosConsolidados) que itera todas as UNIDADES
-// chamando computeDFC(d, dre) direto. `d` de 'agricola' pode ser o wrapper
-// {_tipo, tds, fds} depois do primeiro envio do Consolidado — computeDFC
-// quebraria em `data.capex.projetos`.
+// chamando computeDFC(d, dre) direto. `d` de 'agricola'/'resorts' pode ser
+// o wrapper (ver CONSOLIDADOS_MULTISITE) depois do primeiro envio do
+// Consolidado — computeDFC quebraria em `data.capex.projetos`.
 function dfcDaUnidade(dadosUnidade, dreUnidade, unidadeId) {
-  if (unidadeId === 'agricola' && dadosUnidade && dadosUnidade._tipo === 'consolidado_agricola') {
-    const refAg = referenciaDaUnidade('agricola_tds');
-    const dTds = dadosUnidade.tds || emptyFormData('agricola_tds');
-    const dFds = dadosUnidade.fds || emptyFormData('agricola_fds');
-    return somarDFC(
-      computeDFC(dTds, computeDRE(dTds, refAg)),
-      computeDFC(dFds, computeDRE(dFds, refAg)),
-    );
+  const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
+  if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
+    const [dfcA, dfcB] = consolidado.sites.map(siteId => {
+      const d = dadosUnidade[siteId] || emptyFormData(siteId);
+      return computeDFC(d, computeDRE(d, referenciaDaUnidade(siteId)));
+    });
+    return somarDFC(dfcA, dfcB);
   }
   return computeDFC(dadosUnidade, dreUnidade);
 }
@@ -3092,11 +3231,12 @@ export default function OrcamentoARA({ usuario }) {
     // Agrícola/Resorts/Corporativo: painel de referência, sem escrita — o
     // backend rejeitaria (409) mesmo se tentássemos, então nem tentamos.
     if (!UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual)) return;
-    // Consolidado da Agrícola (2026-08-20) nunca é editado direto por aqui
-    // (ver ConsolidadoAgricola) — autosalvar o `dados` deste componente
-    // arriscaria sobrescrever, com uma cópia desatualizada, o snapshot que
-    // ConsolidadoAgricola acabou de gravar no envio (race condition).
-    if (unidadeAtual === 'agricola') return;
+    // Consolidado (Agrícola/Resorts, 2026-08-20) nunca é editado direto por
+    // aqui (ver ConsolidadoAgricola/ConsolidadoResorts) — autosalvar o
+    // `dados` deste componente arriscaria sobrescrever, com uma cópia
+    // desatualizada, o snapshot que o Consolidado acabou de gravar no envio
+    // (race condition).
+    if (unidadeAtual === 'agricola' || unidadeAtual === 'resorts') return;
     const t = setTimeout(async () => {
       try {
         const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
@@ -3129,16 +3269,17 @@ export default function OrcamentoARA({ usuario }) {
   }
 
   const refUnidadeAtual = referenciaDaUnidade(unidadeAtual);
-  // dreDaUnidade (não computeDRE direto): quando unidadeAtual === 'agricola'
-  // (Consolidado) e já houve um envio, o `dados` salvo é o wrapper
-  // {_tipo:'consolidado_agricola', tds, fds} — ver ConsolidadoAgricola.
-  // computeDRE quebraria tentando ler `dados.receita` direto do wrapper.
+  // dreDaUnidade (não computeDRE direto): quando unidadeAtual é um
+  // Consolidado ('agricola'/'resorts') e já houve um envio, o `dados` salvo
+  // é o wrapper (ver CONSOLIDADOS_MULTISITE/ConsolidadoAgricola/
+  // ConsolidadoResorts). computeDRE quebraria tentando ler `dados.receita`
+  // direto do wrapper.
   const dre = useMemo(() => dreDaUnidade(dados, unidadeAtual), [dados, unidadeAtual]);
   // Mesmo motivo do dre acima: runAuditoria também espera o formato normal
-  // de `dados` — Consolidado calcula as próprias checagens (TDS/FDS
-  // separadas) dentro de ConsolidadoAgricola, não usa este `checks`.
+  // de `dados` — Consolidado calcula as próprias checagens (dos sites,
+  // separadas) dentro de si mesmo, não usa este `checks`.
   const checks = useMemo(() => {
-    if (unidadeAtual === 'agricola' && dados?._tipo === 'consolidado_agricola') return [];
+    if (ehSnapshotConsolidado(dados)) return [];
     return runAuditoria(dados, dre, refUnidadeAtual, unidadeAtual);
   }, [dados, dre, refUnidadeAtual, unidadeAtual]);
   // Só checks obrigatorio !== false bloqueiam o envio — Balanço Patrimonial
@@ -3329,12 +3470,13 @@ export default function OrcamentoARA({ usuario }) {
     const linhasCustosExport = [['Unidade', 'Centro de Custo', 'Tipo', 'Pacote', 'Conta', 'Descrição da Conta', 'Tipo de Premissa', 'Mês', 'Valor Calculado', 'Justificativa', 'Status', 'Última Atualização', 'Autor']];
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
-      // Consolidado da Agrícola (ver ConsolidadoAgricola): `dados` aqui não
-      // é o formato normal (é {tds, fds}) — Terra do Sol e Frutos do Sol já
-      // exportam as próprias linhas de Custos e Despesas individualmente,
-      // então pular esta unidade não perde informação, só evita duplicar
-      // num formato que este laço não sabe interpretar.
-      if (!d || d._tipo === 'consolidado_agricola') return;
+      // Consolidado (ver CONSOLIDADOS_MULTISITE): `dados` aqui não é o
+      // formato normal (é o wrapper com um site em cada chave) — os sites
+      // (Terra do Sol/Frutos do Sol, Samoa Beach/Villa) já exportam as
+      // próprias linhas de Custos e Despesas individualmente, então pular
+      // esta unidade não perde informação, só evita duplicar num formato
+      // que este laço não sabe interpretar.
+      if (!d || ehSnapshotConsolidado(d)) return;
       const refU = referenciaDaUnidade(u.id);
       const dreU = computeDRE(d, refU);
       Object.entries(d.custos.linhas || {}).forEach(([chave, linha]) => {
@@ -3357,7 +3499,7 @@ export default function OrcamentoARA({ usuario }) {
     const linhasReceita = [['Unidade', 'Produto', 'Mês', 'Volume (t)', 'Preço (R$/t)', 'Receita Bruta', 'Justificativa Geral da Receita']];
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
-      if (!d || d._tipo === 'consolidado_agricola') return; // ver nota acima (Custos_Despesas)
+      if (!d || ehSnapshotConsolidado(d)) return; // ver nota acima (Custos_Despesas)
       (d.receita.produtos || []).forEach(p => {
         MESES.forEach((m, mi) => {
           const vol = parseNum(p.volumes?.[mi]);
@@ -3373,7 +3515,7 @@ export default function OrcamentoARA({ usuario }) {
     const linhasBalanco = [['Unidade', 'Item', 'Valor/Mês', 'Justificativa']];
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
-      if (!d || d._tipo === 'consolidado_agricola') return; // ver nota acima (Custos_Despesas)
+      if (!d || ehSnapshotConsolidado(d)) return; // ver nota acima (Custos_Despesas)
       const b = d.balanco;
       linhasBalanco.push([u.nome, 'Caixa inicial', formatBRL(parseNum(b.caixaInicial)), '']);
       linhasBalanco.push([u.nome, 'Imobilizado inicial', formatBRL(parseNum(b.imobilizadoInicial)), '']);
@@ -3390,7 +3532,7 @@ export default function OrcamentoARA({ usuario }) {
     const linhasFinExport = [['Unidade', 'Banco', 'Linha', 'Moeda', 'Mês', 'Captações', 'Amortizações', 'Juros Pagos', 'Variação Cambial', 'Provisão Desp. Financeira', 'Justificativa']];
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
-      if (!d || d._tipo === 'consolidado_agricola') return; // ver nota acima (Custos_Despesas)
+      if (!d || ehSnapshotConsolidado(d)) return; // ver nota acima (Custos_Despesas)
       (d.fcFinanciamentos?.linhas || []).forEach(l => {
         MESES.forEach((m, mi) => {
           const vals = [l.captacoes?.[mi], l.amortizacoes?.[mi], l.jurosPagos?.[mi], l.variacaoCambial?.[mi], l.provisaoDespesaFinanceira?.[mi]].map(parseNum);
@@ -3875,32 +4017,34 @@ function VisaoGerente(props) {
               usuário tem vínculo real — proteção de verdade é no backend
               (exigirUnidade em toda rota), isto é só não oferecer na UI o
               que o servidor rejeitaria de qualquer forma. */}
-          {/* 2026-08-20: Terra do Sol / Frutos do Sol / Consolidado (as 3
-              "unidades" da Agrícola, ver FAMILIA_AGRICOLA) aparecem
-              agrupadas num único botão "ARA Agrícola" — a fazenda escolhida
-              vira a subfaixa de botões logo abaixo. */}
+          {/* 2026-08-20: cada família multi-site (Terra do Sol/Frutos do
+              Sol/Consolidado na Agrícola, Samoa Beach/Samoa Villa/
+              Consolidado no Resorts — ver FAMILIAS_MULTISITE) aparece
+              agrupada num único botão ("ARA Agrícola", "ARA Resorts") — o
+              site escolhido vira a subfaixa de botões logo abaixo. */}
           {(() => {
             const pills = [];
-            let agricolaAdicionado = false;
+            const familiaAdicionada = {};
             unidadesVisiveis.forEach(u => {
-              if (FAMILIA_AGRICOLA.includes(u.id)) {
-                if (!agricolaAdicionado) {
-                  pills.push({ id: '__familia_agricola__', nome: 'ARA Agrícola', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 });
-                  agricolaAdicionado = true;
+              const familia = FAMILIAS_MULTISITE.find(f => f.ids.includes(u.id));
+              if (familia) {
+                if (!familiaAdicionada[familia.nome]) {
+                  pills.push({ id: `__familia_${familia.nome}__`, nome: familia.nome, cor: familia.cor, logo: familia.logo, logoAltura: familia.logoAltura, familia });
+                  familiaAdicionada[familia.nome] = true;
                 }
               } else {
                 pills.push(u);
               }
             });
             return pills.map(u => {
-              const ativo = u.id === '__familia_agricola__' ? FAMILIA_AGRICOLA.includes(unidadeAtual) : u.id === unidadeAtual;
+              const ativo = u.familia ? u.familia.ids.includes(unidadeAtual) : u.id === unidadeAtual;
               return (
                 <button
                   key={u.id}
                   onClick={() => {
-                    if (u.id === '__familia_agricola__') {
-                      if (!FAMILIA_AGRICOLA.includes(unidadeAtual)) {
-                        const primeiraVisivel = SUBUNIDADES_AGRICOLA.find(s => unidadesVisiveis.some(uv => uv.id === s.id));
+                    if (u.familia) {
+                      if (!u.familia.ids.includes(unidadeAtual)) {
+                        const primeiraVisivel = u.familia.subunidades.find(s => unidadesVisiveis.some(uv => uv.id === s.id));
                         if (primeiraVisivel) setUnidadeAtual(primeiraVisivel.id);
                       }
                       return;
@@ -3928,10 +4072,10 @@ function VisaoGerente(props) {
           })()}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Consolidado (unidadeAtual === 'agricola') nunca é editado
-              direto — não faz sentido "salvar rascunho" nele (ver
-              ConsolidadoAgricola). */}
-          {UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual) && unidadeAtual !== 'agricola' && (
+          {/* Consolidado ('agricola'/'resorts') nunca é editado direto —
+              não faz sentido "salvar rascunho" nele (ver
+              ConsolidadoAgricola/ConsolidadoResorts). */}
+          {UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual) && unidadeAtual !== 'agricola' && unidadeAtual !== 'resorts' && (
             <>
               {ultimoSalvoEm && (
                 <span style={{ fontSize: 10.5, color: '#7A8088' }}>
@@ -3954,24 +4098,24 @@ function VisaoGerente(props) {
         </div>
       </div>
 
-      {/* Subfaixa Terra do Sol / Frutos do Sol / Consolidado — só aparece
-          quando a família Agrícola está selecionada, só mostra as que este
-          usuário realmente tem vínculo (unidadesVisiveis). */}
-      {FAMILIA_AGRICOLA.includes(unidadeAtual) && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16, marginTop: -6 }}>
-          {SUBUNIDADES_AGRICOLA.filter(s => unidadesVisiveis.some(uv => uv.id === s.id)).map(s => (
+      {/* Subfaixa de sites (fazendas/resorts + Consolidado) — só aparece
+          quando alguma família multi-site está selecionada, só mostra os
+          que este usuário realmente tem vínculo (unidadesVisiveis). */}
+      {FAMILIAS_MULTISITE.filter(f => f.ids.includes(unidadeAtual)).map(familiaAtiva => (
+        <div key={familiaAtiva.nome} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16, marginTop: -6 }}>
+          {familiaAtiva.subunidades.filter(s => unidadesVisiveis.some(uv => uv.id === s.id)).map(s => (
             <button
               key={s.id} onClick={() => setUnidadeAtual(s.id)}
               style={{
                 fontFamily: FONT, fontSize: 11, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
-                border: `1.5px solid ${s.id === unidadeAtual ? '#009640' : COR.borda}`,
-                background: s.id === unidadeAtual ? '#009640' : COR.branco,
+                border: `1.5px solid ${s.id === unidadeAtual ? familiaAtiva.cor : COR.borda}`,
+                background: s.id === unidadeAtual ? familiaAtiva.cor : COR.branco,
                 color: s.id === unidadeAtual ? COR.branco : COR.texto,
               }}
             >{s.nome}</button>
           ))}
         </div>
-      )}
+      ))}
 
       {/* Decisão de 2026-08-09: Agrícola e Resorts saíram do painel de
           referência e ganharam o formulário completo, com CC placeholder
@@ -4012,16 +4156,20 @@ function VisaoGerente(props) {
         // sempre TDS + FDS somados, com o próprio envio/histórico. Ver
         // ConsolidadoAgricola.
         <ConsolidadoAgricola autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} />
+      ) : unidadeAtual === 'resorts' ? (
+        // Consolidado do Resorts (2026-08-20): mesmo racional — sempre
+        // Samoa Beach + Samoa Villa somados. Ver ConsolidadoResorts.
+        <ConsolidadoResorts autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} />
       ) : (
         <>
       <div style={{ display: 'flex', gap: 2, borderBottom: `2px solid ${COR.borda}`, marginBottom: 18, flexWrap: 'wrap' }}>
         {/* Gestor de CC (pedido de 2026-08-16): só Custos e Despesas — a
             visão completa das seções é exclusiva de Gestor da Unidade e
             Admin FP&A. Terra do Sol/Frutos do Sol (2026-08-20) não têm aba
-            de Revisão própria — o envio/histórico da Agrícola é só no
-            Consolidado (ver ConsolidadoAgricola). */}
+            de Revisão própria — o envio/histórico da Agrícola/Resorts é só
+            no Consolidado (ver ConsolidadoAgricola/ConsolidadoResorts). */}
         {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos')
-          : (unidadeAtual === 'agricola_tds' || unidadeAtual === 'agricola_fds') ? ABAS.filter(a => a.id !== 'revisao')
+          : IDS_MULTISITE_FILHOS.includes(unidadeAtual) ? ABAS.filter(a => a.id !== 'revisao')
           : ABAS).map(a => (
           <button
             key={a.id} onClick={() => setAba(a.id)}
@@ -4100,7 +4248,7 @@ function VisaoGerente(props) {
         )}
         {aba === 'balanco' && <AbaBalanco balanco={dados.balanco} atualizar={atualizar} />}
         {aba === 'plano5y' && <AbaPlano5Y dre={dre} plano5y={dados.plano5y} updatePremissa5Y={updatePremissa5Y} atualizar={atualizar} />}
-        {aba === 'revisao' && unidadeAtual !== 'agricola_tds' && unidadeAtual !== 'agricola_fds' && (
+        {aba === 'revisao' && !IDS_MULTISITE_FILHOS.includes(unidadeAtual) && (
           <AbaRevisao
             refUnidade={referenciaDaUnidade(unidadeAtual)}
             unidadeId={unidadeAtual} versoes={versoes}
@@ -4526,18 +4674,17 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
   }, [unidadeId, versaoId]);
 
   const ref = referenciaDaUnidade(unidadeId);
-  // Versão do Consolidado da Agrícola (2026-08-20): o `dados` salvo não é o
-  // formato normal (receita/custos direto), é um wrapper { tds, fds } com o
-  // snapshot das duas fazendas no momento do envio — ver
-  // ConsolidadoAgricola/somarDRE. Precisa de um caminho próprio de leitura.
-  const ehConsolidadoAgricola = versao?.dados?._tipo === 'consolidado_agricola';
-  const refAgricolaFazenda = referenciaDaUnidade('agricola_tds');
-  const dre = versao ? (ehConsolidadoAgricola
-    ? somarDRE(
-        computeDRE(versao.dados.tds || emptyFormData('agricola_tds'), refAgricolaFazenda),
-        computeDRE(versao.dados.fds || emptyFormData('agricola_fds'), refAgricolaFazenda),
-      )
-    : computeDRE(versao.dados, ref)) : null;
+  // Versão de um Consolidado (Agrícola/Resorts, 2026-08-20): o `dados`
+  // salvo não é o formato normal (receita/custos direto), é o wrapper com
+  // o snapshot dos 2 sites no momento do envio — ver
+  // CONSOLIDADOS_MULTISITE/ConsolidadoAgricola/ConsolidadoResorts/somarDRE.
+  // Precisa de um caminho próprio de leitura.
+  const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
+  const ehConsolidado = !!(consolidado && versao?.dados?._tipo === consolidado.tipo);
+  const dresSites = ehConsolidado
+    ? consolidado.sites.map(siteId => computeDRE(versao.dados[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId)))
+    : null;
+  const dre = versao ? (ehConsolidado ? somarDRE(dresSites[0], dresSites[1]) : computeDRE(versao.dados, ref)) : null;
 
   return (
     <div
@@ -4597,30 +4744,34 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
                 <CascataDRE dre={dre} ifrs18={ifrs18} />
               </>
             )}
-            {ehConsolidadoAgricola ? (
+            {ehConsolidado ? (
               <>
                 {abaDetalhe === 'receita' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Terra do Sol</h4><ReceitaLeituraVersao dados={versao.dados.tds} /></div>
-                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Frutos do Sol</h4><ReceitaLeituraVersao dados={versao.dados.fds} /></div>
+                    {consolidado.sites.map((siteId, i) => (
+                      <div key={siteId}><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>{consolidado.labels[i]}</h4><ReceitaLeituraVersao dados={versao.dados[siteId] || emptyFormData(siteId)} /></div>
+                    ))}
                   </div>
                 )}
                 {abaDetalhe === 'custos' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Terra do Sol</h4><CustosLeituraVersao refUnidade={refAgricolaFazenda} unidadeId="agricola_tds" dados={versao.dados.tds} dre={computeDRE(versao.dados.tds || emptyFormData('agricola_tds'), refAgricolaFazenda)} /></div>
-                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Frutos do Sol</h4><CustosLeituraVersao refUnidade={refAgricolaFazenda} unidadeId="agricola_fds" dados={versao.dados.fds} dre={computeDRE(versao.dados.fds || emptyFormData('agricola_fds'), refAgricolaFazenda)} /></div>
+                    {consolidado.sites.map((siteId, i) => (
+                      <div key={siteId}><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>{consolidado.labels[i]}</h4><CustosLeituraVersao refUnidade={referenciaDaUnidade(siteId)} unidadeId={siteId} dados={versao.dados[siteId] || emptyFormData(siteId)} dre={dresSites[i]} /></div>
+                    ))}
                   </div>
                 )}
                 {abaDetalhe === 'capex' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Terra do Sol</h4><CapexLeituraVersao dados={versao.dados.tds} /></div>
-                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Frutos do Sol</h4><CapexLeituraVersao dados={versao.dados.fds} /></div>
+                    {consolidado.sites.map((siteId, i) => (
+                      <div key={siteId}><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>{consolidado.labels[i]}</h4><CapexLeituraVersao dados={versao.dados[siteId] || emptyFormData(siteId)} /></div>
+                    ))}
                   </div>
                 )}
                 {abaDetalhe === 'provisoes' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Terra do Sol</h4><ProvisoesLeituraVersao dados={versao.dados.tds} /></div>
-                    <div><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Frutos do Sol</h4><ProvisoesLeituraVersao dados={versao.dados.fds} /></div>
+                    {consolidado.sites.map((siteId, i) => (
+                      <div key={siteId}><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>{consolidado.labels[i]}</h4><ProvisoesLeituraVersao dados={versao.dados[siteId] || emptyFormData(siteId)} /></div>
+                    ))}
                   </div>
                 )}
               </>
@@ -4707,7 +4858,7 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao }) {
       // saberem que este `dados` não segue o formato normal de uma unidade
       // (ver notas em ambos). Grava primeiro (PUT) pra depois o envio
       // (registrarEnvio, backend inalterado) snapshotar exatamente isso.
-      await putOrcamento('agricola', { _tipo: 'consolidado_agricola', tds: dadosTds, fds: dadosFds });
+      await putOrcamento('agricola', { _tipo: 'consolidado_agricola', agricola_tds: dadosTds, agricola_fds: dadosFds });
       await enviarVersaoApi('agricola', { comentario: comentarioEnvio, autorNome });
       setComentarioEnvio('');
       await carregar();
@@ -4844,6 +4995,206 @@ const botaoSecundarioLocal = {
   fontFamily: FONT, fontSize: 10.5, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
   border: `1px solid ${COR.azul}`, background: '#fff', color: COR.azul,
 };
+
+// Consolidado do Resorts (2026-08-20) — mesmo racional do ConsolidadoAgricola
+// (ver notas lá), adaptado pro Resorts: Samoa Beach e Samoa Villa são as
+// unidades editáveis, o Consolidado é sempre a soma das duas. Diferença
+// importante: Beach e Villa NÃO têm exatamente os mesmos CCs ("AT Ampliação
+// Beach" só existe no Beach, "Villa Muro Alto" e "AT Ampliação Villa" só na
+// Villa — ver CCS_RESORTS), então cada lado usa a própria referência
+// (referenciaDaUnidade('samoa_beach')/('samoa_villa')), nunca uma única
+// referência compartilhada como a Agrícola faz.
+function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao }) {
+  const [dadosBeach, setDadosBeach] = useState(null);
+  const [dadosVilla, setDadosVilla] = useState(null);
+  const [versoes, setVersoes] = useState([]);
+  const [aguardandoLiberacao, setAguardandoLiberacao] = useState(false);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
+  const [comentarioEnvio, setComentarioEnvio] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [ifrs18, setIfrs18] = useState(false);
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    setErro(null);
+    try {
+      const [rBeach, rVilla, rRes] = await Promise.all([
+        getOrcamento('samoa_beach'), getOrcamento('samoa_villa'), getOrcamento('resorts'),
+      ]);
+      setDadosBeach(rBeach.orcamento.dados);
+      setDadosVilla(rVilla.orcamento.dados);
+      setAguardandoLiberacao(rRes.orcamento.aguardando_liberacao || false);
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : 'Falha ao carregar os dados de Samoa Beach e Samoa Villa.');
+    }
+    try {
+      setVersoes(await listarVersoes('resorts'));
+    } catch (e) {
+      setVersoes([]);
+    }
+    setCarregando(false);
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  if (carregando) return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Carregando Samoa Beach e Samoa Villa…</p>;
+  if (!dadosBeach || !dadosVilla) {
+    return (
+      <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12 }}>
+        {erro || 'Não foi possível carregar os dados dos resorts.'}
+      </div>
+    );
+  }
+
+  const refBeach = referenciaDaUnidade('samoa_beach');
+  const refVilla = referenciaDaUnidade('samoa_villa');
+  const dreBeach = computeDRE(dadosBeach, refBeach);
+  const dreVilla = computeDRE(dadosVilla, refVilla);
+  const dre = somarDRE(dreBeach, dreVilla);
+  const checksBeach = runAuditoria(dadosBeach, dreBeach, refBeach, 'samoa_beach');
+  const checksVilla = runAuditoria(dadosVilla, dreVilla, refVilla, 'samoa_villa');
+  const tudoOkBeach = checksBeach.filter(c => c.obrigatorio !== false).every(c => c.ok);
+  const tudoOkVilla = checksVilla.filter(c => c.obrigatorio !== false).every(c => c.ok);
+  const tudoOk = tudoOkBeach && tudoOkVilla;
+
+  async function handleEnviar() {
+    setEnviando(true);
+    setErro(null);
+    try {
+      await putOrcamento('resorts', { _tipo: 'consolidado_resorts', samoa_beach: dadosBeach, samoa_villa: dadosVilla });
+      await enviarVersaoApi('resorts', { comentario: comentarioEnvio, autorNome });
+      setComentarioEnvio('');
+      await carregar();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) setAguardandoLiberacao(true);
+      setErro(e instanceof ApiError ? e.message : 'Falha ao enviar a versão consolidada.');
+    }
+    setEnviando(false);
+  }
+
+  function PainelChecklist({ titulo, checks }) {
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>{titulo}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {checks.map((c, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+              {c.ok ? <CheckCircle2 size={13} color={COR.verde} /> : <AlertTriangle size={13} color={c.obrigatorio === false ? COR.laranja : COR.vermelho} />}
+              <span style={{ color: c.ok ? COR.texto : (c.obrigatorio === false ? '#7A8088' : COR.vermelho) }}>
+                {c.label}{c.detalhe ? ` — ${c.detalhe}` : ''}
+                {!c.ok && c.obrigatorio === false ? ' (opcional)' : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>ARA Resorts — Consolidado</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Soma de Samoa Beach e Samoa Villa — sempre calculada ao vivo a partir do orçamento atual dos dois resorts.
+        O envio e o histórico de versões do orçamento do Resorts acontecem aqui, não em cada resort.
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <button
+          onClick={() => setIfrs18(false)}
+          style={{
+            fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
+            border: `1.5px solid ${COR.azul}`, background: !ifrs18 ? COR.azul : COR.branco, color: !ifrs18 ? COR.branco : COR.azul,
+          }}
+        >DRE sem IFRS 18</button>
+        <button
+          onClick={() => setIfrs18(true)}
+          style={{
+            fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
+            border: `1.5px solid ${COR.azul}`, background: ifrs18 ? COR.azul : COR.branco, color: ifrs18 ? COR.branco : COR.azul,
+          }}
+        >DRE com IFRS 18</button>
+      </div>
+      <CascataDRE dre={dre} ifrs18={ifrs18} />
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '18px 0' }}>
+        <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
+        <CardTotal label="EBITDA" valor={dre.ebitda} cor={COR.laranja} />
+        <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>Detalhe por resort (Receita e Custos e Despesas)</h4>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginBottom: 24 }}>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            Samoa Beach <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreBeach.receitaBruta)} receita bruta)</span>
+          </div>
+          <ReceitaLeituraVersao dados={dadosBeach} />
+          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refBeach} unidadeId="samoa_beach" dados={dadosBeach} dre={dreBeach} /></div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            Samoa Villa <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreVilla.receitaBruta)} receita bruta)</span>
+          </div>
+          <ReceitaLeituraVersao dados={dadosVilla} />
+          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refVilla} unidadeId="samoa_villa" dados={dadosVilla} dre={dreVilla} /></div>
+        </div>
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Auditoria — checagens de completude</h4>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 10 }}>
+        <PainelChecklist titulo="Samoa Beach" checks={checksBeach} />
+        <PainelChecklist titulo="Samoa Villa" checks={checksVilla} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, margin: '20px 0 14px' }}>
+        <div>
+          <Rotulo>Seu nome (autor da versão)</Rotulo>
+          <CampoTexto value={autorNome} onChange={setAutorNome} placeholder="Nome do gerente" />
+        </div>
+        <div>
+          <Rotulo>Comentário da versão (opcional)</Rotulo>
+          <CampoTexto value={comentarioEnvio} onChange={setComentarioEnvio} placeholder="Ex.: revisão de premissas de CAPEX" />
+        </div>
+      </div>
+
+      {erro && (
+        <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>{erro}</div>
+      )}
+      {!tudoOk && (
+        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, color: COR.texto, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+          Existem checagens de Auditoria pendentes em Samoa Beach e/ou Samoa Villa. Corrija-as antes de enviar (painel acima).
+        </div>
+      )}
+      {aguardandoLiberacao && (
+        <div style={{ background: '#E9F0FB', border: `1px solid ${COR.azul}`, color: COR.azul, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+          Este orçamento consolidado já foi enviado e está aguardando liberação do FP&A para permitir um novo envio.
+        </div>
+      )}
+
+      <Botao variante="laranja" icone={Send} onClick={handleEnviar} disabled={!tudoOk || enviando || aguardandoLiberacao}>
+        {enviando ? 'Enviando…' : aguardandoLiberacao ? 'Aguardando liberação do FP&A' : 'Enviar versão consolidada'}
+      </Botao>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 30, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <History size={15} /> Histórico de versões — Consolidado
+      </h4>
+      {versoes.length === 0 ? (
+        <p style={{ fontSize: 12, color: '#7A8088' }}>Nenhuma versão consolidada enviada ainda.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {versoes.map(v => (
+            <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${COR.borda}`, borderRadius: 6, padding: '8px 12px', fontSize: 11.5 }}>
+              <span>{formatData(v.timestamp)} — <b>{v.autor}</b>{v.comentario ? ` — ${v.comentario}` : ''}</span>
+              <button onClick={() => abrirVersao('resorts', v.id)} style={{ ...botaoSecundarioLocal }}>Abrir</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StatusBadge({ status }) {
   const map = {

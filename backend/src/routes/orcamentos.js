@@ -6,7 +6,7 @@ import { Router } from 'express';
 import { exigirUnidade, exigirPerfil } from '../middleware/authorize.js';
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
-import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade } from '../calc/orcamento.js';
+import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade, ehSnapshotConsolidado } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
 import { notificarEnvioParaFpa } from '../email/notificacoes.js';
 
@@ -14,7 +14,9 @@ export const orcamentosRouter = Router();
 
 // Só pra mensagem do e-mail de notificação — não é usado em nenhum cálculo.
 const NOME_UNIDADE = {
-  textil: 'ARA Têxtil', agricola: 'ARA Agrícola', resorts: 'ARA Resorts',
+  textil: 'ARA Têxtil',
+  agricola: 'ARA Agrícola — Consolidado', agricola_tds: 'ARA Agrícola — Terra do Sol', agricola_fds: 'ARA Agrícola — Frutos do Sol',
+  resorts: 'ARA Resorts — Consolidado', samoa_beach: 'ARA Resorts — Samoa Beach', samoa_villa: 'ARA Resorts — Samoa Villa',
   corporativo: 'Corporativo', ei: 'ARA EI', energia: 'Escritório de Investimentos',
 };
 
@@ -27,13 +29,14 @@ const NOME_UNIDADE = {
 // contas ela tem ainda.
 // Isto é reforçado aqui, no servidor, e não só escondido na UI — mesma regra
 // da seção 4 aplicada a uma pendência de dado, não só a escopo de usuário.
-// 2026-08-20: Agrícola virou TDS/FDS/Consolidado (ver ConsolidadoAgricola no
-// frontend) — 'agricola_tds'/'agricola_fds' são as unidades editáveis de
-// verdade; 'agricola' (Consolidado) continua na lista porque o envio dela
-// reaproveita o mesmo PUT + POST /enviar de qualquer unidade (grava o
-// snapshot combinado antes de enviar — não tem formulário de premissa
-// próprio, só essas duas chamadas).
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'corporativo'];
+// 2026-08-20: Agrícola e Resorts viraram Família (2 sites + Consolidado —
+// ver ConsolidadoAgricola/ConsolidadoResorts no frontend) —
+// 'agricola_tds'/'agricola_fds'/'samoa_beach'/'samoa_villa' são as unidades
+// editáveis de verdade; 'agricola'/'resorts' (Consolidado) continuam na
+// lista porque o envio deles reaproveita o mesmo PUT + POST /enviar de
+// qualquer unidade (grava o snapshot combinado antes de enviar — não têm
+// formulário de premissa próprio, só essas duas chamadas).
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo'];
 
 function exigirLancamentoHabilitado(req, res, next) {
   const { unidadeId } = req.params;
@@ -111,24 +114,24 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
     const { unidadeId } = req.params;
     const ref = buscarReferencia(unidadeId) || REF_VAZIA;
     const orcamento = await buscarOuCriarOrcamento(unidadeId, ANO_ATUAL);
-    // Consolidado da Agrícola (2026-08-20): depois do primeiro envio,
-    // orcamento.dados de 'agricola' é o snapshot combinado
-    // {_tipo:'consolidado_agricola', tds, fds} — ver frontend
-    // ConsolidadoAgricola. computeDFC/computeFluxoIndiretoMensal/
-    // computeFluxoCaixaDiretoMensal/runAuditoria quebrariam nesse formato
-    // (nenhum é wrapper-aware como dreDaUnidade) — e o frontend nem usa
-    // esses 4 campos da resposta (sempre recalcula do zero a partir de
-    // orcamento.dados, ver dreDaUnidade/OrcamentoARA.jsx), então ficam null
-    // nesse caso em vez de arriscar quebrar a rota à toa.
-    const ehConsolidadoAgricola = orcamento.dados?._tipo === 'consolidado_agricola';
+    // Consolidado (Agrícola/Resorts, 2026-08-20): depois do primeiro envio,
+    // orcamento.dados de 'agricola'/'resorts' é o snapshot combinado — ver
+    // frontend ConsolidadoAgricola/ConsolidadoResorts.
+    // computeDFC/computeFluxoIndiretoMensal/computeFluxoCaixaDiretoMensal/
+    // runAuditoria quebrariam nesse formato (nenhum é wrapper-aware como
+    // dreDaUnidade) — e o frontend nem usa esses 4 campos da resposta
+    // (sempre recalcula do zero a partir de orcamento.dados, ver
+    // dreDaUnidade/OrcamentoARA.jsx), então ficam null nesse caso em vez de
+    // arriscar quebrar a rota à toa.
+    const ehConsolidado = ehSnapshotConsolidado(orcamento.dados);
     const dre = dreDaUnidade(orcamento.dados, unidadeId, ref);
     res.json({
       orcamento,
       dre,
-      dfc: ehConsolidadoAgricola ? null : computeDFC(orcamento.dados, dre),
-      fluxoIndiretoMensal: ehConsolidadoAgricola ? null : computeFluxoIndiretoMensal(orcamento.dados, dre, ref),
-      fluxoDiretoMensal: ehConsolidadoAgricola ? null : computeFluxoCaixaDiretoMensal(orcamento.dados, dre, ref),
-      auditoria: ehConsolidadoAgricola ? [] : runAuditoria(orcamento.dados, dre, ref, unidadeId),
+      dfc: ehConsolidado ? null : computeDFC(orcamento.dados, dre),
+      fluxoIndiretoMensal: ehConsolidado ? null : computeFluxoIndiretoMensal(orcamento.dados, dre, ref),
+      fluxoDiretoMensal: ehConsolidado ? null : computeFluxoCaixaDiretoMensal(orcamento.dados, dre, ref),
+      auditoria: ehConsolidado ? [] : runAuditoria(orcamento.dados, dre, ref, unidadeId),
     });
   } catch (err) { next(err); }
 });
