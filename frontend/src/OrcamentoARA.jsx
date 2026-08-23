@@ -4059,7 +4059,205 @@ export default function OrcamentoARA({ usuario }) {
     const wsD = XLSX.utils.aoa_to_sheet(linhasDRE);
     XLSX.utils.book_append_sheet(wb, wsD, 'DRE_Resumo');
 
-    XLSX.writeFile(wb, `Orcamento_2027_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}.xlsx`);
+    XLSX.writeFile(wb, `Orcamento_2027_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}_DadosBrutos.xlsx`);
+  }
+
+  // Excel - Cálculo (2026-08-23, pedido: "adicione uma exportação para
+  // excel contendo todas as projeções calculadas e seções por aba") —
+  // complementa o "Excel - Dados Brutos" acima (que é uma lista longa,
+  // 1 linha por mês por conta/produto — bom para auditoria linha a linha,
+  // ruim para visão gerencial). Aqui cada aba do formulário vira uma
+  // planilha própria, no formato "largo" (mês a mês em colunas, igual à
+  // tela) com os valores já CALCULADOS — DRE, Receita, Custos e Despesas,
+  // Kgiro e FC Operacional, FC Direto, CAPEX, FC Financiamentos, Provisões,
+  // Balanço e Plano 5Y — reaproveitando o mesmo motor de cálculo da tela
+  // (computeDRE/computeFluxoIndiretoMensal/computeFluxoCaixaDiretoMensal/
+  // computePlano5Y), nunca recalculando nada à parte.
+  function exportarExcelCalculo() {
+    const wb = XLSX.utils.book_new();
+    const unidadesParaExportar = role === 'fpa' ? UNIDADES : [unidadeObj];
+    const cabecalhoMensal = ['Unidade', 'Linha', ...MESES, 'Total'];
+
+    function linhaWide(unidadeNome, label, valoresMensal) {
+      const vals = MESES.map((_, m) => parseNum(valoresMensal?.[m]));
+      return [unidadeNome, label, ...vals, vals.reduce((a, v) => a + v, 0)];
+    }
+    function addSheet(nome, linhas, larguraLabel) {
+      const ws = XLSX.utils.aoa_to_sheet(linhas);
+      ws['!cols'] = [{ wch: 16 }, { wch: larguraLabel || 30 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, ws, nome);
+    }
+
+    // ---- DRE mensal ----
+    const linhasDreCalc = [cabecalhoMensal];
+    // ---- Kgiro e FC Operacional (método indireto) ----
+    const linhasFcIndireto = [cabecalhoMensal];
+    // ---- FC Direto ----
+    const linhasFcDireto = [cabecalhoMensal];
+    // ---- Receita ----
+    const linhasReceitaCalc = [['Unidade', 'Produto', 'Mercado', ...MESES, 'Total']];
+    // ---- Custos e Despesas (por conta, uma linha por conta = soma das sublinhas) ----
+    const linhasCustosCalc = [['Unidade', 'Centro de Custo', 'Pacote', 'Conta', ...MESES, 'Total']];
+    // ---- CAPEX ----
+    const linhasCapexCalc = [['Unidade', 'Categoria', 'Projeto', 'Mês', 'Valor', 'Justificativa']];
+    // ---- FC Financiamentos ----
+    const linhasFinCalc = [['Unidade', 'Banco/Linha', 'Métrica', ...MESES, 'Total']];
+    // ---- Provisões ----
+    const linhasProvCalc = [cabecalhoMensal];
+    // ---- Balanço (saldos de abertura, escalares — sem mês) ----
+    const linhasBalancoCalc = [['Unidade', 'Item', 'Valor', 'Justificativa']];
+    // ---- Plano 5Y ----
+    const linhasPlano5yCalc = [['Unidade', 'Linha', 2027, 2028, 2029, 2030, 2031]];
+
+    unidadesParaExportar.forEach(u => {
+      const d = role === 'fpa' ? statusUnidades[u.id] : dados;
+      if (!d || ehSnapshotConsolidado(d)) return; // ver nota em exportarExcel (Custos_Despesas)
+      const refU = referenciaDaUnidade(u.id);
+      const dreU = computeDRE(d, refU, ipcaAnualPct, cambios);
+      const fdU = computeFluxoIndiretoMensal(d, dreU, refU, ipcaAnualPct);
+      const fcdU = computeFluxoCaixaDiretoMensal(d, dreU, refU, ipcaAnualPct);
+
+      linhasDreCalc.push(
+        linhaWide(u.nome, 'Receita Bruta', fdU.receitaBrutaMes),
+        linhaWide(u.nome, '(-) Deduções', fdU.deducoesMes.map(v => -v)),
+        linhaWide(u.nome, '(=) Receita Líquida', fdU.receitaLiquidaMes),
+        linhaWide(u.nome, '(-) CPV', fdU.cpvMes.map(v => -v)),
+        linhaWide(u.nome, '(=) Lucro Bruto', fdU.lucroBrutoMes),
+        linhaWide(u.nome, '(-) Despesas Operacionais', fdU.despesasSemDAmes.map(v => -v)),
+        linhaWide(u.nome, '(=) EBITDA', fdU.ebitdaMes),
+        linhaWide(u.nome, '(-) Depreciação e Amortização', fdU.depreciacaoMes.map(v => -v)),
+        linhaWide(u.nome, '(+/-) Resultado Financeiro', fdU.resultadoFinanceiroMes),
+        linhaWide(u.nome, '(+/-) Outras Receitas e Despesas', fdU.outrasMes),
+        linhaWide(u.nome, '(-) IR/CSLL', fdU.ircslMes.map(v => -v)),
+        linhaWide(u.nome, '(=) Lucro Líquido', fdU.lucroLiquidoMes),
+      );
+
+      linhasFcIndireto.push(
+        linhaWide(u.nome, 'EBITDA', fdU.ebitdaMes),
+        linhaWide(u.nome, '(-) IR/CSLL proporcional', fdU.ircslMes.map(v => -v)),
+        linhaWide(u.nome, '(+/-) Variação de Capital de Giro', fdU.variacaoGiroMes),
+        linhaWide(u.nome, '(+/-) Ajuste 13º (competência × caixa)', fdU.ajuste13Mes),
+        linhaWide(u.nome, '(+/-) Ajuste de Pagamento (competência × caixa)', fdU.ajustePagamentoMes),
+        linhaWide(u.nome, '(=) FC Operacional (indireto)', fdU.fcOperacionalMes),
+      );
+
+      linhasFcDireto.push(
+        linhaWide(u.nome, 'Recebimentos de Clientes', fcdU.recebimentosClientesMes),
+        linhaWide(u.nome, '(-) Pagamentos a Fornecedores', fcdU.pagamentosFornecedoresMes.map(v => -v)),
+        linhaWide(u.nome, '(-) Pagamentos de Pessoal', fcdU.pessoalEmCaixaMes.map(v => -v)),
+        linhaWide(u.nome, '(-) Pagamentos de Despesas', fcdU.pagamentosDespesasMes.map(v => -v)),
+        linhaWide(u.nome, '(-) IR/CSLL', fcdU.ircslMes.map(v => -v)),
+        linhaWide(u.nome, '(-) Pagamentos Manuais', fcdU.pagamentosManuaisMes.map(v => -v)),
+        linhaWide(u.nome, '(=) FC Operacional (direto)', fcdU.fcOperacionalDiretoMes),
+      );
+
+      (d.receita.produtos || []).forEach(p => {
+        const externo = p.mercado === 'externo';
+        const taxa = externo ? parseNum(cambios?.[p.moeda || 'usd']) : 1;
+        const receitaMensal = MESES.map((_, m) => externo
+          ? parseNum(p.volumes?.[m]) * parseNum(p.precoMoeda?.[m]) * taxa
+          : parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]));
+        linhasReceitaCalc.push([u.nome, p.nome, externo ? `Externo (${(p.moeda || 'usd').toUpperCase()})` : 'Interno', ...receitaMensal, receitaMensal.reduce((a, v) => a + v, 0)]);
+      });
+      if (d.receita.linhas) {
+        Object.entries(d.receita.linhas).forEach(([id, linha]) => {
+          const def = LINHAS_RECEITA_RESORTS.find(l => l.id === id);
+          const valoresMensal = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
+          linhasReceitaCalc.push([u.nome, def?.nome || id, '—', ...valoresMensal, valoresMensal.reduce((a, v) => a + v, 0)]);
+        });
+      }
+
+      Object.entries(d.custos.linhas || {}).forEach(([chave, contaRaw]) => {
+        const [ccCodigo, contaCodigo] = chave.split('|');
+        const cc = refU.ccs.find(c => c.codigo === ccCodigo);
+        const conta = refU.todasContas[contaCodigo];
+        const pacote = (refU.pacotes || []).find(p => p.id === conta?.pacoteId);
+        const valoresMensal = MESES.map((_, m) => valorLinhaMes(contaRaw, m, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes));
+        if (valoresMensal.every(v => v === 0)) return;
+        linhasCustosCalc.push([u.nome, cc?.nome || ccCodigo, pacote?.nome || 'Sem pacote', conta?.nome || contaCodigo, ...valoresMensal, valoresMensal.reduce((a, v) => a + v, 0)]);
+      });
+      // Folha de Pessoal por CC — mesma mecânica de folhaAnualPorCC, um "conta
+      // sintética" a mais na aba, já que a folha nunca vira custos.linhas.
+      refU.ccs.forEach(cc => {
+        const folha = folhaAnualPorCC(d, cc.codigo);
+        if (folha.totalAnual === 0) return;
+        linhasCustosCalc.push([u.nome, cc.nome, 'Pessoal', 'Folha calculada (CLT)', ...folha.totalMes, folha.totalAnual]);
+      });
+
+      (d.capex.projetos || []).forEach(p => {
+        if (!parseNum(p.valor)) return;
+        linhasCapexCalc.push([u.nome, CATEGORIAS_CAPEX.find(c => c.id === p.categoria)?.nome || p.categoria, p.nome, p.mes || '', parseNum(p.valor), p.justificativa || '']);
+      });
+
+      (d.fcFinanciamentos?.linhas || []).forEach(l => {
+        const nomeLinha = `${l.banco || '(sem banco)'} — ${l.linha || ''}`;
+        [
+          ['Captações', l.captacoes], ['Amortizações', l.amortizacoes], ['Juros Pagos', l.jurosPagos],
+          ['Variação Cambial', l.variacaoCambial], ['Provisão Desp. Financeira', l.provisaoDespesaFinanceira],
+        ].forEach(([metrica, arr]) => {
+          const vals = MESES.map((_, m) => parseNum(arr?.[m]));
+          if (vals.every(v => v === 0)) return;
+          linhasFinCalc.push([u.nome, nomeLinha, metrica, ...vals, vals.reduce((a, v) => a + v, 0)]);
+        });
+      });
+      (d.fcFinanciamentos?.movimentacoesAcionistas || []).forEach(mv => {
+        const vals = MESES.map((_, m) => parseNum(mv.valores?.[m]));
+        if (vals.every(v => v === 0)) return;
+        linhasFinCalc.push([u.nome, 'Movimentação de acionistas', mv.nome, ...vals, vals.reduce((a, v) => a + v, 0)]);
+      });
+
+      linhasProvCalc.push(
+        linhaWide(u.nome, 'Inadimplência (%)', d.provisoes.inadimplencia),
+        linhaWide(u.nome, 'Contingências (R$)', d.provisoes.contingencias),
+        linhaWide(u.nome, 'Perdas (R$)', d.provisoes.perdas),
+      );
+
+      const b = d.balanco;
+      linhasBalancoCalc.push(
+        [u.nome, 'Caixa inicial', parseNum(b.caixaInicial), ''],
+        [u.nome, 'Imobilizado inicial', parseNum(b.imobilizadoInicial), ''],
+        [u.nome, 'Depreciação acumulada inicial', parseNum(b.depreciacaoAcumuladaInicial), ''],
+        [u.nome, 'Contas a receber inicial', parseNum(b.contasAReceberInicial), ''],
+        [u.nome, 'Estoque inicial', parseNum(b.estoqueInicial), ''],
+        [u.nome, 'Contas a pagar inicial', parseNum(b.contasAPagarInicial), ''],
+        [u.nome, 'Saldo inicial de dívida', parseNum(b.emprestimos?.saldoInicial), b.emprestimos?.justificativa || ''],
+      );
+
+      const plano5y = computePlano5Y(dreU, d.plano5y?.anos || {});
+      const camposPlano5y = [
+        ['receitaLiquida', 'Receita Líquida'], ['cpv', 'CPV'], ['lucroBruto', 'Lucro Bruto'],
+        ['despesasSemDA', 'Despesas Operacionais'], ['ebitda', 'EBITDA'], ['depreciacao', 'Depreciação e Amortização'],
+        ['lucroLiquido', 'Lucro Líquido'],
+      ];
+      camposPlano5y.forEach(([campo, label]) => {
+        linhasPlano5yCalc.push([u.nome, label, ...[2027, ...ANOS_PLANO_5Y].map(ano => plano5y[ano]?.[campo] ?? '')]);
+      });
+    });
+
+    addSheet('DRE_Mensal', linhasDreCalc, 34);
+    const wsReceita = XLSX.utils.aoa_to_sheet(linhasReceitaCalc);
+    wsReceita['!cols'] = [{ wch: 16 }, { wch: 24 }, { wch: 16 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsReceita, 'Receita');
+    const wsCustos = XLSX.utils.aoa_to_sheet(linhasCustosCalc);
+    wsCustos['!cols'] = [{ wch: 16 }, { wch: 20 }, { wch: 22 }, { wch: 30 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsCustos, 'Custos_e_Despesas');
+    addSheet('Kgiro_FC_Operacional', linhasFcIndireto, 40);
+    addSheet('FC_Direto', linhasFcDireto, 34);
+    const wsCapex = XLSX.utils.aoa_to_sheet(linhasCapexCalc);
+    wsCapex['!cols'] = [{ wch: 16 }, { wch: 20 }, { wch: 26 }, { wch: 10 }, { wch: 14 }, { wch: 40 }];
+    XLSX.utils.book_append_sheet(wb, wsCapex, 'CAPEX');
+    const wsFin = XLSX.utils.aoa_to_sheet(linhasFinCalc);
+    wsFin['!cols'] = [{ wch: 16 }, { wch: 26 }, { wch: 22 }, ...MESES.map(() => ({ wch: 12 })), { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsFin, 'FC_Financiamentos');
+    addSheet('Provisoes', linhasProvCalc, 20);
+    const wsBal = XLSX.utils.aoa_to_sheet(linhasBalancoCalc);
+    wsBal['!cols'] = [{ wch: 16 }, { wch: 30 }, { wch: 16 }, { wch: 40 }];
+    XLSX.utils.book_append_sheet(wb, wsBal, 'Balanco_Patrimonial');
+    const wsP5y = XLSX.utils.aoa_to_sheet(linhasPlano5yCalc);
+    wsP5y['!cols'] = [{ wch: 16 }, { wch: 26 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsP5y, 'Plano_5Y');
+
+    XLSX.writeFile(wb, `Orcamento_2027_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}_Calculo.xlsx`);
   }
 
   // Resumo Executivo em PPT de verdade (3 slides, para apresentação ao
@@ -4343,14 +4541,14 @@ export default function OrcamentoARA({ usuario }) {
           comentarioEnvio={comentarioEnvio} setComentarioEnvio={setComentarioEnvio}
           enviarVersao={enviarVersao} enviando={enviando} erro={erro}
           versoes={versoes} mostrarHistorico={mostrarHistorico} setMostrarHistorico={setMostrarHistorico}
-          exportarExcel={exportarExcel} solicitarResumoExecutivo={solicitarResumoExecutivo}
+          exportarExcel={exportarExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
           abrirVersao={abrirVersao}
         />
       ) : (
         <VisaoFPA
           statusUnidades={statusUnidades} aguardandoLiberacaoPorUnidade={aguardandoLiberacaoPorUnidade} liberarReenvioUnidade={liberarReenvioUnidade}
           backlog={backlog} unidadeDrill={unidadeDrill} abrirDrill={abrirDrill}
-          versoesDrill={versoesDrill} exportarExcel={exportarExcel} solicitarResumoExecutivo={solicitarResumoExecutivo}
+          versoesDrill={versoesDrill} exportarExcel={exportarExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
           etapasProcesso={etapasProcesso} atualizarEtapa={atualizarEtapa}
           premissasMacro={premissasMacro} updatePremissaMacroGlobal={updatePremissaMacroGlobal}
           buscarBoletimFocus={buscarBoletimFocus} buscandoFocus={buscandoFocus} erroFocus={erroFocus}
@@ -4506,7 +4704,7 @@ function VisaoGerente(props) {
     updatePremissa5Y, updateCenarioSensibilidade,
     atualizar, autorNome, setAutorNome,
     comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, erro,
-    versoes, mostrarHistorico, setMostrarHistorico, exportarExcel, solicitarResumoExecutivo,
+    versoes, mostrarHistorico, setMostrarHistorico, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo,
     abrirVersao,
   } = props;
 
@@ -4783,9 +4981,14 @@ function VisaoGerente(props) {
           </div>
         )}
         <div style={{ flex: '1 1 300px', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Excel</Botao>
-            <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>PPT</Botao>
+          {/* 3 formatos de exportação (2026-08-23): Cálculo (projeções
+              calculadas, por aba, mês a mês — ver exportarExcelCalculo) ×
+              Dados Brutos (1 linha por mês por conta/produto, para
+              auditoria — exportarExcel) × Apresentação (PPT pro CAD). */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcelCalculo}>Excel — Cálculo</Botao>
+            <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Excel — Dados Brutos</Botao>
+            <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>Apresentação (PPT)</Botao>
           </div>
           <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
             <button
@@ -9203,7 +9406,7 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes, ipcaAnua
 // Visão FP&A Corporativo
 // ---------------------------------------------------------------------------
 
-function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, buscarBoletimFocus, buscandoFocus, erroFocus, abrirVersao }) {
+function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, buscarBoletimFocus, buscandoFocus, erroFocus, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   // Mesmo racional do ipcaAnualPct no componente App — recalculado aqui
@@ -9226,9 +9429,10 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
     <div style={{ padding: 22, maxWidth: 1180, margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <h2 style={{ fontSize: 17, color: COR.azul, margin: 0 }}>Visão consolidada do Grupo</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Exportar Excel consolidado</Botao>
-          <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>Resumo executivo (PPT)</Botao>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcelCalculo}>Excel — Cálculo</Botao>
+          <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Excel — Dados Brutos</Botao>
+          <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>Apresentação (PPT)</Botao>
         </div>
       </div>
 
