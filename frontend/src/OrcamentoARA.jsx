@@ -2246,12 +2246,12 @@ function somarDFC(a, b) {
 // chamando computeDFC(d, dre) direto. `d` de 'agricola'/'resorts' pode ser
 // o wrapper (ver CONSOLIDADOS_MULTISITE) depois do primeiro envio do
 // Consolidado — computeDFC quebraria em `data.capex.projetos`.
-function dfcDaUnidade(dadosUnidade, dreUnidade, unidadeId) {
+function dfcDaUnidade(dadosUnidade, dreUnidade, unidadeId, ipcaAnualPct) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
     const [dfcA, dfcB] = consolidado.sites.map(siteId => {
       const d = dadosUnidade[siteId] || emptyFormData(siteId);
-      return computeDFC(d, computeDRE(d, referenciaDaUnidade(siteId)));
+      return computeDFC(d, computeDRE(d, referenciaDaUnidade(siteId), ipcaAnualPct));
     });
     return somarDFC(dfcA, dfcB);
   }
@@ -2268,7 +2268,7 @@ function dfcDaUnidade(dadosUnidade, dreUnidade, unidadeId) {
 // FC Financiamentos: atrelado às linhas por banco e às movimentações de
 //   acionistas da aba 7.
 // ---------------------------------------------------------------------------
-function computeFluxoIndiretoMensal(data, dre, ref) {
+function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -2279,7 +2279,7 @@ function computeFluxoIndiretoMensal(data, dre, ref) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
+      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
@@ -2333,7 +2333,7 @@ function computeFluxoIndiretoMensal(data, dre, ref) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
-    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
+    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
   }, 0));
   const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
   const outrasMes = MESES.map((_, m) => parseNum(data.resultado.outrasReceitasDespesas?.[m]));
@@ -2368,7 +2368,7 @@ function computeFluxoIndiretoMensal(data, dre, ref) {
 // folha, capital de giro, 13º), então reconcilia matematicamente com o
 // FC Operacional do método indireto — são duas leituras do mesmo número.
 // ---------------------------------------------------------------------------
-function computeFluxoCaixaDiretoMensal(data, dre, ref) {
+function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -2379,7 +2379,7 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
+      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
@@ -2548,7 +2548,7 @@ function computePlano5Y(dre, anos) {
 // de CPV nunca teriam como passar ali, então em vez de aparecer
 // permanentemente vermelhas (dando a impressão de "auditoria quebrada"),
 // somem da lista pra essa unidade.
-function runAuditoria(data, dre, ref, unidadeId) {
+function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   const checks = [];
   const temReceita = unidadeId !== 'corporativo';
   const temCcProducao = ref.ccs.some(c => c.tipo === 'producao');
@@ -2600,7 +2600,7 @@ function runAuditoria(data, dre, ref, unidadeId) {
     const linhasProducao = linhasCustos.filter(([chave]) => {
       const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
       return cc?.tipo === 'producao';
-    }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
+    }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0);
     checks.push({
       label: 'CPV: ao menos uma linha analítica lançada em CC de produção',
       ok: linhasProducao.length > 0,
@@ -2619,7 +2619,7 @@ function runAuditoria(data, dre, ref, unidadeId) {
   });
 
   const linhasComValorSemJustificativa = linhasCustos.filter(([, linha]) =>
-    valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0 && !(linha.justificativa || '').trim()
+    valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0 && !(linha.justificativa || '').trim()
   );
   checks.push({
     label: 'Toda linha analítica com valor lançado tem justificativa preenchida',
@@ -3355,8 +3355,8 @@ export default function OrcamentoARA({ usuario }) {
   // separadas) dentro de si mesmo, não usa este `checks`.
   const checks = useMemo(() => {
     if (ehSnapshotConsolidado(dados)) return [];
-    return runAuditoria(dados, dre, refUnidadeAtual, unidadeAtual);
-  }, [dados, dre, refUnidadeAtual, unidadeAtual]);
+    return runAuditoria(dados, dre, refUnidadeAtual, unidadeAtual, ipcaAnualPct);
+  }, [dados, dre, refUnidadeAtual, unidadeAtual, ipcaAnualPct]);
   // Só checks obrigatorio !== false bloqueiam o envio — Balanço Patrimonial
   // é responsabilidade do FP&A, aparece na auditoria mas não trava o gestor.
   const tudoOk = checks.filter(c => c.obrigatorio !== false).every(c => c.ok);
@@ -3553,7 +3553,7 @@ export default function OrcamentoARA({ usuario }) {
       // que este laço não sabe interpretar.
       if (!d || ehSnapshotConsolidado(d)) return;
       const refU = referenciaDaUnidade(u.id);
-      const dreU = computeDRE(d, refU);
+      const dreU = computeDRE(d, refU, ipcaAnualPct);
       Object.entries(d.custos.linhas || {}).forEach(([chave, linha]) => {
         const [ccCodigo, contaCodigo] = chave.split('|');
         const cc = refU.ccs.find(c => c.codigo === ccCodigo);
@@ -3561,7 +3561,7 @@ export default function OrcamentoARA({ usuario }) {
         const pacote = (refU.pacotes || []).find(p => p.id === conta?.pacoteId);
         const premissa = TIPOS_PREMISSA.find(t => t.id === linha.premissaTipo);
         MESES.forEach((m, mi) => {
-          const valor = valorLinhaMes(linha, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes);
+          const valor = valorLinhaMes(linha, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes);
           if (valor === 0) return;
           linhasCustosExport.push([u.nome, cc?.nome || ccCodigo, cc?.tipo === 'producao' ? 'Custo' : 'Despesa', pacote?.nome || 'Sem pacote', contaCodigo, conta?.nome || '', premissa?.nome || linha.premissaTipo, m, valor, linha.justificativa || '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
         });
@@ -3631,7 +3631,7 @@ export default function OrcamentoARA({ usuario }) {
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
       if (!d) return;
-      const t = dreDaUnidade(d, u.id);
+      const t = dreDaUnidade(d, u.id, ipcaAnualPct);
       linhasDRE.push([u.nome, t.receitaBruta, -t.deducoes, t.receitaLiquida, -t.cpv, t.lucroBruto, t.margemBruta, -t.despesasSemDA, t.ebitda, t.margemEbitda, -t.depreciacao, t.resultadoFinanceiro, t.outras, -t.ircsl, t.lucroLiquido, t.margemLiquida]);
     });
     const wsD = XLSX.utils.aoa_to_sheet(linhasDRE);
@@ -3666,7 +3666,7 @@ export default function OrcamentoARA({ usuario }) {
 
         const totais = UNIDADES_PARA_TOTAL_GRUPO.reduce((acc, u) => {
           const d = statusUnidades[u.id];
-          const t = d ? dreDaUnidade(d, u.id) : dreDaUnidade(emptyFormData(u.id), u.id);
+          const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct);
           acc.receitaLiquida += t.receitaLiquida; acc.ebitda += t.ebitda; acc.lucroLiquido += t.lucroLiquido;
           return acc;
         }, { receitaLiquida: 0, ebitda: 0, lucroLiquido: 0 });
@@ -3695,7 +3695,7 @@ export default function OrcamentoARA({ usuario }) {
         ]];
         UNIDADES.forEach((u) => {
           const d = statusUnidades[u.id];
-          const t = d ? dreDaUnidade(d, u.id) : dreDaUnidade(emptyFormData(u.id), u.id);
+          const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct);
           linhas2.push([u.nome, formatBRL(t.receitaLiquida), formatBRL(t.ebitda), formatPct(t.margemEbitda), formatBRL(t.lucroLiquido), d?.meta?.status || 'nao_iniciado']);
         });
         s2.addTable(linhas2, { x: 0.5, y: 1.0, w: 9, fontSize: 10.5, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
@@ -3717,8 +3717,8 @@ export default function OrcamentoARA({ usuario }) {
         // Pedido de 2026-08-16: sem capa — reflete a mesma estrutura da tela
         // de Revisão, Análise e Envio (DRE + gráficos Bridge, DRE mensal, FC
         // Indireto mensal, FC Direto mensal), por unidade.
-        const fd = computeFluxoIndiretoMensal(dados, dre, refUnidadeAtual);
-        const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidadeAtual);
+        const fd = computeFluxoIndiretoMensal(dados, dre, refUnidadeAtual, ipcaAnualPct);
+        const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidadeAtual, ipcaAnualPct);
         const totalFcOperacional = fd.fcOperacionalMes.reduce((a, v) => a + v, 0);
         const totalIrcslAno = fd.ircslMes.reduce((a, v) => a + v, 0);
         const totalGiroAno = fd.variacaoGiroMes.reduce((a, v) => a + v, 0);
@@ -4319,7 +4319,7 @@ function VisaoGerente(props) {
         {aba === 'capex' && (
           <AbaCapex projetos={dados.capex.projetos} addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} />
         )}
-        {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={referenciaDaUnidade(unidadeAtual)} />}
+        {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={referenciaDaUnidade(unidadeAtual)} ipcaAnualPct={ipcaAnualPct} />}
         {aba === 'provisoes' && <AbaProvisoes provisoes={dados.provisoes} resultado={dados.resultado} atualizar={atualizar} />}
         {aba === 'fcfinanciamentos' && (
           <AbaFcFinanciamentos
@@ -4334,7 +4334,7 @@ function VisaoGerente(props) {
           <AbaRevisao
             refUnidade={referenciaDaUnidade(unidadeAtual)}
             unidadeId={unidadeAtual} versoes={versoes}
-            dados={dados} dre={dre} autorNome={autorNome} setAutorNome={setAutorNome}
+            dados={dados} dre={dre} ipcaAnualPct={ipcaAnualPct} autorNome={autorNome} setAutorNome={setAutorNome}
             comentarioEnvio={comentarioEnvio} setComentarioEnvio={setComentarioEnvio}
             enviarVersao={enviarVersao} enviando={enviando} tudoOk={tudoOk} erro={erro}
             aguardandoLiberacao={aguardandoLiberacao}
@@ -4927,8 +4927,8 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
   const dreTds = computeDRE(dadosTds, refAg, ipcaAnualPct);
   const dreFds = computeDRE(dadosFds, refAg, ipcaAnualPct);
   const dre = somarDRE(dreTds, dreFds);
-  const checksTds = runAuditoria(dadosTds, dreTds, refAg, 'agricola_tds');
-  const checksFds = runAuditoria(dadosFds, dreFds, refAg, 'agricola_fds');
+  const checksTds = runAuditoria(dadosTds, dreTds, refAg, 'agricola_tds', ipcaAnualPct);
+  const checksFds = runAuditoria(dadosFds, dreFds, refAg, 'agricola_fds', ipcaAnualPct);
   const tudoOkTds = checksTds.filter(c => c.obrigatorio !== false).every(c => c.ok);
   const tudoOkFds = checksFds.filter(c => c.obrigatorio !== false).every(c => c.ok);
   const tudoOk = tudoOkTds && tudoOkFds;
@@ -5135,8 +5135,8 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
   const dreBeach = computeDRE(dadosBeach, refBeach, ipcaAnualPct);
   const dreVilla = computeDRE(dadosVilla, refVilla, ipcaAnualPct);
   const dre = somarDRE(dreBeach, dreVilla);
-  const checksBeach = runAuditoria(dadosBeach, dreBeach, refBeach, 'samoa_beach');
-  const checksVilla = runAuditoria(dadosVilla, dreVilla, refVilla, 'samoa_villa');
+  const checksBeach = runAuditoria(dadosBeach, dreBeach, refBeach, 'samoa_beach', ipcaAnualPct);
+  const checksVilla = runAuditoria(dadosVilla, dreVilla, refVilla, 'samoa_villa', ipcaAnualPct);
   const tudoOkBeach = checksBeach.filter(c => c.obrigatorio !== false).every(c => c.ok);
   const tudoOkVilla = checksVilla.filter(c => c.obrigatorio !== false).every(c => c.ok);
   const tudoOk = tudoOkBeach && tudoOkVilla;
@@ -6914,9 +6914,9 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto }) {
   );
 }
 
-function AbaGiro({ capitalGiro, atualizar, dre, dados, refUnidade }) {
+function AbaGiro({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct }) {
   if (capitalGiro.premissasRecebimento) {
-    return <AbaGiroTextil capitalGiro={capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={refUnidade} />;
+    return <AbaGiroTextil capitalGiro={capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={refUnidade} ipcaAnualPct={ipcaAnualPct} />;
   }
   return (
     <div>
@@ -6967,9 +6967,9 @@ function linhasFcDireto(fcd) {
 // Caixa Direto) e o próprio FC Direto — igual ao da Revisão (pedido de
 // 2026-08-16). Ver nota completa em PREMISSAS_RECEBIMENTO_REF /
 // computeRecebimentosKgiroMensal / PLANO_CONTAS_PAGAMENTOS_TEXTIL.
-function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade }) {
+function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct }) {
   const kgiro = computeRecebimentosKgiroMensal({ capitalGiro }, dre);
-  const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade);
+  const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const p = capitalGiro.premissasRecebimento;
   const pagamentos = capitalGiro.pagamentosManuais || pagamentosManuaisVazios();
 
@@ -7847,10 +7847,10 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
   );
 }
 
-function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade }) {
+function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade }) {
   const [ifrs18, setIfrs18] = useState(false);
-  const fd = computeFluxoIndiretoMensal(dados, dre, refUnidade);
-  const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade);
+  const fd = computeFluxoIndiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
+  const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const totalFcOperacional = fd.fcOperacionalMes.reduce((a, v) => a + v, 0);
   const totalFcInvestimento = fd.fcInvestimentoMes.reduce((a, v) => a + v, 0);
   const totalFcFinanciamento = fd.fcFinanciamentoMes.reduce((a, v) => a + v, 0);
@@ -8017,7 +8017,7 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, autorNome, set
           abre esta aba já é Gestor da Unidade ou Admin FP&A (Gestor de CC
           nem vê a Revisão — ver ABAS/VisaoGerente), então não precisa de
           gate de perfil adicional aqui dentro. */}
-      <AnaliseVariacoes dados={dados} dre={dre} refUnidade={refUnidade} unidadeId={unidadeId} versoes={versoes} />
+      <AnaliseVariacoes dados={dados} dre={dre} refUnidade={refUnidade} unidadeId={unidadeId} versoes={versoes} ipcaAnualPct={ipcaAnualPct} />
     </div>
   );
 }
@@ -8028,7 +8028,7 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, autorNome, set
 // (cascata); micro = contas analíticas de Custos e Despesas (CC × Conta) —
 // mesma terminologia usada no resto do app ("conta analítica" sempre quer
 // dizer uma linha de Custos e Despesas, ver AbaCustos/LinhaConta).
-function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes }) {
+function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes, ipcaAnualPct }) {
   const [versaoSelId, setVersaoSelId] = useState('');
   const [versaoSel, setVersaoSel] = useState(null);
   const [carregando, setCarregando] = useState(false);
@@ -8066,7 +8066,13 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes }) {
     ];
   }
 
-  const dreVersao = versaoSel ? computeDRE(versaoSel.dados, refUnidade) : null;
+  // ipcaAnualPct usado é o ATUAL (premissa macro de agora) mesmo pra
+  // comparar com uma versão enviada no passado — não guardamos o IPCA
+  // vigente em cada envio anterior (só o snapshot de `dados`), então não há
+  // como recalcular a versão antiga com o IPCA "de época" dela. Mesma
+  // aproximação de melhor esforço já usada no total gravado no envio (ver
+  // routes/orcamentos.js POST /:unidadeId/enviar).
+  const dreVersao = versaoSel ? computeDRE(versaoSel.dados, refUnidade, ipcaAnualPct) : null;
   const macroAtual = linhasMacro(dre);
   const macroVersao = dreVersao ? linhasMacro(dreVersao) : null;
 
@@ -8078,8 +8084,8 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes }) {
     const linhas = [];
     chaves.forEach((chave) => {
       const [ccCodigo, contaCodigo] = chave.split('|');
-      const totalAtual = valorLinhaAnual(linhasAtuais[chave], dre.receitaBrutaMes, dre.receitaLiquidaMes);
-      const totalVersao = valorLinhaAnual(linhasVersao[chave], dreVersao.receitaBrutaMes, dreVersao.receitaLiquidaMes);
+      const totalAtual = valorLinhaAnual(linhasAtuais[chave], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      const totalVersao = valorLinhaAnual(linhasVersao[chave], dreVersao.receitaBrutaMes, dreVersao.receitaLiquidaMes, ipcaAnualPct, dreVersao.volumeTotalKgMes);
       const diff = totalAtual - totalVersao;
       if (Math.abs(diff) < 0.01) return;
       const cc = refUnidade.ccs.find((c) => c.codigo === ccCodigo);
@@ -8087,7 +8093,7 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes }) {
       linhas.push({ chave, ccNome: cc?.nome || ccCodigo, contaNome: conta?.nome || contaCodigo, totalAtual, totalVersao, diff });
     });
     return linhas.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
-  }, [versaoSel, dreVersao, dados, dre, refUnidade]);
+  }, [versaoSel, dreVersao, dados, dre, refUnidade, ipcaAnualPct]);
 
   function linhaDiff(label, atual, versao, i) {
     const diff = atual - versao;
@@ -8185,11 +8191,14 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes }) {
 function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, buscarBoletimFocus, buscandoFocus, erroFocus, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
+  // Mesmo racional do ipcaAnualPct no componente App — recalculado aqui
+  // porque premissasMacro chega como prop, não como estado local.
+  const ipcaAnualPct = premissasMacro.find(p => p.id === 'ipca')?.valor;
 
   const totalGrupo = UNIDADES_PARA_TOTAL_GRUPO.reduce((acc, u) => {
     const d = statusUnidades[u.id];
     if (!d) return acc;
-    const t = dreDaUnidade(d, u.id);
+    const t = dreDaUnidade(d, u.id, ipcaAnualPct);
     return {
       receitaLiquida: acc.receitaLiquida + t.receitaLiquida,
       ebitda: acc.ebitda + t.ebitda,
@@ -8287,7 +8296,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 26 }}>
             {UNIDADES.filter(u => filtroStatus === 'todos' || (statusUnidades[u.id]?.meta?.status || 'nao_iniciado') === filtroStatus).map(u => {
               const d = statusUnidades[u.id];
-              const t = d ? dreDaUnidade(d, u.id) : dreDaUnidade(emptyFormData(u.id), u.id);
+              const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct);
               const aberto = unidadeDrill === u.id;
               return (
                 <div key={u.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
@@ -8370,13 +8379,13 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
       )}
 
       {subVisao === 'resultados' && (
-        <VisaoResultadosConsolidados statusUnidades={statusUnidades} totalGrupo={totalGrupo} />
+        <VisaoResultadosConsolidados statusUnidades={statusUnidades} totalGrupo={totalGrupo} ipcaAnualPct={ipcaAnualPct} />
       )}
     </div>
   );
 }
 
-function VisaoResultadosConsolidados({ statusUnidades, totalGrupo }) {
+function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct }) {
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
   const [linhasAbertasDFC, setLinhasAbertasDFC] = useState({});
 
@@ -8384,9 +8393,9 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo }) {
   const porUnidadeDFC = {};
   UNIDADES_PARA_TOTAL_GRUPO.forEach(u => {
     const d = statusUnidades[u.id] || emptyFormData(u.id);
-    const t = dreDaUnidade(d, u.id);
+    const t = dreDaUnidade(d, u.id, ipcaAnualPct);
     porUnidadeDRE[u.id] = t;
-    porUnidadeDFC[u.id] = dfcDaUnidade(d, t, u.id);
+    porUnidadeDFC[u.id] = dfcDaUnidade(d, t, u.id, ipcaAnualPct);
   });
   const grupoDRE = agregarDRE(Object.values(porUnidadeDRE));
   const grupoDFC = agregarDFC(Object.values(porUnidadeDFC));

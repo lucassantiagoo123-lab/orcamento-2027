@@ -512,7 +512,7 @@ export function computeDFC(data, dre) {
 // ---------------------------------------------------------------------------
 // Fluxo de Caixa Indireto mensal, partindo do EBITDA — para a Revisão, Análise e Envio.
 // ---------------------------------------------------------------------------
-export function computeFluxoIndiretoMensal(data, dre, ref) {
+export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -523,7 +523,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
+      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
@@ -577,7 +577,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
-    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
+    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
   }, 0));
   const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
   const outrasMes = MESES.map((_, m) => parseNum(data.resultado.outrasReceitasDespesas?.[m]));
@@ -605,7 +605,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref) {
 // folha, capital de giro, 13º), então reconcilia matematicamente com o
 // FC Operacional do método indireto — são duas leituras do mesmo número.
 // ---------------------------------------------------------------------------
-export function computeFluxoCaixaDiretoMensal(data, dre, ref) {
+export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -616,7 +616,7 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes);
+      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
     }, 0);
   }
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', ['pessoal'], m));
@@ -779,7 +779,7 @@ export function computePlano5Y(dre, anos) {
 // inaplicáveis ao Corporativo (sem Receita — unidade de back-office — e
 // sem CC de produção), em vez de deixá-las permanentemente vermelhas.
 // Espelho exato de frontend/src/OrcamentoARA.jsx.
-export function runAuditoria(data, dre, ref, unidadeId) {
+export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   const checks = [];
   const temReceita = unidadeId !== 'corporativo';
   const temCcProducao = ref.ccs.some(c => c.tipo === 'producao');
@@ -833,7 +833,7 @@ export function runAuditoria(data, dre, ref, unidadeId) {
     const linhasProducao = linhasCustos.filter(([chave]) => {
       const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
       return cc?.tipo === 'producao';
-    }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0);
+    }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0);
     checks.push({
       label: 'CPV: ao menos uma linha analítica lançada em CC de produção',
       ok: linhasProducao.length > 0,
@@ -852,7 +852,7 @@ export function runAuditoria(data, dre, ref, unidadeId) {
   });
 
   const linhasComValorSemJustificativa = linhasCustos.filter(([, linha]) =>
-    valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes) > 0 && !(linha.justificativa || '').trim()
+    valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0 && !(linha.justificativa || '').trim()
   );
   checks.push({
     label: 'Toda linha analítica com valor lançado tem justificativa preenchida',

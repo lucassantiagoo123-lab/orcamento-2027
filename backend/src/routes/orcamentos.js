@@ -140,9 +140,9 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
       orcamento,
       dre,
       dfc: ehConsolidado ? null : computeDFC(orcamento.dados, dre),
-      fluxoIndiretoMensal: ehConsolidado ? null : computeFluxoIndiretoMensal(orcamento.dados, dre, ref),
-      fluxoDiretoMensal: ehConsolidado ? null : computeFluxoCaixaDiretoMensal(orcamento.dados, dre, ref),
-      auditoria: ehConsolidado ? [] : runAuditoria(orcamento.dados, dre, ref, unidadeId),
+      fluxoIndiretoMensal: ehConsolidado ? null : computeFluxoIndiretoMensal(orcamento.dados, dre, ref, ipcaAnualPct),
+      fluxoDiretoMensal: ehConsolidado ? null : computeFluxoCaixaDiretoMensal(orcamento.dados, dre, ref, ipcaAnualPct),
+      auditoria: ehConsolidado ? [] : runAuditoria(orcamento.dados, dre, ref, unidadeId, ipcaAnualPct),
     });
   } catch (err) { next(err); }
 });
