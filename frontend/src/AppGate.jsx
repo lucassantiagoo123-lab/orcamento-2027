@@ -117,7 +117,7 @@ function LoginSenha({ onEntrou }) {
       </div>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <input
-          required type="email" placeholder="seu.nome@grupoara.com.br"
+          required type="email" placeholder="e-mail"
           value={email} onChange={(e) => setEmail(e.target.value)}
           style={{ fontSize: 12, padding: '8px 10px', borderRadius: 6, border: '1px solid #D9D9D9' }}
         />
