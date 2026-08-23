@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getMe, irParaLogin } from './api/auth.js';
-import { verificarStatusBackend, devLogin } from './api/devLogin.js';
+import { verificarStatusBackend } from './api/devLogin.js';
 import { loginSenha } from './api/senha.js';
 import { ApiError } from './api/client.js';
 import OrcamentoARA from './OrcamentoARA.jsx';
@@ -18,7 +18,7 @@ export default function AppGate() {
   const [estado, setEstado] = useState('carregando'); // 'carregando' | 'deslogado' | 'logado'
   const [usuario, setUsuario] = useState(null);
   const [tela, setTela] = useState('orcamento'); // 'orcamento' | 'admin' — só admin_fpa alcança 'admin'
-  const [statusBackend, setStatusBackend] = useState(null); // { ssoConfigurado, loginDevDisponivel }
+  const [statusBackend, setStatusBackend] = useState(null); // { ssoConfigurado } — loginDevDisponivel também vem do /health, mas não é mais usado aqui (ver nota abaixo de LoginSenha)
 
   useEffect(() => {
     getMe()
@@ -62,8 +62,6 @@ export default function AppGate() {
         )}
 
         <LoginSenha onEntrou={() => window.location.reload()} />
-
-        {statusBackend?.loginDevDisponivel && <LoginDev onEntrou={() => window.location.reload()} />}
       </TelaCentral>
     );
   }
@@ -140,52 +138,16 @@ function LoginSenha({ onEntrou }) {
   );
 }
 
-/** Login de desenvolvimento — só aparece quando o backend expõe
- * loginDevDisponivel=true (DEV_LOGIN_ENABLED=true e NODE_ENV != production).
- * Serve exclusivamente para testar a interface multiusuário enquanto o SSO
- * do Entra ID não existe (ver backend/src/auth/routes.js). Sem senha, sem
- * verificação de identidade — nunca deve aparecer num ambiente real. */
-function LoginDev({ onEntrou }) {
-  const [email, setEmail] = useState('');
-  const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState(null);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setEnviando(true);
-    setErro(null);
-    try {
-      await devLogin(email.trim());
-      onEntrou();
-    } catch (err) {
-      setErro(err instanceof ApiError ? err.message : 'Falha ao entrar.');
-    }
-    setEnviando(false);
-  }
-
-  return (
-    <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px dashed #D9D9D9', maxWidth: 300 }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#C00000', letterSpacing: 0.5, marginBottom: 8 }}>
-        ⚠ LOGIN DE DESENVOLVIMENTO — SEM SENHA
-      </div>
-      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10, textAlign: 'left' }}>
-        Só existe enquanto o SSO do Entra ID não está configurado. Entra como qualquer
-        usuário já cadastrado, só com o e-mail — ver <code>db/seed_usuarios.sql</code>.
-      </p>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 6 }}>
-        <input
-          required type="email" placeholder="nome.sobrenome@grupoara.com.br"
-          value={email} onChange={(e) => setEmail(e.target.value)}
-          style={{ flex: 1, fontSize: 12, padding: '7px 9px', borderRadius: 6, border: '1px solid #D9D9D9' }}
-        />
-        <button type="submit" disabled={enviando} style={{ fontSize: 12, fontWeight: 700, padding: '7px 12px', borderRadius: 6, border: 'none', background: COR_AZUL, color: '#fff', cursor: 'pointer' }}>
-          {enviando ? '…' : 'Entrar'}
-        </button>
-      </form>
-      {erro && <p style={{ fontSize: 11, color: '#C00000', marginTop: 6 }}>{erro}</p>}
-    </div>
-  );
-}
+// Login de desenvolvimento (⚠ "LOGIN DE DESENVOLVIMENTO — SEM SENHA")
+// retirado da tela de login em 2026-08-23, agora que todo usuário tem senha
+// definida (ver backend/db/seed_usuarios.sql / painel de Administração). O
+// componente LoginDev e o import de devLogin() foram removidos daqui — o
+// endpoint POST /auth/dev-login no backend continua existindo (gated por
+// DEV_LOGIN_ENABLED=true && NODE_ENV!=='production', ver
+// backend/src/auth/routes.js), mas some da tela mesmo se alguém reativar a
+// env var por engano. Pendência real, fora do alcance do código: confirmar
+// que DEV_LOGIN_ENABLED não está setado (ou está 'false') nas variáveis do
+// serviço de backend no Railway — só isso desliga a rota de fato.
 
 function TelaCentral({ texto, children }) {
   return (
