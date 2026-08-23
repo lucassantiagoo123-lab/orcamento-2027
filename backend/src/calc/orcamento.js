@@ -1008,6 +1008,18 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     detalhe: linhasComValorSemJustificativa.length === 0 ? 'Justificativa preenchida em todas as linhas com valor' : `${linhasComValorSemJustificativa.length} linha(s) com valor e sem justificativa`,
   });
 
+  // Descrição obrigatória (2026-08-23) — espelho de frontend/src/OrcamentoARA.jsx.
+  const linhasComValorSemDescricao = linhasCustos.filter(([, contaRaw]) =>
+    normalizarConta(contaRaw).sublinhas.some(sub =>
+      valorLinhaAnual(sub, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0 && !(sub.descricao || '').trim()
+    )
+  );
+  checks.push({
+    label: 'Toda linha analítica com valor lançado tem descrição preenchida',
+    ok: linhasComValorSemDescricao.length === 0,
+    detalhe: linhasComValorSemDescricao.length === 0 ? 'Descrição preenchida em todas as linhas com valor' : `${linhasComValorSemDescricao.length} linha(s) com valor e sem descrição`,
+  });
+
   const inadMensal = (data.provisoes.inadimplencia || []).map(parseNum);
   const inadForaFaixa = inadMensal.some(v => v < 0 || v > 100);
   checks.push({
