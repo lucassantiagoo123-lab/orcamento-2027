@@ -2290,6 +2290,119 @@ function somarDRE(a, b) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// DRE Mensal Consolidada com sublinhas (2026-08-23, pedido: "a DRE precisa
+// ser mensal (com total do ano no final) e precisa contemplar sublinhas
+// (agrupadas) por tipo de Receita e dentro do tipo de receita, incluir por
+// Resort/Fazenda. Depois Custos por tipo e por empresa. Nas despesas
+// operacionais considere Despesas com Pessoal, Despesas com Vendas e
+// Despesas Gerais, com abertura por empresa"). Usado só pelo Consolidado
+// (ARA Resorts e ARA Agrícola) — ver DREMensalConsolidada/ConsolidadoAgricola/
+// ConsolidadoResorts. `lados` é sempre [{ nome, dados, dre, ref }] — um item
+// por site editável (as duas fazendas ou os dois resorts); `dre`/`ref` de
+// cada lado já vêm de computeDRE/referenciaDaUnidade (mesma referência que a
+// tela de cada site usa).
+// CCs de nível 2 (área/consolidador — só existem hoje em CCS_AGRICOLA/
+// CCS_RESORTS) nunca guardam lançamento próprio (ver AbaCustos, nivel===2) —
+// por isso todo somatório aqui filtra só os CCs-folha (nível 3 ou sem nível).
+function ccsFolhaDoLado(ref) {
+  return ref.ccs.filter(cc => !cc.nivel || cc.nivel === 3);
+}
+// Receita por tipo (agrupada) e, dentro do tipo, por empresa. Resorts já tem
+// uma lista fixa de tipos de receita (LINHAS_RECEITA_RESORTS, mesmo id nos
+// dois resorts) — usa o id como chave de agrupamento. Agrícola não tem tipo
+// fixo (cada fazenda cadastra os próprios produtos, com nome livre) — usa o
+// nome do produto (normalizado) como chave, assim "Milho" de uma fazenda
+// agrupa com "Milho" da outra.
+function computeGruposReceitaTipo(lados, unidadeKind) {
+  const mapa = new Map();
+  lados.forEach(lado => {
+    const tipos = unidadeKind === 'resorts'
+      ? LINHAS_RECEITA_RESORTS.filter(def => def.id !== LINHA_RECEITA_INFORMATIVA_RESORTS).map(def => ({
+          chave: def.id,
+          nome: def.nome,
+          valoresMensal: MESES.map((_, m) => valorLinhaMes(lado.dados.receita.linhas?.[def.id], m, null, null)),
+        }))
+      : (lado.dados.receita.produtos || []).map(p => ({
+          chave: (p.nome || '').trim().toLowerCase() || p.id,
+          nome: p.nome || '(sem nome)',
+          valoresMensal: MESES.map((_, m) => parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m])),
+        }));
+    tipos.forEach(t => {
+      if (!mapa.has(t.chave)) mapa.set(t.chave, { chave: t.chave, nome: t.nome, porLado: [] });
+      mapa.get(t.chave).porLado.push({ nome: lado.nome, valoresMensal: t.valoresMensal });
+    });
+  });
+  return [...mapa.values()]
+    .map(g => ({ ...g, valoresMensal: MESES.map((_, m) => g.porLado.reduce((acc, pl) => acc + pl.valoresMensal[m], 0)) }))
+    .filter(g => g.valoresMensal.some(v => v !== 0));
+}
+// Custos (CPV) por tipo (pacote do plano de contas dos CC de produção) e,
+// dentro do tipo, por empresa. A folha de CCs de produção (mão de obra
+// direta) entra como um "tipo" sintético — o pacote 'pessoal' nunca tem
+// lançamento em custos.linhas (é sempre calculado, ver computeFolhaPessoalMes)
+// e o pacote 'depreciacao' fica de fora do CPV (some depois do EBITDA,
+// mesmo racional de computeDRE).
+function computeGruposCustosMensal(lados, ipcaAnualPct) {
+  const grupos = [];
+  grupos.push({
+    chave: '__pessoal_producao__',
+    nome: 'Mão de obra direta (Pessoal)',
+    porLado: lados.map(lado => ({
+      nome: lado.nome,
+      valoresMensal: MESES.map((_, m) => ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'producao')
+        .reduce((acc, cc) => acc + (folhaAnualPorCC(lado.dados, cc.codigo).totalMes[m] || 0), 0)),
+    })),
+  });
+  const pacoteIds = new Map();
+  lados.forEach(lado => lado.ref.pacotes.forEach(p => { if (p.id !== 'pessoal' && p.id !== 'depreciacao') pacoteIds.set(p.id, p.nome); }));
+  pacoteIds.forEach((nome, pid) => {
+    grupos.push({
+      chave: pid,
+      nome,
+      porLado: lados.map(lado => {
+        const contas = (lado.ref.planoContas[pid] || []).filter(c => c.origem === 'Custo');
+        const ccs = ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'producao');
+        const valoresMensal = MESES.map((_, m) => ccs.reduce((acc, cc) => acc + contas.reduce((a2, c) =>
+          a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes), 0), 0));
+        return { nome: lado.nome, valoresMensal };
+      }),
+    });
+  });
+  return grupos
+    .map(g => ({ ...g, valoresMensal: MESES.map((_, m) => g.porLado.reduce((acc, pl) => acc + pl.valoresMensal[m], 0)) }))
+    .filter(g => g.valoresMensal.some(v => v !== 0));
+}
+// Despesas Operacionais — sempre nos 3 baldes pedidos (Pessoal/Vendas/
+// Gerais), cada um aberto por empresa. Pessoal = folha dos CCs de despesa;
+// Vendas = pacote 'comercial' (Comercial e Marketing); Gerais = todo o
+// resto (exceto 'pessoal', 'comercial' e 'depreciacao' — esta última segue
+// como linha própria abaixo do EBITDA, fora das Despesas Operacionais).
+function computeDespesasOperacionaisPorGrupo(lados, ipcaAnualPct) {
+  function porPacotes(pacoteIds) {
+    return lados.map(lado => {
+      const ccs = ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'despesa');
+      const contas = pacoteIds.flatMap(pid => (lado.ref.planoContas[pid] || []).filter(c => c.origem === 'Despesa'));
+      const valoresMensal = MESES.map((_, m) => ccs.reduce((acc, cc) => acc + contas.reduce((a2, c) =>
+        a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes), 0), 0));
+      return { nome: lado.nome, valoresMensal };
+    });
+  }
+  const pessoal = lados.map(lado => ({
+    nome: lado.nome,
+    valoresMensal: MESES.map((_, m) => ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'despesa')
+      .reduce((acc, cc) => acc + (folhaAnualPorCC(lado.dados, cc.codigo).totalMes[m] || 0), 0)),
+  }));
+  const vendas = porPacotes(['comercial']);
+  const idsGerais = new Set();
+  lados.forEach(lado => lado.ref.pacotes.forEach(p => { if (!['pessoal', 'comercial', 'depreciacao'].includes(p.id)) idsGerais.add(p.id); }));
+  const gerais = porPacotes([...idsGerais]);
+  return { pessoal, vendas, gerais };
+}
+function somarPorLado(porLado) {
+  return MESES.map((_, m) => porLado.reduce((acc, pl) => acc + pl.valoresMensal[m], 0));
+}
+
 // Consolidados multi-site (2026-08-20): cada família (Agrícola, Resorts —
 // ver FAMILIAS_MULTISITE) grava, no envio do Consolidado, um wrapper
 // { _tipo, [idSiteA]: dadosSiteA, [idSiteB]: dadosSiteB } em vez de um
@@ -5166,6 +5279,32 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
   const tudoOkFds = checksFds.filter(c => c.obrigatorio !== false).every(c => c.ok);
   const tudoOk = tudoOkTds && tudoOkFds;
 
+  // Bridge Receita->EBITDA->FCO (2026-08-23, item 3): mesma mecânica de
+  // AbaRevisao, só que somando os dois lados (computeFluxoIndiretoMensal
+  // exige um `data`/`dre`/`ref` por vez — não dá pra chamar com o `dre`
+  // já somado de somarDRE, que não carrega os *Mes de detalhe).
+  const fdTds = computeFluxoIndiretoMensal(dadosTds, dreTds, refAg, ipcaAnualPct);
+  const fdFds = computeFluxoIndiretoMensal(dadosFds, dreFds, refAg, ipcaAnualPct);
+  const totalFcOperacional = fdTds.fcOperacionalMes.reduce((a, v) => a + v, 0) + fdFds.fcOperacionalMes.reduce((a, v) => a + v, 0);
+  const bridgeReceitaEbitda = [
+    { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'inicio' },
+    { label: 'Deduções/Impostos', valor: -dre.deducoes, tipo: 'incremento' },
+    { label: 'Custos (CPV)', valor: -dre.cpv, tipo: 'incremento' },
+    { label: 'Despesas', valor: -dre.despesasSemDA, tipo: 'incremento' },
+    { label: 'EBITDA', valor: dre.ebitda, tipo: 'total' },
+  ];
+  const totalIrcslAno = fdTds.ircslMes.reduce((a, v) => a + v, 0) + fdFds.ircslMes.reduce((a, v) => a + v, 0);
+  const totalGiroAno = fdTds.variacaoGiroMes.reduce((a, v) => a + v, 0) + fdFds.variacaoGiroMes.reduce((a, v) => a + v, 0);
+  const totalAjuste13Ano = fdTds.ajuste13Mes.reduce((a, v) => a + v, 0) + fdFds.ajuste13Mes.reduce((a, v) => a + v, 0);
+  const totalAjustePagamentoAno = fdTds.ajustePagamentoMes.reduce((a, v) => a + v, 0) + fdFds.ajustePagamentoMes.reduce((a, v) => a + v, 0);
+  const bridgeEbitdaFco = [
+    { label: 'EBITDA', valor: dre.ebitda, tipo: 'inicio' },
+    { label: 'Impostos', valor: -totalIrcslAno, tipo: 'incremento' },
+    { label: 'Var. Capital de Giro', valor: totalGiroAno, tipo: 'incremento' },
+    { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
+    { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
+  ];
+
   async function handleEnviar() {
     setEnviando(true);
     setErro(null);
@@ -5234,6 +5373,26 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
         <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
         <CardTotal label="EBITDA" valor={dre.ebitda} cor={COR.laranja} />
         <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', margin: '18px 0' }}>
+        <div style={{ flex: '1 1 320px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge — Receita até EBITDA</div>
+          <GraficoBridge etapas={bridgeReceitaEbitda} />
+        </div>
+        <div style={{ flex: '1 1 320px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge — EBITDA até FCO</div>
+          <GraficoBridge etapas={bridgeEbitdaFco} />
+        </div>
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>DRE mensal — por tipo de receita/custo/despesa, aberta por fazenda</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma linha com seta para abrir a quebra por Terra do Sol (TDS) e Frutos do Sol (FDS).</p>
+      <div style={{ marginBottom: 24 }}>
+        <DREMensalConsolidada
+          lados={[{ nome: 'Terra do Sol', dados: dadosTds, dre: dreTds, ref: refAg }, { nome: 'Frutos do Sol', dados: dadosFds, dre: dreFds, ref: refAg }]}
+          unidadeKind="agricola" ipcaAnualPct={ipcaAnualPct}
+        />
       </div>
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>Detalhe por fazenda (Receita e Custos e Despesas)</h4>
@@ -5374,6 +5533,30 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
   const tudoOkVilla = checksVilla.filter(c => c.obrigatorio !== false).every(c => c.ok);
   const tudoOk = tudoOkBeach && tudoOkVilla;
 
+  // Bridge Receita->EBITDA->FCO (2026-08-23, item 3) — mesmo racional de
+  // ConsolidadoAgricola (ver nota lá).
+  const fdBeach = computeFluxoIndiretoMensal(dadosBeach, dreBeach, refBeach, ipcaAnualPct);
+  const fdVilla = computeFluxoIndiretoMensal(dadosVilla, dreVilla, refVilla, ipcaAnualPct);
+  const totalFcOperacional = fdBeach.fcOperacionalMes.reduce((a, v) => a + v, 0) + fdVilla.fcOperacionalMes.reduce((a, v) => a + v, 0);
+  const bridgeReceitaEbitda = [
+    { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'inicio' },
+    { label: 'Deduções/Impostos', valor: -dre.deducoes, tipo: 'incremento' },
+    { label: 'Custos (CPV)', valor: -dre.cpv, tipo: 'incremento' },
+    { label: 'Despesas', valor: -dre.despesasSemDA, tipo: 'incremento' },
+    { label: 'EBITDA', valor: dre.ebitda, tipo: 'total' },
+  ];
+  const totalIrcslAno = fdBeach.ircslMes.reduce((a, v) => a + v, 0) + fdVilla.ircslMes.reduce((a, v) => a + v, 0);
+  const totalGiroAno = fdBeach.variacaoGiroMes.reduce((a, v) => a + v, 0) + fdVilla.variacaoGiroMes.reduce((a, v) => a + v, 0);
+  const totalAjuste13Ano = fdBeach.ajuste13Mes.reduce((a, v) => a + v, 0) + fdVilla.ajuste13Mes.reduce((a, v) => a + v, 0);
+  const totalAjustePagamentoAno = fdBeach.ajustePagamentoMes.reduce((a, v) => a + v, 0) + fdVilla.ajustePagamentoMes.reduce((a, v) => a + v, 0);
+  const bridgeEbitdaFco = [
+    { label: 'EBITDA', valor: dre.ebitda, tipo: 'inicio' },
+    { label: 'Impostos', valor: -totalIrcslAno, tipo: 'incremento' },
+    { label: 'Var. Capital de Giro', valor: totalGiroAno, tipo: 'incremento' },
+    { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
+    { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
+  ];
+
   async function handleEnviar() {
     setEnviando(true);
     setErro(null);
@@ -5438,6 +5621,26 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
         <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
         <CardTotal label="EBITDA" valor={dre.ebitda} cor={COR.laranja} />
         <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', margin: '18px 0' }}>
+        <div style={{ flex: '1 1 320px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge — Receita até EBITDA</div>
+          <GraficoBridge etapas={bridgeReceitaEbitda} />
+        </div>
+        <div style={{ flex: '1 1 320px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge — EBITDA até FCO</div>
+          <GraficoBridge etapas={bridgeEbitdaFco} />
+        </div>
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>DRE mensal — por tipo de receita/custo/despesa, aberta por resort</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma linha com seta para abrir a quebra por Samoa Beach e Samoa Villa.</p>
+      <div style={{ marginBottom: 24 }}>
+        <DREMensalConsolidada
+          lados={[{ nome: 'Samoa Beach', dados: dadosBeach, dre: dreBeach, ref: refBeach }, { nome: 'Samoa Villa', dados: dadosVilla, dre: dreVilla, ref: refVilla }]}
+          unidadeKind="resorts" ipcaAnualPct={ipcaAnualPct}
+        />
       </div>
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>Detalhe por resort (Receita e Custos e Despesas)</h4>
@@ -6898,6 +7101,66 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
   );
 }
 
+// Seletor de CC (2026-08-23, item 1: "como as empresas possuem muitos CCs...
+// procure outra forma de apresentar a lista de CCs sem poluir o visual") —
+// quando a unidade tem hierarquia de área (nível 2/3, hoje só Agrícola e
+// Resorts — ver CCS_AGRICOLA/CCS_RESORTS), agrupa os CCs-folha (nível 3)
+// dentro do próprio pill da área (nível 2), escondidos por padrão — declara
+// só as ~10 pills de área em vez dos ~35 pills soltos do antigo layout
+// flat. Sem hierarquia (Têxtil/Corporativo), mantém a lista simples de
+// sempre — nada muda pra essas unidades.
+function SeletorCcs({ ccs, ccSel, onSelect }) {
+  const [areasAbertas, setAreasAbertas] = useState({});
+  const temHierarquia = ccs.some(cc => cc.nivel === 2);
+
+  function Pill({ cc }) {
+    return (
+      <button onClick={() => onSelect(cc.codigo)}
+        style={{
+          fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 16, cursor: 'pointer',
+          border: `1.5px solid ${cc.codigo === ccSel ? COR.azul : COR.borda}`,
+          background: cc.codigo === ccSel ? COR.azul : COR.branco, color: cc.codigo === ccSel ? COR.branco : COR.texto,
+        }}
+      >{cc.nome}{cc.nivel === 2 ? ' · Consolidador' : cc.tipo === 'producao' ? ' · CPV' : ' · Despesa'}</button>
+    );
+  }
+
+  if (!temHierarquia) {
+    return (
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+        {ccs.map(cc => <Pill key={cc.codigo} cc={cc} />)}
+      </div>
+    );
+  }
+
+  const areas = ccs.filter(cc => cc.nivel === 2);
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+      {areas.map(area => {
+        const filhos = ccs.filter(cc => cc.areaCodigo === area.codigo);
+        const aberta = !!areasAbertas[area.codigo];
+        const filhoSelecionado = filhos.some(f => f.codigo === ccSel);
+        return (
+          <div key={area.codigo} style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', border: `1px solid ${COR.borda}`, borderRadius: 16, padding: 2, background: filhoSelecionado ? COR.claro : 'transparent' }}>
+            <Pill cc={area} />
+            {filhos.length > 0 && (
+              <button
+                onClick={() => setAreasAbertas(prev => ({ ...prev, [area.codigo]: !prev[area.codigo] }))}
+                title={aberta ? 'Ocultar CCs da área' : `Ver ${filhos.length} CC(s) da área`}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.azul, display: 'flex', alignItems: 'center', padding: '0 4px' }}
+              >
+                {aberta ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <span style={{ fontSize: 9.5, fontWeight: 700, marginLeft: 1 }}>{filhos.length}</span>
+              </button>
+            )}
+            {aberta && filhos.map(f => <Pill key={f.codigo} cc={f} />)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote, viagens, atualizar }) {
   // Gestor de CC (perfil gerente_cc_corporativo) só vê/edita os CCs que
   // lhe foram atribuídos nesta unidade (usuario.ccsPermitidos, de
@@ -6915,6 +7178,10 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const [contaAberta, setContaAberta] = useState(null);
   const [filtroConta, setFiltroConta] = useState('');
   const [filtroPacoteId, setFiltroPacoteId] = useState('todos');
+  // Consolidado por pacote (2026-08-23, item 1: "incluir uma visão
+  // consolidada dos CCs por pacote") — fechado por padrão, some abaixo do
+  // seletor de CC.
+  const [mostrarConsolidado, setMostrarConsolidado] = useState(false);
 
   if (ccsVisiveis.length === 0) {
     return (
@@ -6967,6 +7234,23 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   function totalPacoteMes(contas, m) {
     return contas.reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0);
   }
+  // Consolidado por pacote (2026-08-23, item 1) — soma TODOS os CCs
+  // visíveis ao usuário, por pacote, mês a mês. Só os CCs-folha (nível 3 ou
+  // sem nível) somam de verdade — o nível 2 (área/consolidador) é uma
+  // visão derivada, nunca guarda lançamento próprio (mesmo racional do
+  // bloco "CC sintético" logo abaixo).
+  const ccsConsolidado = ccsVisiveis.filter(cc => !cc.nivel || cc.nivel === 3);
+  function totalPacoteConsolidadoMes(pacoteId, m) {
+    return ccsConsolidado.reduce((acc, cc) => {
+      if (pacoteId === 'pessoal') return acc + (folhaCC(cc.codigo).mensal[m]?.total || 0);
+      const origem = cc.tipo === 'producao' ? 'Custo' : 'Despesa';
+      const contas = (refUnidade.planoContas[pacoteId] || []).filter(c => c.origem === origem);
+      return acc + contas.reduce((a2, c) => a2 + totalContaMesCC(cc.codigo, c.codigo, m), 0);
+    }, 0);
+  }
+  function totalPacoteConsolidadoAnual(pacoteId) {
+    return MESES.reduce((acc, _, m) => acc + totalPacoteConsolidadoMes(pacoteId, m), 0);
+  }
 
   // CC sintético/consolidador (nivel:2 — só existe na ARA Agrícola por
   // enquanto, ver CCS_AGRICOLA): pedido de 2026-08-20, "o gestor do CC
@@ -6980,17 +7264,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     return (
       <div>
         <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>3. Custos e Despesas — por conta analítica (OBZ)</h3>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-          {ccsVisiveis.map(cc => (
-            <button key={cc.codigo} onClick={() => setCcSel(cc.codigo)}
-              style={{
-                fontFamily: FONT, fontSize: 11.5, fontWeight: cc.nivel === 2 ? 700 : 700, padding: '7px 12px', borderRadius: 16, cursor: 'pointer',
-                border: `1.5px solid ${cc.codigo === ccSel ? COR.azul : COR.borda}`,
-                background: cc.codigo === ccSel ? COR.azul : COR.branco, color: cc.codigo === ccSel ? COR.branco : COR.texto,
-              }}
-            >{cc.nome}{cc.nivel === 2 ? ' · Consolidador' : cc.tipo === 'producao' ? ' · CPV' : ' · Despesa'}</button>
-          ))}
-        </div>
+        <SeletorCcs ccs={ccsVisiveis} ccSel={ccSel} onSelect={setCcSel} />
         <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 14, marginBottom: 14, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
           <Info size={17} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ fontSize: 11.5, color: COR.texto }}>
@@ -7054,17 +7328,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     return (
       <div>
         <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>3. Custos e Despesas — por conta analítica (OBZ)</h3>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-          {ccsVisiveis.map(cc => (
-            <button key={cc.codigo} onClick={() => setCcSel(cc.codigo)}
-              style={{
-                fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 16, cursor: 'pointer',
-                border: `1.5px solid ${cc.codigo === ccSel ? COR.azul : COR.borda}`,
-                background: cc.codigo === ccSel ? COR.azul : COR.branco, color: cc.codigo === ccSel ? COR.branco : COR.texto,
-              }}
-            >{cc.nome}{cc.nivel === 2 ? ' · Consolidador' : cc.tipo === 'producao' ? ' · CPV' : ' · Despesa'}</button>
-          ))}
-        </div>
+        <SeletorCcs ccs={ccsVisiveis} ccSel={ccSel} onSelect={setCcSel} />
         <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 16, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
           <AlertTriangle size={18} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
@@ -7109,16 +7373,50 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
         CC de produção formam o CPV; CC de despesa formam as Despesas Operacionais e a Depreciação (após EBITDA).
       </p>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {ccsVisiveis.map(cc => (
-          <button key={cc.codigo} onClick={() => { setCcSel(cc.codigo); setContaAberta(null); }}
-            style={{
-              fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 16, cursor: 'pointer',
-              border: `1.5px solid ${cc.codigo === ccSel ? COR.azul : COR.borda}`,
-              background: cc.codigo === ccSel ? COR.azul : COR.branco, color: cc.codigo === ccSel ? COR.branco : COR.texto,
-            }}
-          >{cc.nome}{cc.nivel === 2 ? ' · Consolidador' : cc.tipo === 'producao' ? ' · CPV' : ' · Despesa'}</button>
-        ))}
+      <SeletorCcs ccs={ccsVisiveis} ccSel={ccSel} onSelect={cc => { setCcSel(cc); setContaAberta(null); }} />
+
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
+        <button
+          onClick={() => setMostrarConsolidado(prev => !prev)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 7, justifyContent: 'space-between',
+            padding: '9px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT,
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, color: COR.azul }}>
+            {mostrarConsolidado ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            Visão consolidada — todos os CCs, por pacote
+          </span>
+          <span style={{ fontSize: 10.5, color: '#8A8F96', fontWeight: 400 }}>{ccsConsolidado.length} CC(s)</span>
+        </button>
+        {mostrarConsolidado && (
+          <div style={{ padding: 8 }}>
+            <p style={{ fontSize: 11, color: '#7A8088', margin: '2px 2px 8px' }}>
+              Soma de todos os Centros de Custo visíveis a você nesta unidade, por pacote — visão da unidade inteira,
+              sem precisar abrir CC por CC.
+            </p>
+            <TabelaMensal
+              linhas={[]}
+              onChangeCelula={() => {}}
+              linhasCalculadas={[
+                ...refUnidade.pacotes.map(p => ({
+                  key: p.id,
+                  label: p.nome,
+                  valoresMensal: MESES.map((_, m) => totalPacoteConsolidadoMes(p.id, m)),
+                  totalValor: totalPacoteConsolidadoAnual(p.id),
+                  cor: COR.texto,
+                })),
+                {
+                  key: '__total_unidade__',
+                  label: 'Total da unidade',
+                  valoresMensal: MESES.map((_, m) => refUnidade.pacotes.reduce((acc, p) => acc + totalPacoteConsolidadoMes(p.id, m), 0)),
+                  totalValor: refUnidade.pacotes.reduce((acc, p) => acc + totalPacoteConsolidadoAnual(p.id), 0),
+                  cor: COR.laranja,
+                },
+              ]}
+            />
+          </div>
+        )}
       </div>
 
       {ccAtual.obs && (
@@ -7920,6 +8218,127 @@ function CascataDRE({ dre, ifrs18 }) {
         );
       })}
     </div>
+    </div>
+  );
+}
+
+// DRE Mensal Consolidada (2026-08-23) — ver nota completa em
+// computeGruposReceitaTipo/computeGruposCustosMensal/
+// computeDespesasOperacionaisPorGrupo acima. Tabela mês a mês (com total do
+// ano na última coluna), com grupos clicáveis que abrem a quebra por
+// Resort/Fazenda dentro de cada tipo de receita/custo/despesa. Complementa
+// (não substitui) a CascataDRE anual acima dela, que já cobre margens e o
+// toggle IFRS 18.
+function DREMensalConsolidada({ lados, unidadeKind, ipcaAnualPct }) {
+  const [abertos, setAbertos] = useState({});
+  const toggle = (k) => setAbertos(prev => ({ ...prev, [k]: !prev[k] }));
+
+  const gruposReceita = computeGruposReceitaTipo(lados, unidadeKind);
+  const gruposCustos = computeGruposCustosMensal(lados, ipcaAnualPct);
+  const despesasOp = computeDespesasOperacionaisPorGrupo(lados, ipcaAnualPct);
+
+  const receitaBrutaMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.dre.receitaBrutaMes[m], 0));
+  const deducoesMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + (l.dre.receitaBrutaMes[m] - l.dre.receitaLiquidaMes[m]), 0));
+  const receitaLiquidaMes = MESES.map((_, m) => receitaBrutaMes[m] - deducoesMes[m]);
+  const cpvMes = somarPorLado(gruposCustos.map(g => ({ nome: g.chave, valoresMensal: g.valoresMensal })));
+  const lucroBrutoMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m]);
+  const pessoalMes = somarPorLado(despesasOp.pessoal);
+  const vendasMes = somarPorLado(despesasOp.vendas);
+  const geraisMes = somarPorLado(despesasOp.gerais);
+  const despesasOperacionaisMes = MESES.map((_, m) => pessoalMes[m] + vendasMes[m] + geraisMes[m]);
+  const ebitdaMes = MESES.map((_, m) => lucroBrutoMes[m] - despesasOperacionaisMes[m]);
+  const depreciacaoMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.dre.depreciacaoMes[m], 0));
+  const resultadoFinanceiroMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.dre.resultadoFinanceiroMes[m], 0));
+  const outrasMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.dre.outrasMes[m], 0));
+  const ircslMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.dre.ircslMes[m], 0));
+  const ebtMes = MESES.map((_, m) => ebitdaMes[m] - depreciacaoMes[m] + resultadoFinanceiroMes[m] + outrasMes[m]);
+  const lucroLiquidoMes = MESES.map((_, m) => ebtMes[m] - ircslMes[m]);
+
+  function total(arr) { return arr.reduce((a, v) => a + v, 0); }
+
+  function Linha({ label, valoresMensal, cor, bold, indent, onClick, aberto, temFilhos, bg }) {
+    return (
+      <tr style={{ background: bg || COR.branco }}>
+        <td
+          onClick={onClick}
+          style={{
+            fontWeight: bold ? 700 : 400, fontSize: 11, padding: '6px 10px', paddingLeft: 10 + (indent || 0) * 16,
+            border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: bg || COR.branco,
+            color: cor || COR.texto, cursor: onClick ? 'pointer' : 'default',
+          }}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {temFilhos && (aberto ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
+            {label}
+          </span>
+        </td>
+        {valoresMensal.map((v, mi) => (
+          <td key={mi} style={{ padding: '6px 4px', border: `1px solid ${COR.borda}`, fontSize: 10, textAlign: 'right', color: cor || COR.texto, fontWeight: bold ? 700 : 400 }}>
+            {formatBRL(v)}
+          </td>
+        ))}
+        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontWeight: 700, fontSize: 10.5, color: cor || COR.azul, textAlign: 'right' }}>
+          {formatBRL(total(valoresMensal))}
+        </td>
+      </tr>
+    );
+  }
+  function LinhasGrupo({ grupos }) {
+    return grupos.map(g => (
+      <React.Fragment key={g.chave}>
+        <Linha
+          label={g.nome} valoresMensal={g.valoresMensal} indent={1}
+          onClick={() => toggle(g.chave)} aberto={!!abertos[g.chave]} temFilhos
+        />
+        {abertos[g.chave] && g.porLado.map(pl => (
+          <Linha key={pl.nome} label={pl.nome} valoresMensal={pl.valoresMensal} cor="#8A8F96" indent={2} bg={COR.claro} />
+        ))}
+      </React.Fragment>
+    ));
+  }
+  function LinhasPorLado({ chave, nome, porLado }) {
+    const valoresMensal = somarPorLado(porLado);
+    return (
+      <React.Fragment>
+        <Linha label={nome} valoresMensal={valoresMensal} indent={1}
+          onClick={() => toggle(chave)} aberto={!!abertos[chave]} temFilhos />
+        {abertos[chave] && porLado.map(pl => (
+          <Linha key={pl.nome} label={pl.nome} valoresMensal={pl.valoresMensal} cor="#8A8F96" indent={2} bg={COR.claro} />
+        ))}
+      </React.Fragment>
+    );
+  }
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table>
+        <thead>
+          <tr>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 10px', textAlign: 'left', minWidth: 230, position: 'sticky', left: 0 }}>Linha</th>
+            {MESES.map(m => <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '7px 4px', minWidth: 58 }}>{m}</th>)}
+            <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10, padding: '7px 8px', minWidth: 84 }}>Total ano</th>
+          </tr>
+        </thead>
+        <tbody>
+          <Linha label="Receita Bruta" valoresMensal={receitaBrutaMes} cor={COR.azul} bold />
+          <LinhasGrupo grupos={gruposReceita} />
+          <Linha label="(-) Deduções" valoresMensal={deducoesMes.map(v => -v)} cor={COR.vermelho} />
+          <Linha label="(=) Receita Líquida" valoresMensal={receitaLiquidaMes} cor={COR.azul} bold bg={COR.total} />
+          <Linha label="(-) Custos (CPV)" valoresMensal={cpvMes.map(v => -v)} cor={COR.vermelho} bold />
+          <LinhasGrupo grupos={gruposCustos} />
+          <Linha label="(=) Lucro Bruto" valoresMensal={lucroBrutoMes} cor={COR.azul} bold bg={COR.total} />
+          <Linha label="(-) Despesas Operacionais" valoresMensal={despesasOperacionaisMes.map(v => -v)} cor={COR.vermelho} bold />
+          <LinhasPorLado chave="__desp_pessoal__" nome="Despesas com Pessoal" porLado={despesasOp.pessoal} />
+          <LinhasPorLado chave="__desp_vendas__" nome="Despesas com Vendas" porLado={despesasOp.vendas} />
+          <LinhasPorLado chave="__desp_gerais__" nome="Despesas Gerais" porLado={despesasOp.gerais} />
+          <Linha label="(=) EBITDA" valoresMensal={ebitdaMes} cor={COR.laranja} bold bg={COR.total} />
+          <Linha label="(-) Depreciação e Amortização" valoresMensal={depreciacaoMes.map(v => -v)} cor={COR.vermelho} />
+          <Linha label="(+/-) Resultado Financeiro" valoresMensal={resultadoFinanceiroMes} cor={COR.texto} />
+          <Linha label="(+/-) Outras Receitas e Despesas" valoresMensal={outrasMes} cor={COR.texto} />
+          <Linha label="(-) IR/CSLL" valoresMensal={ircslMes.map(v => -v)} cor={COR.vermelho} />
+          <Linha label="(=) Lucro Líquido" valoresMensal={lucroLiquidoMes} cor={COR.verde} bold bg={COR.total} />
+        </tbody>
+      </table>
     </div>
   );
 }
