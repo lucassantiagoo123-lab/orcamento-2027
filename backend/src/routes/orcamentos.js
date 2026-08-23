@@ -20,6 +20,19 @@ async function buscarIpcaAnualPct() {
   return premissas.find(p => p.id === 'ipca')?.valor;
 }
 
+// Câmbio estático (2026-08-23, ver receitaBrutaPorMes/computeDRE em
+// calc/orcamento.js) — mesmo racional do IPCA acima: sem premissa
+// preenchida, cambios.usd/eur/gbp saem undefined e a Receita de Mercado
+// Externo degrada pra R$ 0 (nunca quebra), até o FP&A preencher.
+async function buscarCambios() {
+  const premissas = await listarPremissasMacro();
+  return {
+    usd: premissas.find(p => p.id === 'cambio')?.valor,
+    eur: premissas.find(p => p.id === 'cambio_eur')?.valor,
+    gbp: premissas.find(p => p.id === 'cambio_gbp')?.valor,
+  };
+}
+
 export const orcamentosRouter = Router();
 
 // Só pra mensagem do e-mail de notificação — não é usado em nenhum cálculo.
@@ -134,8 +147,14 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
     // dreDaUnidade/OrcamentoARA.jsx), então ficam null nesse caso em vez de
     // arriscar quebrar a rota à toa.
     const ehConsolidado = ehSnapshotConsolidado(orcamento.dados);
-    const ipcaAnualPct = await buscarIpcaAnualPct();
-    const dre = dreDaUnidade(orcamento.dados, unidadeId, ref, ipcaAnualPct);
+    const premissas = await listarPremissasMacro();
+    const ipcaAnualPct = premissas.find(p => p.id === 'ipca')?.valor;
+    const cambios = {
+      usd: premissas.find(p => p.id === 'cambio')?.valor,
+      eur: premissas.find(p => p.id === 'cambio_eur')?.valor,
+      gbp: premissas.find(p => p.id === 'cambio_gbp')?.valor,
+    };
+    const dre = dreDaUnidade(orcamento.dados, unidadeId, ref, ipcaAnualPct, cambios);
     res.json({
       orcamento,
       dre,
@@ -201,7 +220,8 @@ orcamentosRouter.post('/:unidadeId/enviar', exigirUnidade('unidadeId'), exigirAc
     // os totais reais de Terra do Sol + Frutos do Sol em vez de quebrar (ou
     // de mandar e-mail/gravar versão com totais zerados).
     const ipcaAnualPct = await buscarIpcaAnualPct();
-    const dre = dreDaUnidade(atual.dados, req.params.unidadeId, ref, ipcaAnualPct);
+    const cambios = await buscarCambios();
+    const dre = dreDaUnidade(atual.dados, req.params.unidadeId, ref, ipcaAnualPct, cambios);
     const totais = { receitaLiquida: dre.receitaLiquida, ebitda: dre.ebitda, lucroLiquido: dre.lucroLiquido };
     const { orcamento, versao } = await registrarEnvio(atual.id, atual.dados, req.usuario.id, req.body.comentario, totais);
     res.json({ orcamento, versao });

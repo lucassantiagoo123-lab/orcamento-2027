@@ -403,6 +403,14 @@ const DEDUCOES_REF = [
 const PREMISSAS_MACRO_REF = [
   { id: 'ipca', nome: 'Inflação — IPCA', unidade: '% a.a.' },
   { id: 'cambio', nome: 'Câmbio — USD/BRL médio', unidade: 'R$' },
+  // cambio_eur/cambio_gbp (2026-08-23, pedido: "adicione o câmbio de forma
+  // estática mensal previsto no FP&A Corporativo, incluindo como parte do
+  // cálculo da receita com Mercado Externo") — mesmo racional do câmbio
+  // USD acima: um valor único pro ciclo inteiro, usado pela Receita de
+  // Mercado Externo da Agrícola (ver receitaVazia/receitaBrutaPorMes,
+  // produto com mercado==='externo').
+  { id: 'cambio_eur', nome: 'Câmbio — EUR/BRL médio', unidade: 'R$' },
+  { id: 'cambio_gbp', nome: 'Câmbio — GBP/BRL médio', unidade: 'R$' },
   { id: 'selic', nome: 'Taxa Selic média', unidade: '% a.a.' },
   { id: 'pib', nome: 'Crescimento do PIB', unidade: '% a.a.' },
   { id: 'reajuste_salarial', nome: 'Reajuste salarial/dissídio', unidade: '% a.a.' },
@@ -1962,13 +1970,20 @@ function receitaVazia(unidadeId) {
   }
   if (unidadeId === 'agricola' || unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') {
     return {
-      // "Vendas Externas" ganha o racional Volume × Preço(USD) × Câmbio —
-      // pedido explícito de 2026-08-09: a planilha 2026 só trazia o preço
-      // já consolidado em R$/t, mas o formulário 2027 expõe a composição
-      // real (preço em USD, que o mercado externo referencia, × câmbio).
+      // Mercado Interno × Mercado Externo (2026-08-23, pedido: reconstruir o
+      // racional da aba "PREVISÃO DE RECEITA AJUSTADA" — separar MI/ME e,
+      // no ME, aplicar o câmbio da premissa do FP&A Corporativo como parte
+      // do cálculo). Todo produto nasce 'interno' (Volume × Preço em R$,
+      // como sempre foi); o gestor alterna pra 'externo' quando o produto é
+      // vendido em moeda estrangeira — aí o Preço passa a ser digitado na
+      // moeda (USD/EUR/GBP) e o câmbio (mesmo valor o ano inteiro, vindo da
+      // premissa macro) entra automaticamente no cálculo — ver
+      // receitaBrutaPorMes/AbaReceita. "Vendas Externas" (PRODUTOS_REF_
+      // AGRICOLA) já nasce em USD/externo, mantendo o comportamento actual.
       produtos: PRODUTOS_REF_AGRICOLA.map(p => ({
         id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(),
-        ...(p.nome === 'Vendas Externas' ? { precoUsd: mesesVazios(), cambio: mesesVazios() } : {}),
+        mercado: p.nome === 'Vendas Externas' ? 'externo' : 'interno',
+        moeda: 'usd', precoMoeda: mesesVazios(),
       })),
       deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
     };
@@ -2152,7 +2167,13 @@ function folhaAnualPorCC(data, ccCodigo) {
 // (Volume × Preço por produto — Têxtil e Agrícola) ou `receita.linhas`
 // (quantidade × valor unitário ou valor direto por linha — Resorts, modelo
 // de hotelaria). Uma exclui a outra.
-function receitaBrutaPorMes(data) {
+// cambios ({ usd, eur, gbp }, 2026-08-23) — câmbio estático (mesmo valor o
+// ano inteiro) da premissa macro do FP&A Corporativo, usado só por produtos
+// de Mercado Externo (mercado==='externo') do modelo `produtos` (Agrícola —
+// ver receitaVazia). Sem premissa preenchida, degrada pra câmbio 0 (receita
+// ME sai zerada até o FP&A preencher), nunca quebra — mesmo racional do
+// ipcaAnualPct em valorLinhaMes.
+function receitaBrutaPorMes(data, cambios) {
   if (data.receita.linhas) {
     const linhasMes = {};
     Object.entries(data.receita.linhas).forEach(([id, linha]) => {
@@ -2167,14 +2188,20 @@ function receitaBrutaPorMes(data) {
     return { receitaBrutaMes: totalMes, linhasReceitaMes: linhasMes };
   }
   const totalMes = MESES.map((_, m) =>
-    (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]), 0)
+    (data.receita.produtos || []).reduce((acc, p) => {
+      if (p.mercado === 'externo') {
+        const taxa = parseNum(cambios?.[p.moeda || 'usd']);
+        return acc + parseNum(p.volumes?.[m]) * parseNum(p.precoMoeda?.[m]) * taxa;
+      }
+      return acc + parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]);
+    }, 0)
   );
   return { receitaBrutaMes: totalMes, linhasReceitaMes: null };
 }
 
-function computeDRE(data, ref, ipcaAnualPct) {
+function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
-  const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data);
+  const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data, cambios);
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
 
   // Volume total (kg) por mês — só pra contas com premissaTipo
@@ -2314,7 +2341,7 @@ function ccsFolhaDoLado(ref) {
 // fixo (cada fazenda cadastra os próprios produtos, com nome livre) — usa o
 // nome do produto (normalizado) como chave, assim "Milho" de uma fazenda
 // agrupa com "Milho" da outra.
-function computeGruposReceitaTipo(lados, unidadeKind) {
+function computeGruposReceitaTipo(lados, unidadeKind, cambios) {
   const mapa = new Map();
   lados.forEach(lado => {
     const tipos = unidadeKind === 'resorts'
@@ -2323,10 +2350,15 @@ function computeGruposReceitaTipo(lados, unidadeKind) {
           nome: def.nome,
           valoresMensal: MESES.map((_, m) => valorLinhaMes(lado.dados.receita.linhas?.[def.id], m, null, null)),
         }))
+      // Mercado Externo (2026-08-23): mesmo racional de receitaBrutaPorMes —
+      // preço na moeda × câmbio, não `p.precos` direto (que fica vazio pra
+      // produto externo).
       : (lado.dados.receita.produtos || []).map(p => ({
           chave: (p.nome || '').trim().toLowerCase() || p.id,
           nome: p.nome || '(sem nome)',
-          valoresMensal: MESES.map((_, m) => parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m])),
+          valoresMensal: MESES.map((_, m) => p.mercado === 'externo'
+            ? parseNum(p.volumes?.[m]) * parseNum(p.precoMoeda?.[m]) * parseNum(cambios?.[p.moeda || 'usd'])
+            : parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m])),
         }));
     tipos.forEach(t => {
       if (!mapa.has(t.chave)) mapa.set(t.chave, { chave: t.chave, nome: t.nome, porLado: [] });
@@ -2436,15 +2468,26 @@ function ehSnapshotConsolidado(d) {
 // `dados.custos` no formato esperado). Antes do primeiro envio do
 // Consolidado, `dadosUnidade` é só um emptyFormData comum — cai no caminho
 // normal, mostra zero, não quebra nada.
-function dreDaUnidade(dadosUnidade, unidadeId, ipcaAnualPct) {
+// cambios ({ usd, eur, gbp }, 2026-08-23) — ver nota completa em
+// receitaBrutaPorMes. Espelha ipcaAnualPct em todo prop-drilling deste
+// arquivo: deriva-se de premissasMacro uma vez em App/VisaoGerente/VisaoFPA
+// (ver cambiosDePremissas) e viaja junto com ipcaAnualPct até computeDRE.
+function cambiosDePremissas(premissasMacro) {
+  return {
+    usd: premissasMacro.find(p => p.id === 'cambio')?.valor,
+    eur: premissasMacro.find(p => p.id === 'cambio_eur')?.valor,
+    gbp: premissasMacro.find(p => p.id === 'cambio_gbp')?.valor,
+  };
+}
+function dreDaUnidade(dadosUnidade, unidadeId, ipcaAnualPct, cambios) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
     const [dreA, dreB] = consolidado.sites.map(siteId =>
-      computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId), ipcaAnualPct)
+      computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId), ipcaAnualPct, cambios)
     );
     return somarDRE(dreA, dreB);
   }
-  return computeDRE(dadosUnidade, referenciaDaUnidade(unidadeId), ipcaAnualPct);
+  return computeDRE(dadosUnidade, referenciaDaUnidade(unidadeId), ipcaAnualPct, cambios);
 }
 
 // ---------------------------------------------------------------------------
@@ -2513,13 +2556,13 @@ function somarDFC(a, b) {
 // chamando computeDFC(d, dre) direto. `d` de 'agricola'/'resorts' pode ser
 // o wrapper (ver CONSOLIDADOS_MULTISITE) depois do primeiro envio do
 // Consolidado — computeDFC quebraria em `data.capex.projetos`.
-function dfcDaUnidade(dadosUnidade, dreUnidade, unidadeId, ipcaAnualPct) {
+function dfcDaUnidade(dadosUnidade, dreUnidade, unidadeId, ipcaAnualPct, cambios) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
     const [dfcA, dfcB] = consolidado.sites.map(siteId => {
       const d = dadosUnidade[siteId] || emptyFormData(siteId);
       const refSite = referenciaDaUnidade(siteId);
-      return computeDFC(d, computeDRE(d, refSite, ipcaAnualPct), refSite, ipcaAnualPct);
+      return computeDFC(d, computeDRE(d, refSite, ipcaAnualPct, cambios), refSite, ipcaAnualPct);
     });
     return somarDFC(dfcA, dfcB);
   }
@@ -2868,7 +2911,11 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
         detalhe: `${linhasReceitaValidas.length} de ${Object.keys(data.receita.linhas).length} linha(s) preenchida(s)`,
       });
     } else {
-      const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
+      // Mercado Externo (2026-08-23): preço mora em precoMoeda, não em
+      // precos (que fica derivado/vazio — ver receitaBrutaPorMes).
+      const produtosValidos = (data.receita.produtos || []).filter(p =>
+        somaMes(p.volumes) > 0 && somaMes(p.mercado === 'externo' ? p.precoMoeda : p.precos) > 0
+      );
       checks.push({
         label: 'Receita: ao menos um produto com volume e preço em algum mês',
         ok: produtosValidos.length > 0,
@@ -2968,7 +3015,7 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     obrigatorio: false,
   });
 
-  const valoresNegativos = (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || (p.precos || []).some(v => parseNum(v) < 0))
+  const valoresNegativos = (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
     || Object.values(data.custos.linhas || {}).some(linha => contaTemNegativo(linha));
   checks.push({
     label: 'Nenhum valor negativo em receita ou custos/despesas',
@@ -3672,12 +3719,16 @@ export default function OrcamentoARA({ usuario }) {
   // premissas macro do FP&A (premissasMacro, agora persistidas no banco,
   // ver listarPremissasMacroApi acima).
   const ipcaAnualPct = premissasMacro.find(p => p.id === 'ipca')?.valor;
+  // useMemo (não literal): cambiosDePremissas monta objeto novo a cada
+  // render — sem memo, quebraria a memoização de `dre` logo abaixo (viraria
+  // dependência sempre "diferente").
+  const cambios = useMemo(() => cambiosDePremissas(premissasMacro), [premissasMacro]);
   // dreDaUnidade (não computeDRE direto): quando unidadeAtual é um
   // Consolidado ('agricola'/'resorts') e já houve um envio, o `dados` salvo
   // é o wrapper (ver CONSOLIDADOS_MULTISITE/ConsolidadoAgricola/
   // ConsolidadoResorts). computeDRE quebraria tentando ler `dados.receita`
   // direto do wrapper.
-  const dre = useMemo(() => dreDaUnidade(dados, unidadeAtual, ipcaAnualPct), [dados, unidadeAtual, ipcaAnualPct]);
+  const dre = useMemo(() => dreDaUnidade(dados, unidadeAtual, ipcaAnualPct, cambios), [dados, unidadeAtual, ipcaAnualPct, cambios]);
   // Mesmo motivo do dre acima: runAuditoria também espera o formato normal
   // de `dados` — Consolidado calcula as próprias checagens (dos sites,
   // separadas) dentro de si mesmo, não usa este `checks`.
@@ -3890,7 +3941,7 @@ export default function OrcamentoARA({ usuario }) {
       // que este laço não sabe interpretar.
       if (!d || ehSnapshotConsolidado(d)) return;
       const refU = referenciaDaUnidade(u.id);
-      const dreU = computeDRE(d, refU, ipcaAnualPct);
+      const dreU = computeDRE(d, refU, ipcaAnualPct, cambios);
       Object.entries(d.custos.linhas || {}).forEach(([chave, contaRaw]) => {
         const [ccCodigo, contaCodigo] = chave.split('|');
         const cc = refU.ccs.find(c => c.codigo === ccCodigo);
@@ -3914,20 +3965,27 @@ export default function OrcamentoARA({ usuario }) {
     wsC['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 10 }, { wch: 26 }, { wch: 10 }, { wch: 30 }, { wch: 18 }, { wch: 8 }, { wch: 14 }, { wch: 40 }, { wch: 14 }, { wch: 20 }, { wch: 16 }];
     XLSX.utils.book_append_sheet(wb, wsC, 'Custos_Despesas');
 
-    const linhasReceita = [['Unidade', 'Produto', 'Mês', 'Volume (t)', 'Preço (R$/t)', 'Receita Bruta', 'Justificativa Geral da Receita']];
+    const linhasReceita = [['Unidade', 'Produto', 'Mercado', 'Mês', 'Volume (t)', 'Preço (R$/t)', 'Receita Bruta', 'Justificativa Geral da Receita']];
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
       if (!d || ehSnapshotConsolidado(d)) return; // ver nota acima (Custos_Despesas)
       (d.receita.produtos || []).forEach(p => {
+        // Mercado Externo (2026-08-23, ver receitaBrutaPorMes): preço em R$
+        // é derivado (Preço na moeda × câmbio), não digitado direto — exporta
+        // já convertido, pra manter a coluna "Preço (R$/t)" comparável entre
+        // Mercado Interno e Externo.
+        const externo = p.mercado === 'externo';
+        const taxa = externo ? parseNum(cambios?.[p.moeda || 'usd']) : 1;
         MESES.forEach((m, mi) => {
           const vol = parseNum(p.volumes?.[mi]);
           if (vol === 0) return;
-          linhasReceita.push([u.nome, p.nome, m, vol, parseNum(p.precos?.[mi]), vol * parseNum(p.precos?.[mi]), d.receita.justificativaGeral || '']);
+          const precoRs = externo ? parseNum(p.precoMoeda?.[mi]) * taxa : parseNum(p.precos?.[mi]);
+          linhasReceita.push([u.nome, p.nome, externo ? `Externo (${(p.moeda || 'usd').toUpperCase()})` : 'Interno', m, vol, precoRs, vol * precoRs, d.receita.justificativaGeral || '']);
         });
       });
     });
     const wsR = XLSX.utils.aoa_to_sheet(linhasReceita);
-    wsR['!cols'] = [{ wch: 16 }, { wch: 24 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 40 }];
+    wsR['!cols'] = [{ wch: 16 }, { wch: 24 }, { wch: 14 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 40 }];
     XLSX.utils.book_append_sheet(wb, wsR, 'Receita');
 
     const linhasBalanco = [['Unidade', 'Item', 'Valor/Mês', 'Justificativa']];
@@ -3974,7 +4032,7 @@ export default function OrcamentoARA({ usuario }) {
     unidadesParaExportar.forEach(u => {
       const d = role === 'fpa' ? statusUnidades[u.id] : dados;
       if (!d) return;
-      const t = dreDaUnidade(d, u.id, ipcaAnualPct);
+      const t = dreDaUnidade(d, u.id, ipcaAnualPct, cambios);
       linhasDRE.push([u.nome, t.receitaBruta, -t.deducoes, t.receitaLiquida, -t.cpv, t.lucroBruto, t.margemBruta, -t.despesasSemDA, t.ebitda, t.margemEbitda, -t.depreciacao, t.resultadoFinanceiro, t.outras, -t.ircsl, t.lucroLiquido, t.margemLiquida]);
     });
     const wsD = XLSX.utils.aoa_to_sheet(linhasDRE);
@@ -4009,7 +4067,7 @@ export default function OrcamentoARA({ usuario }) {
 
         const totais = UNIDADES_PARA_TOTAL_GRUPO.reduce((acc, u) => {
           const d = statusUnidades[u.id];
-          const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct);
+          const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct, cambios) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct, cambios);
           acc.receitaLiquida += t.receitaLiquida; acc.ebitda += t.ebitda; acc.lucroLiquido += t.lucroLiquido;
           return acc;
         }, { receitaLiquida: 0, ebitda: 0, lucroLiquido: 0 });
@@ -4038,7 +4096,7 @@ export default function OrcamentoARA({ usuario }) {
         ]];
         UNIDADES.forEach((u) => {
           const d = statusUnidades[u.id];
-          const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct);
+          const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct, cambios) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct, cambios);
           linhas2.push([u.nome, formatBRL(t.receitaLiquida), formatBRL(t.ebitda), formatPct(t.margemEbitda), formatBRL(t.lucroLiquido), d?.meta?.status || 'nao_iniciado']);
         });
         s2.addTable(linhas2, { x: 0.5, y: 1.0, w: 9, fontSize: 10.5, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
@@ -4282,7 +4340,7 @@ export default function OrcamentoARA({ usuario }) {
         <ModalVersao
           unidadeId={versaoAberta.unidadeId} versaoId={versaoAberta.versaoId}
           onClose={() => setVersaoAberta(null)}
-          ipcaAnualPct={ipcaAnualPct}
+          ipcaAnualPct={ipcaAnualPct} cambios={cambios}
         />
       )}
 
@@ -4436,6 +4494,7 @@ function VisaoGerente(props) {
   // já é prop desta tela (usada por AbaEstrategicas) e não vale a pena
   // encher a lista de props do topo com mais um item derivável localmente.
   const ipcaAnualPct = premissasMacro.find(p => p.id === 'ipca')?.valor;
+  const cambios = cambiosDePremissas(premissasMacro);
 
   return (
     <div style={{ padding: 22, maxWidth: 1520, margin: '0 auto' }}>
@@ -4583,11 +4642,11 @@ function VisaoGerente(props) {
         // Consolidado da Agrícola (2026-08-20): nunca editado direto — é
         // sempre TDS + FDS somados, com o próprio envio/histórico. Ver
         // ConsolidadoAgricola.
-        <ConsolidadoAgricola autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} ipcaAnualPct={ipcaAnualPct} />
+        <ConsolidadoAgricola autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
       ) : unidadeAtual === 'resorts' ? (
         // Consolidado do Resorts (2026-08-20): mesmo racional — sempre
         // Samoa Beach + Samoa Villa somados. Ver ConsolidadoResorts.
-        <ConsolidadoResorts autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} ipcaAnualPct={ipcaAnualPct} />
+        <ConsolidadoResorts autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
       ) : (
         <>
       <div style={{ display: 'flex', gap: 2, borderBottom: `2px solid ${COR.borda}`, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -4646,7 +4705,7 @@ function VisaoGerente(props) {
               unidadeId={unidadeAtual}
               produtos={dados.receita.produtos} deducoes={dados.receita.deducoes}
               deducoesJustificativa={dados.receita.deducoesJustificativa} justificativaGeral={dados.receita.justificativaGeral}
-              updateProduto={updateProduto} updateDeducao={updateDeducao} atualizar={atualizar} dre={dre}
+              updateProduto={updateProduto} updateDeducao={updateDeducao} atualizar={atualizar} dre={dre} cambios={cambios}
             />
           )
         )}
@@ -4680,7 +4739,7 @@ function VisaoGerente(props) {
           <AbaRevisao
             refUnidade={referenciaDaUnidade(unidadeAtual)}
             unidadeId={unidadeAtual} versoes={versoes}
-            dados={dados} dre={dre} ipcaAnualPct={ipcaAnualPct} autorNome={autorNome} setAutorNome={setAutorNome}
+            dados={dados} dre={dre} ipcaAnualPct={ipcaAnualPct} cambios={cambios} autorNome={autorNome} setAutorNome={setAutorNome}
             comentarioEnvio={comentarioEnvio} setComentarioEnvio={setComentarioEnvio}
             enviarVersao={enviarVersao} enviando={enviando} tudoOk={tudoOk} erro={erro}
             aguardandoLiberacao={aguardandoLiberacao}
@@ -4937,33 +4996,40 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
 // campos mensais crus de cada linha) já que a nomenclatura de cada campo é
 // específica da aba de edição (AbaReceitaResorts) e reconstruí-la aqui só
 // pra leitura não valeria o risco de divergir do cálculo real.
-function ReceitaLeituraVersao({ dados }) {
+function ReceitaLeituraVersao({ dados, cambios }) {
   const receita = dados.receita || {};
   if (Array.isArray(receita.produtos) && receita.produtos.length > 0) {
     return (
       <div>
         <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Produtos — volume, preço e receita</h4>
-        {receita.produtos.map(p => (
-          <div key={p.id} style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: COR.texto, marginBottom: 4 }}>{p.nome}</div>
-            <div style={{ overflowX: 'auto' }}>
-              <table>
-                <CabecalhoMensalLeitura />
-                <tbody>
-                  <LinhaCalculadaMensal label="Volume" valoresMensal={(p.volumes || mesesVazios()).map(parseNum)} formatarCelula={formatarQtdLeitura} />
-                  {p.precoUsd ? (
-                    <>
-                      <LinhaCalculadaMensal label="Preço (USD/t)" valoresMensal={(p.precoUsd || mesesVazios()).map(parseNum)} formatarCelula={v => `US$ ${formatarQtdLeitura(v)}`} />
-                      <LinhaCalculadaMensal label="Câmbio (R$/USD)" valoresMensal={(p.cambio || mesesVazios()).map(parseNum)} formatarCelula={v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} />
-                    </>
-                  ) : (
-                    <LinhaCalculadaMensal label="Preço (R$)" valoresMensal={(p.precos || mesesVazios()).map(parseNum)} />
-                  )}
-                </tbody>
-              </table>
+        {receita.produtos.map(p => {
+          const externo = p.mercado === 'externo';
+          const moedaNome = { usd: 'USD', eur: 'EUR', gbp: 'GBP' }[p.moeda || 'usd'];
+          const taxa = parseNum(cambios?.[p.moeda || 'usd']);
+          return (
+            <div key={p.id} style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: COR.texto, marginBottom: 4 }}>
+                {p.nome} {externo && <span style={{ fontSize: 9.5, fontWeight: 700, color: COR.azul, background: COR.claro, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: '1px 6px', marginLeft: 4 }}>Mercado Externo · {moedaNome}</span>}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table>
+                  <CabecalhoMensalLeitura />
+                  <tbody>
+                    <LinhaCalculadaMensal label="Volume" valoresMensal={(p.volumes || mesesVazios()).map(parseNum)} formatarCelula={formatarQtdLeitura} />
+                    {externo ? (
+                      <>
+                        <LinhaCalculadaMensal label={`Preço (${moedaNome}/t)`} valoresMensal={(p.precoMoeda || mesesVazios()).map(parseNum)} formatarCelula={v => `${moedaNome} ${formatarQtdLeitura(v)}`} />
+                        <LinhaCalculadaMensal label={`Câmbio (R$/${moedaNome})`} valoresMensal={MESES.map(() => taxa)} formatarCelula={v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} />
+                      </>
+                    ) : (
+                      <LinhaCalculadaMensal label="Preço (R$)" valoresMensal={(p.precos || mesesVazios()).map(parseNum)} />
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {(receita.deducoes || []).length > 0 && (
           <>
             <h4 style={{ fontSize: 12.5, color: COR.azul, marginTop: 4, marginBottom: 8 }}>Deduções sobre a receita</h4>
@@ -5082,7 +5148,7 @@ const ABAS_DETALHE_VERSAO = [
 // possível comparação" — por isso ganhou abas internas, com destaque pra
 // Custos e Despesas (CC → Pacote → Conta, com a premissa por trás de cada
 // valor, igual ao editor, só que sem nenhum campo editável).
-function ModalVersao({ unidadeId, versaoId, onClose, ipcaAnualPct }) {
+function ModalVersao({ unidadeId, versaoId, onClose, ipcaAnualPct, cambios }) {
   const [versao, setVersao] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
@@ -5111,9 +5177,9 @@ function ModalVersao({ unidadeId, versaoId, onClose, ipcaAnualPct }) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   const ehConsolidado = !!(consolidado && versao?.dados?._tipo === consolidado.tipo);
   const dresSites = ehConsolidado
-    ? consolidado.sites.map(siteId => computeDRE(versao.dados[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId), ipcaAnualPct))
+    ? consolidado.sites.map(siteId => computeDRE(versao.dados[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId), ipcaAnualPct, cambios))
     : null;
-  const dre = versao ? (ehConsolidado ? somarDRE(dresSites[0], dresSites[1]) : computeDRE(versao.dados, ref, ipcaAnualPct)) : null;
+  const dre = versao ? (ehConsolidado ? somarDRE(dresSites[0], dresSites[1]) : computeDRE(versao.dados, ref, ipcaAnualPct, cambios)) : null;
 
   return (
     <div
@@ -5178,7 +5244,7 @@ function ModalVersao({ unidadeId, versaoId, onClose, ipcaAnualPct }) {
                 {abaDetalhe === 'receita' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                     {consolidado.sites.map((siteId, i) => (
-                      <div key={siteId}><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>{consolidado.labels[i]}</h4><ReceitaLeituraVersao dados={versao.dados[siteId] || emptyFormData(siteId)} /></div>
+                      <div key={siteId}><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>{consolidado.labels[i]}</h4><ReceitaLeituraVersao dados={versao.dados[siteId] || emptyFormData(siteId)} cambios={cambios} /></div>
                     ))}
                   </div>
                 )}
@@ -5206,7 +5272,7 @@ function ModalVersao({ unidadeId, versaoId, onClose, ipcaAnualPct }) {
               </>
             ) : (
               <>
-                {abaDetalhe === 'receita' && <ReceitaLeituraVersao dados={versao.dados} />}
+                {abaDetalhe === 'receita' && <ReceitaLeituraVersao dados={versao.dados} cambios={cambios} />}
                 {abaDetalhe === 'custos' && <CustosLeituraVersao refUnidade={ref} unidadeId={unidadeId} dados={versao.dados} dre={dre} ipcaAnualPct={ipcaAnualPct} />}
                 {abaDetalhe === 'capex' && <CapexLeituraVersao dados={versao.dados} />}
                 {abaDetalhe === 'provisoes' && <ProvisoesLeituraVersao dados={versao.dados} />}
@@ -5226,7 +5292,7 @@ function ModalVersao({ unidadeId, versaoId, onClose, ipcaAnualPct }) {
 // CC são os mesmos nas duas, mesclar arriscaria colisão de chave
 // CC|Conta). É aqui que vive o envio/histórico de versões da Agrícola —
 // TDS/FDS não têm aba de Revisão própria (ver ABAS/FAMILIA_AGRICOLA).
-function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct }) {
+function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cambios }) {
   const [dadosTds, setDadosTds] = useState(null);
   const [dadosFds, setDadosFds] = useState(null);
   const [versoes, setVersoes] = useState([]);
@@ -5270,8 +5336,8 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
   }
 
   const refAg = referenciaDaUnidade('agricola_tds');
-  const dreTds = computeDRE(dadosTds, refAg, ipcaAnualPct);
-  const dreFds = computeDRE(dadosFds, refAg, ipcaAnualPct);
+  const dreTds = computeDRE(dadosTds, refAg, ipcaAnualPct, cambios);
+  const dreFds = computeDRE(dadosFds, refAg, ipcaAnualPct, cambios);
   const dre = somarDRE(dreTds, dreFds);
   const checksTds = runAuditoria(dadosTds, dreTds, refAg, 'agricola_tds', ipcaAnualPct);
   const checksFds = runAuditoria(dadosFds, dreFds, refAg, 'agricola_fds', ipcaAnualPct);
@@ -5391,7 +5457,7 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
       <div style={{ marginBottom: 24 }}>
         <DREMensalConsolidada
           lados={[{ nome: 'Terra do Sol', dados: dadosTds, dre: dreTds, ref: refAg }, { nome: 'Frutos do Sol', dados: dadosFds, dre: dreFds, ref: refAg }]}
-          unidadeKind="agricola" ipcaAnualPct={ipcaAnualPct}
+          unidadeKind="agricola" ipcaAnualPct={ipcaAnualPct} cambios={cambios}
         />
       </div>
 
@@ -5401,14 +5467,14 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
           <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
             Terra do Sol <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreTds.receitaBruta)} receita bruta)</span>
           </div>
-          <ReceitaLeituraVersao dados={dadosTds} />
+          <ReceitaLeituraVersao dados={dadosTds} cambios={cambios} />
           <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refAg} unidadeId="agricola_tds" dados={dadosTds} dre={dreTds} ipcaAnualPct={ipcaAnualPct} /></div>
         </div>
         <div>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
             Frutos do Sol <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreFds.receitaBruta)} receita bruta)</span>
           </div>
-          <ReceitaLeituraVersao dados={dadosFds} />
+          <ReceitaLeituraVersao dados={dadosFds} cambios={cambios} />
           <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refAg} unidadeId="agricola_fds" dados={dadosFds} dre={dreFds} ipcaAnualPct={ipcaAnualPct} /></div>
         </div>
       </div>
@@ -5479,7 +5545,7 @@ const botaoSecundarioLocal = {
 // Villa — ver CCS_RESORTS), então cada lado usa a própria referência
 // (referenciaDaUnidade('samoa_beach')/('samoa_villa')), nunca uma única
 // referência compartilhada como a Agrícola faz.
-function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct }) {
+function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cambios }) {
   const [dadosBeach, setDadosBeach] = useState(null);
   const [dadosVilla, setDadosVilla] = useState(null);
   const [versoes, setVersoes] = useState([]);
@@ -5639,7 +5705,7 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
       <div style={{ marginBottom: 24 }}>
         <DREMensalConsolidada
           lados={[{ nome: 'Samoa Beach', dados: dadosBeach, dre: dreBeach, ref: refBeach }, { nome: 'Samoa Villa', dados: dadosVilla, dre: dreVilla, ref: refVilla }]}
-          unidadeKind="resorts" ipcaAnualPct={ipcaAnualPct}
+          unidadeKind="resorts" ipcaAnualPct={ipcaAnualPct} cambios={cambios}
         />
       </div>
 
@@ -5649,14 +5715,14 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
           <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
             Samoa Beach <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreBeach.receitaBruta)} receita bruta)</span>
           </div>
-          <ReceitaLeituraVersao dados={dadosBeach} />
+          <ReceitaLeituraVersao dados={dadosBeach} cambios={cambios} />
           <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refBeach} unidadeId="samoa_beach" dados={dadosBeach} dre={dreBeach} ipcaAnualPct={ipcaAnualPct} /></div>
         </div>
         <div>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
             Samoa Villa <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreVilla.receitaBruta)} receita bruta)</span>
           </div>
-          <ReceitaLeituraVersao dados={dadosVilla} />
+          <ReceitaLeituraVersao dados={dadosVilla} cambios={cambios} />
           <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refVilla} unidadeId="samoa_villa" dados={dadosVilla} dre={dreVilla} ipcaAnualPct={ipcaAnualPct} /></div>
         </div>
       </div>
@@ -5848,7 +5914,9 @@ function AbaEstrategicas({ estrategicas, atualizar, premissasMacro, addObjetivo,
   );
 }
 
-function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, justificativaGeral, updateProduto, updateDeducao, atualizar, dre }) {
+const MOEDAS_ME = [{ id: 'usd', nome: 'USD' }, { id: 'eur', nome: 'EUR' }, { id: 'gbp', nome: 'GBP' }];
+
+function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, justificativaGeral, updateProduto, updateDeducao, atualizar, dre, cambios }) {
   const mostrarReferenciaTextil = unidadeId === 'textil';
   const volumeTotalMes = MESES.map((_, m) => produtos.reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0));
   const volumeTotalAnual = volumeTotalMes.reduce((a, v) => a + v, 0);
@@ -5862,9 +5930,17 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
 
       {produtos.map((p, i) => {
         const ref = PRODUTOS_REF.find(r => r.nome === p.nome);
-        const receitaMensal = MESES.map((_, m) => parseNum(p.volumes[m]) * parseNum(p.precos[m]));
+        // Mercado Interno × Externo (2026-08-23, ver receitaVazia/
+        // receitaBrutaPorMes): produtos sem o campo `mercado` (Têxtil) são
+        // sempre tratados como Interno — não ganham o toggle.
+        const temMercado = p.mercado !== undefined;
+        const externo = p.mercado === 'externo';
+        const moedaNome = MOEDAS_ME.find(m => m.id === (p.moeda || 'usd'))?.nome || 'USD';
+        const taxaCambio = parseNum(cambios?.[p.moeda || 'usd']);
+        const receitaMensal = MESES.map((_, m) => externo
+          ? parseNum(p.volumes?.[m]) * parseNum(p.precoMoeda?.[m]) * taxaCambio
+          : parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]));
         const totalProduto = receitaMensal.reduce((a, v) => a + v, 0);
-        const temCambio = p.precoUsd !== undefined; // "Vendas Externas" da Agrícola — ver receitaVazia()
         return (
           <div key={p.id} style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: i % 2 ? COR.claro : COR.branco }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
@@ -5873,45 +5949,59 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
                 {ref ? `Referência 2026: ${ref.volumeRef} t · R$ ${ref.precoRef.toFixed(2)}/t` : '—'}
               </span>
             </div>
-            {temCambio && (
+            {temMercado && (
+              <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, color: COR.texto }}>Mercado:</span>
+                <div style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
+                  <button
+                    onClick={() => updateProduto(p.id, 'mercado', 'interno')}
+                    style={{
+                      fontFamily: FONT, fontSize: 10.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
+                      background: !externo ? COR.azul : COR.branco, color: !externo ? COR.branco : '#8A8F96',
+                    }}
+                  >Interno</button>
+                  <button
+                    onClick={() => updateProduto(p.id, 'mercado', 'externo')}
+                    style={{
+                      fontFamily: FONT, fontSize: 10.5, fontWeight: 700, padding: '3px 10px', border: 'none', cursor: 'pointer',
+                      background: externo ? COR.laranja : COR.branco, color: externo ? COR.branco : '#8A8F96',
+                    }}
+                  >Externo</button>
+                </div>
+                {externo && (
+                  <div style={{ maxWidth: 130 }}>
+                    <Selecao value={p.moeda || 'usd'} onChange={v => updateProduto(p.id, 'moeda', v)} opcoes={MOEDAS_ME} />
+                  </div>
+                )}
+              </div>
+            )}
+            {externo && (
               <p style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 8 }}>
-                Racional: Volume × Preço (USD/t) × Câmbio (R$/USD) — preço em reais é derivado, não digitado direto.
+                Racional: Volume × Preço ({moedaNome}/t) × Câmbio (R$/{moedaNome}) — câmbio estático, vem da premissa
+                macro do FP&A Corporativo (tela "Gestão do Orçamento"), mesmo valor o ano inteiro.
               </p>
             )}
             <TabelaMensal
-              linhas={temCambio ? [
+              linhas={externo ? [
                 { key: 'volume', label: 'Volume (t)', valores: p.volumes },
-                { key: 'precoUsd', label: 'Preço (USD/t)', valores: p.precoUsd },
-                { key: 'cambio', label: 'Câmbio (R$/USD)', valores: p.cambio },
+                { key: 'precoMoeda', label: `Preço (${moedaNome}/t)`, valores: p.precoMoeda },
               ] : [
                 { key: 'volume', label: 'Volume (t)', valores: p.volumes },
                 { key: 'preco', label: 'Preço (R$/t)', valores: p.precos },
               ]}
               onChangeCelula={(linhaKey, mesIdx, valor) => {
-                if (!temCambio) {
+                if (!externo) {
                   const campo = linhaKey === 'volume' ? 'volumes' : 'precos';
-                  const novoArray = atualizarArray(p[campo], mesIdx, valor);
-                  updateProduto(p.id, campo, novoArray);
+                  updateProduto(p.id, campo, atualizarArray(p[campo], mesIdx, valor));
                   return;
                 }
-                if (linhaKey === 'volume') {
-                  updateProduto(p.id, 'volumes', atualizarArray(p.volumes, mesIdx, valor));
-                  return;
-                }
-                const campo = linhaKey === 'precoUsd' ? 'precoUsd' : 'cambio';
-                const novoArray = atualizarArray(p[campo], mesIdx, valor);
-                const precoUsdAtual = campo === 'precoUsd' ? novoArray : p.precoUsd;
-                const cambioAtual = campo === 'cambio' ? novoArray : p.cambio;
-                const novosPrecos = precoUsdAtual.map((v, idx) => parseNum(v) * parseNum(cambioAtual[idx]));
-                atualizar(['receita', 'produtos'], produtos.map(x => x.id === p.id
-                  ? { ...x, [campo]: novoArray, precos: novosPrecos }
-                  : x
-                ));
+                const campo = linhaKey === 'volume' ? 'volumes' : 'precoMoeda';
+                updateProduto(p.id, campo, atualizarArray(p[campo], mesIdx, valor));
               }}
               corTotal={COR.azul}
               linhasCalculadas={[
-                ...(temCambio ? [
-                  { key: 'precoRs', label: 'Preço derivado (R$/t)', valoresMensal: p.precos.map(parseNum), totalValor: somaMes(p.precos) / 12, cor: COR.texto, formatarCelula: v => formatBRL(v), formatarTotal: v => formatBRL(v) },
+                ...(externo ? [
+                  { key: 'cambio', label: `Câmbio (R$/${moedaNome})`, valoresMensal: MESES.map(() => taxaCambio), totalValor: taxaCambio, cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) },
                 ] : []),
                 { key: 'receita', label: 'Receita (R$)', valoresMensal: receitaMensal, totalValor: totalProduto, cor: COR.verde },
                 ...(REFERENCIA_2026_TEXTIL.volume[p.nome] ? [
@@ -8229,11 +8319,11 @@ function CascataDRE({ dre, ifrs18 }) {
 // Resort/Fazenda dentro de cada tipo de receita/custo/despesa. Complementa
 // (não substitui) a CascataDRE anual acima dela, que já cobre margens e o
 // toggle IFRS 18.
-function DREMensalConsolidada({ lados, unidadeKind, ipcaAnualPct }) {
+function DREMensalConsolidada({ lados, unidadeKind, ipcaAnualPct, cambios }) {
   const [abertos, setAbertos] = useState({});
   const toggle = (k) => setAbertos(prev => ({ ...prev, [k]: !prev[k] }));
 
-  const gruposReceita = computeGruposReceitaTipo(lados, unidadeKind);
+  const gruposReceita = computeGruposReceitaTipo(lados, unidadeKind, cambios);
   const gruposCustos = computeGruposCustosMensal(lados, ipcaAnualPct);
   const despesasOp = computeDespesasOperacionaisPorGrupo(lados, ipcaAnualPct);
 
@@ -8710,7 +8800,7 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
   );
 }
 
-function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade }) {
+function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, cambios, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade }) {
   const [ifrs18, setIfrs18] = useState(false);
   const fd = computeFluxoIndiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
@@ -8885,7 +8975,7 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
           abre esta aba já é Gestor da Unidade ou Admin FP&A (Gestor de CC
           nem vê a Revisão — ver ABAS/VisaoGerente), então não precisa de
           gate de perfil adicional aqui dentro. */}
-      <AnaliseVariacoes dados={dados} dre={dre} refUnidade={refUnidade} unidadeId={unidadeId} versoes={versoes} ipcaAnualPct={ipcaAnualPct} />
+      <AnaliseVariacoes dados={dados} dre={dre} refUnidade={refUnidade} unidadeId={unidadeId} versoes={versoes} ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
     </div>
   );
 }
@@ -8896,7 +8986,7 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
 // (cascata); micro = contas analíticas de Custos e Despesas (CC × Conta) —
 // mesma terminologia usada no resto do app ("conta analítica" sempre quer
 // dizer uma linha de Custos e Despesas, ver AbaCustos/LinhaConta).
-function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes, ipcaAnualPct }) {
+function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes, ipcaAnualPct, cambios }) {
   const [versaoSelId, setVersaoSelId] = useState('');
   const [versaoSel, setVersaoSel] = useState(null);
   const [carregando, setCarregando] = useState(false);
@@ -8940,7 +9030,7 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes, ipcaAnua
   // como recalcular a versão antiga com o IPCA "de época" dela. Mesma
   // aproximação de melhor esforço já usada no total gravado no envio (ver
   // routes/orcamentos.js POST /:unidadeId/enviar).
-  const dreVersao = versaoSel ? computeDRE(versaoSel.dados, refUnidade, ipcaAnualPct) : null;
+  const dreVersao = versaoSel ? computeDRE(versaoSel.dados, refUnidade, ipcaAnualPct, cambios) : null;
   const macroAtual = linhasMacro(dre);
   const macroVersao = dreVersao ? linhasMacro(dreVersao) : null;
 
@@ -9062,11 +9152,12 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
   // Mesmo racional do ipcaAnualPct no componente App — recalculado aqui
   // porque premissasMacro chega como prop, não como estado local.
   const ipcaAnualPct = premissasMacro.find(p => p.id === 'ipca')?.valor;
+  const cambios = cambiosDePremissas(premissasMacro);
 
   const totalGrupo = UNIDADES_PARA_TOTAL_GRUPO.reduce((acc, u) => {
     const d = statusUnidades[u.id];
     if (!d) return acc;
-    const t = dreDaUnidade(d, u.id, ipcaAnualPct);
+    const t = dreDaUnidade(d, u.id, ipcaAnualPct, cambios);
     return {
       receitaLiquida: acc.receitaLiquida + t.receitaLiquida,
       ebitda: acc.ebitda + t.ebitda,
@@ -9164,7 +9255,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 26 }}>
             {UNIDADES.filter(u => filtroStatus === 'todos' || (statusUnidades[u.id]?.meta?.status || 'nao_iniciado') === filtroStatus).map(u => {
               const d = statusUnidades[u.id];
-              const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct);
+              const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct, cambios) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct, cambios);
               const aberto = unidadeDrill === u.id;
               return (
                 <div key={u.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
@@ -9261,9 +9352,9 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct 
   const porUnidadeDFC = {};
   UNIDADES_PARA_TOTAL_GRUPO.forEach(u => {
     const d = statusUnidades[u.id] || emptyFormData(u.id);
-    const t = dreDaUnidade(d, u.id, ipcaAnualPct);
+    const t = dreDaUnidade(d, u.id, ipcaAnualPct, cambios);
     porUnidadeDRE[u.id] = t;
-    porUnidadeDFC[u.id] = dfcDaUnidade(d, t, u.id, ipcaAnualPct);
+    porUnidadeDFC[u.id] = dfcDaUnidade(d, t, u.id, ipcaAnualPct, cambios);
   });
   const grupoDRE = agregarDRE(Object.values(porUnidadeDRE));
   const grupoDFC = agregarDFC(Object.values(porUnidadeDFC));

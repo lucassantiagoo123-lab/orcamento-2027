@@ -208,7 +208,15 @@ function receitaVazia(unidadeId) {
   }
   if (unidadeId === 'agricola' || unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') {
     return {
-      produtos: PRODUTOS_REF_AGRICOLA.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      // Mercado Interno × Externo (2026-08-23) — espelho de
+      // frontend/src/OrcamentoARA.jsx (ver receitaVazia lá pro racional
+      // completo). "Vendas Externas" (PRODUTOS_REF_AGRICOLA) já nasce em
+      // USD/externo.
+      produtos: PRODUTOS_REF_AGRICOLA.map(p => ({
+        id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(),
+        mercado: p.nome === 'Vendas Externas' ? 'externo' : 'interno',
+        moeda: 'usd', precoMoeda: mesesVazios(),
+      })),
       deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
     };
   }
@@ -373,7 +381,11 @@ export function folhaAnualPorCC(data, ccCodigo) {
 // produto — Têxtil e Agrícola) ou `receita.linhas` (quantidade × valor
 // unitário ou valor direto por linha — Resorts, modelo de hotelaria). Uma
 // exclui a outra; nunca as duas ao mesmo tempo num mesmo documento.
-function receitaBrutaPorMes(data) {
+// cambios ({ usd, eur, gbp }, 2026-08-23) — câmbio estático (mesmo valor o
+// ano inteiro) da premissa macro do FP&A Corporativo, usado só por produtos
+// de Mercado Externo (mercado==='externo') do modelo `produtos` (Agrícola —
+// ver receitaVazia). Espelho de frontend/src/OrcamentoARA.jsx.
+function receitaBrutaPorMes(data, cambios) {
   if (data.receita.linhas) {
     const linhasMes = {};
     Object.entries(data.receita.linhas).forEach(([id, linha]) => {
@@ -388,14 +400,20 @@ function receitaBrutaPorMes(data) {
     return { receitaBrutaMes: totalMes, linhasReceitaMes: linhasMes };
   }
   const totalMes = MESES.map((_, m) =>
-    (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]), 0)
+    (data.receita.produtos || []).reduce((acc, p) => {
+      if (p.mercado === 'externo') {
+        const taxa = parseNum(cambios?.[p.moeda || 'usd']);
+        return acc + parseNum(p.volumes?.[m]) * parseNum(p.precoMoeda?.[m]) * taxa;
+      }
+      return acc + parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]);
+    }, 0)
   );
   return { receitaBrutaMes: totalMes, linhasReceitaMes: null };
 }
 
-export function computeDRE(data, ref, ipcaAnualPct) {
+export function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
-  const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data);
+  const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data, cambios);
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
 
   // Volume total (kg) por mês — só pra contas com premissaTipo
@@ -538,16 +556,16 @@ export function ehSnapshotConsolidado(d) {
 // igual a computeDRE nos outros casos, mas não é usado no ramo do wrapper
 // (usa sempre a referência de cada site, que são as unidades de verdade
 // por trás dele).
-export function dreDaUnidade(dadosUnidade, unidadeId, ref, ipcaAnualPct) {
+export function dreDaUnidade(dadosUnidade, unidadeId, ref, ipcaAnualPct, cambios) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
     const [dreA, dreB] = consolidado.sites.map(siteId => {
       const refSite = buscarReferencia(siteId) || ref;
-      return computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), refSite, ipcaAnualPct);
+      return computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), refSite, ipcaAnualPct, cambios);
     });
     return somarDRE(dreA, dreB);
   }
-  return computeDRE(dadosUnidade, ref, ipcaAnualPct);
+  return computeDRE(dadosUnidade, ref, ipcaAnualPct, cambios);
 }
 
 // ---------------------------------------------------------------------------
@@ -912,7 +930,11 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
         detalhe: `${linhasReceitaValidas.length} de ${Object.keys(data.receita.linhas).length} linha(s) preenchida(s)`,
       });
     } else {
-      const produtosValidos = (data.receita.produtos || []).filter(p => somaMes(p.volumes) > 0 && somaMes(p.precos) > 0);
+      // Mercado Externo (2026-08-23): preço mora em precoMoeda, não em
+      // precos (que fica derivado/vazio — ver receitaBrutaPorMes).
+      const produtosValidos = (data.receita.produtos || []).filter(p =>
+        somaMes(p.volumes) > 0 && somaMes(p.mercado === 'externo' ? p.precoMoeda : p.precos) > 0
+      );
       checks.push({
         label: 'Receita: ao menos um produto com volume e preço em algum mês',
         ok: produtosValidos.length > 0,
@@ -1012,7 +1034,7 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     obrigatorio: false,
   });
 
-  const valoresNegativos = (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || (p.precos || []).some(v => parseNum(v) < 0))
+  const valoresNegativos = (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
     || Object.values(data.custos.linhas || {}).some(linha => contaTemNegativo(linha));
   checks.push({
     label: 'Nenhum valor negativo em receita ou custos/despesas',
