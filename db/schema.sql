@@ -160,6 +160,16 @@ CREATE TABLE centros_custo (
   PRIMARY KEY (unidade_id, codigo)
 );
 
+-- Premissas macroeconômicas do ciclo (IPCA, Câmbio, Selic, PIB) — pedido de
+-- 2026-08-20, ver migração 0003_premissas_macro.sql pra contexto completo.
+CREATE TABLE premissas_macro (
+  id             TEXT PRIMARY KEY,
+  valor          TEXT,
+  fonte          TEXT,
+  atualizado_em  TIMESTAMPTZ,
+  atualizado_por UUID REFERENCES usuarios(id)
+);
+
 -- ---------------------------------------------------------------------------
 -- Índices de apoio às consultas de autorização (seção 4)
 -- ---------------------------------------------------------------------------

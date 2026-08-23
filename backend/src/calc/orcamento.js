@@ -52,9 +52,21 @@ export function novaLinhaVazia() {
   };
 }
 
+// IPCA mensal composto a partir de um IPCA anual (%) — usado só pelo tipo
+// de premissa 'reajuste_inflacao'. (1+ipcaAnual/100)^(1/12) - 1.
+export function ipcaMensalDe(ipcaAnualPct) {
+  const anual = parseNum(ipcaAnualPct);
+  if (!anual) return 0;
+  return Math.pow(1 + anual / 100, 1 / 12) - 1;
+}
+
 // Valor de uma linha (chave CC|Conta) em um mês, de acordo com o tipo de premissa.
 // receitaBrutaMes/receitaLiquidaMes são arrays de 12 posições, vindos do computeDRE.
-export function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes) {
+// ipcaAnualPct (2026-08-20, tipo 'reajuste_inflacao') e volumeTotalKgMes
+// (tipo 'custo_por_kg') são opcionais — quando quem chama não os informa,
+// o cálculo degrada sem quebrar: reajuste_inflacao cai pro valor-base sem
+// reajuste (equivalente a IPCA 0%) e custo_por_kg cai pra zero.
+export function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
   if (!linha) return 0;
   if (linha.premissaTipo === 'qtd_valor') {
     return parseNum(linha.quantidades?.[m]) * parseNum(linha.valoresUnit?.[m]);
@@ -67,10 +79,19 @@ export function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes) {
     else base = parseNum(linha.baseManual?.[m]);
     return base * pct;
   }
+  if (linha.premissaTipo === 'reajuste_inflacao') {
+    const base = parseNum(linha.valores?.[m]);
+    const fatorAcumulado = Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1);
+    return base * fatorAcumulado;
+  }
+  if (linha.premissaTipo === 'custo_por_kg') {
+    const kg = parseNum(volumeTotalKgMes?.[m]);
+    return kg * parseNum(linha.valoresUnit?.[m]);
+  }
   return parseNum(linha.valores?.[m]);
 }
-export function valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes) {
-  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes), 0);
+export function valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
 }
 // Checagem de coerência: premissa qtd_valor/rateio com apenas um dos dois campos preenchido em algum mês.
 export function linhaIncoerente(linha) {
@@ -286,10 +307,20 @@ function receitaBrutaPorMes(data) {
   return { receitaBrutaMes: totalMes, linhasReceitaMes: null };
 }
 
-export function computeDRE(data, ref) {
+export function computeDRE(data, ref, ipcaAnualPct) {
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data);
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
+
+  // Volume total (kg) por mês — só pra contas com premissaTipo
+  // 'custo_por_kg' (2026-08-20). Só o modelo `produtos` (Têxtil/Agrícola)
+  // tem Volume; unidades com `receita.linhas` (Resorts) ou sem receita
+  // (Corporativo) caem em [] e o reduce dá 0 — nunca quebra, essas
+  // unidades nem oferecem 'custo_por_kg' como opção (ver
+  // UNIDADES_COM_CUSTO_POR_KG no frontend). Volume vem em toneladas — ×1000 pra kg.
+  const volumeTotalKgMes = MESES.map((_, m) =>
+    (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000
+  );
 
   // Base do percentual de dedução: normalmente a receita bruta total
   // (Têxtil/Agrícola), mas uma linha pode apontar `baseLinhaIds` — soma só
@@ -314,7 +345,7 @@ export function computeDRE(data, ref) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
     if (ref.todasContas[contaCodigo]?.pacoteId === 'pessoal') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
@@ -324,7 +355,7 @@ export function computeDRE(data, ref) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao' || pacoteId === 'pessoal') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const ebitda = lucroBruto - despesasSemDA;
   const margemEbitda = receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0;
@@ -334,7 +365,7 @@ export function computeDRE(data, ref) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
   }, 0);
 
   const resultadoFinanceiro = somaMes(data.resultado.receitaFinanceira) - somaMes(data.resultado.despesaFinanceira);
@@ -352,6 +383,10 @@ export function computeDRE(data, ref) {
     despesasSemDA, ebitda, margemEbitda, depreciacao, resultadoFinanceiro, outras,
     ebt, ircsl, lucroLiquido, margemLiquida, capexTotal,
     receitaBrutaMes, receitaLiquidaMes,
+    // Exposto pra quem precisa recalcular valorLinhaMes/valorLinhaAnual de
+    // uma linha específica fora daqui sem duplicar o cálculo de volume —
+    // mesmo racional de receitaBrutaMes/receitaLiquidaMes.
+    volumeTotalKgMes,
     totalGeral: lucroLiquido,
   };
 }
@@ -417,16 +452,16 @@ export function ehSnapshotConsolidado(d) {
 // igual a computeDRE nos outros casos, mas não é usado no ramo do wrapper
 // (usa sempre a referência de cada site, que são as unidades de verdade
 // por trás dele).
-export function dreDaUnidade(dadosUnidade, unidadeId, ref) {
+export function dreDaUnidade(dadosUnidade, unidadeId, ref, ipcaAnualPct) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
     const [dreA, dreB] = consolidado.sites.map(siteId => {
       const refSite = buscarReferencia(siteId) || ref;
-      return computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), refSite);
+      return computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), refSite, ipcaAnualPct);
     });
     return somarDRE(dreA, dreB);
   }
-  return computeDRE(dadosUnidade, ref);
+  return computeDRE(dadosUnidade, ref, ipcaAnualPct);
 }
 
 // ---------------------------------------------------------------------------

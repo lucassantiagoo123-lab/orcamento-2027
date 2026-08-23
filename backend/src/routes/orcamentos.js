@@ -9,6 +9,16 @@ import { listarLog } from '../db/logAlteracoes.js';
 import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade, ehSnapshotConsolidado } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
 import { notificarEnvioParaFpa } from '../email/notificacoes.js';
+import { listarPremissasMacro } from '../db/premissasMacro.js';
+
+// IPCA anual (%) da premissa macro do FP&A Corporativo — usado pelo tipo de
+// premissa 'reajuste_inflacao' (ver dreDaUnidade/valorLinhaMes,
+// calc/orcamento.js). Sem premissa preenchida, retorna undefined — computeDRE
+// degrada pra reajuste 0% (ver ipcaMensalDe), nunca quebra.
+async function buscarIpcaAnualPct() {
+  const premissas = await listarPremissasMacro();
+  return premissas.find(p => p.id === 'ipca')?.valor;
+}
 
 export const orcamentosRouter = Router();
 
@@ -124,7 +134,8 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
     // dreDaUnidade/OrcamentoARA.jsx), então ficam null nesse caso em vez de
     // arriscar quebrar a rota à toa.
     const ehConsolidado = ehSnapshotConsolidado(orcamento.dados);
-    const dre = dreDaUnidade(orcamento.dados, unidadeId, ref);
+    const ipcaAnualPct = await buscarIpcaAnualPct();
+    const dre = dreDaUnidade(orcamento.dados, unidadeId, ref, ipcaAnualPct);
     res.json({
       orcamento,
       dre,
@@ -189,7 +200,8 @@ orcamentosRouter.post('/:unidadeId/enviar', exigirUnidade('unidadeId'), exigirLa
     // o frontend acabou de gravar via PUT — ver ConsolidadoAgricola. Soma
     // os totais reais de Terra do Sol + Frutos do Sol em vez de quebrar (ou
     // de mandar e-mail/gravar versão com totais zerados).
-    const dre = dreDaUnidade(atual.dados, req.params.unidadeId, ref);
+    const ipcaAnualPct = await buscarIpcaAnualPct();
+    const dre = dreDaUnidade(atual.dados, req.params.unidadeId, ref, ipcaAnualPct);
     const totais = { receitaLiquida: dre.receitaLiquida, ebitda: dre.ebitda, lucroLiquido: dre.lucroLiquido };
     const { orcamento, versao } = await registrarEnvio(atual.id, atual.dados, req.usuario.id, req.body.comentario, totais);
     res.json({ orcamento, versao });

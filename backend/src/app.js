@@ -9,6 +9,7 @@ import { authRouter, loginDevDisponivel } from './auth/routes.js';
 import { authenticate } from './middleware/authenticate.js';
 import { orcamentosRouter } from './routes/orcamentos.js';
 import { adminRouter } from './routes/admin.js';
+import { premissasMacroRouter } from './routes/premissasMacro.js';
 
 export function criarApp() {
   const app = express();
@@ -31,6 +32,7 @@ export function criarApp() {
 
   app.use('/api/orcamentos', authenticate, orcamentosRouter);
   app.use('/api/admin', authenticate, adminRouter);
+  app.use('/api/premissas-macro', authenticate, premissasMacroRouter);
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {

@@ -11,6 +11,7 @@ import {
   Users, Loader2, Info,
 } from 'lucide-react';
 import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi } from './api/orcamentos.js';
+import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi } from './api/premissasMacro.js';
 import { logout } from './api/auth.js';
 import { legacyStorage } from './legacyStorage.js';
 import { ApiError } from './api/client.js';
@@ -1633,11 +1634,28 @@ function referenciaDaUnidade(unidadeId) {
   return REFERENCIA_POR_UNIDADE[unidadeId] || REF_VAZIA;
 }
 
+// reajuste_inflacao (2026-08-20, todas as unidades): o gestor digita o
+// valor-base mensal (sem reajuste, mesmo campo `valores` do tipo 'direto')
+// — o valor projetado é calculado automaticamente aplicando o IPCA anual
+// do FP&A (premissas macro), composto mês a mês a partir de Janeiro
+// (IPCA mensal = (1+IPCA anual)^(1/12)-1). Sem IPCA preenchido, o valor
+// projetado = valor-base (reajuste de 0%), nunca quebra o cálculo.
+// custo_por_kg (2026-08-20, só Têxtil e Agrícola — únicas com Volume em
+// toneladas na Receita, ver PRODUTOS_REF/PRODUTOS_REF_AGRICOLA): o gestor
+// digita R$/kg (mesmo campo `valoresUnit` do tipo 'qtd_valor') — a
+// "quantidade" não é digitada, vem do Volume total da Receita (toneladas
+// × 1000 = kg). Ver TODAS_CONTAS_AGRICOLA/computeDRE/AbaCustos.
 const TIPOS_PREMISSA = [
   { id: 'direto', nome: 'Valor direto' },
   { id: 'qtd_valor', nome: 'Quantidade × Valor unit.' },
   { id: 'rateio', nome: 'Base × %' },
+  { id: 'reajuste_inflacao', nome: 'Reajuste Inflação (IPCA)' },
+  { id: 'custo_por_kg', nome: 'Custo/Despesa por kg' },
 ];
+// Unidades onde "Custo/Despesa por kg" aparece nas opções — só onde a
+// Receita tem Volume em toneladas por produto (Têxtil/Agrícola usam o
+// modelo `produtos`; Resorts/Corporativo não têm essa noção de volume).
+const UNIDADES_COM_CUSTO_POR_KG = ['textil', 'agricola_tds', 'agricola_fds'];
 const BASES_RATEIO = [
   { id: 'receita_bruta', nome: 'Receita Bruta do mês' },
   { id: 'receita_liquida', nome: 'Receita Líquida do mês' },
@@ -1703,9 +1721,23 @@ function computeViagensMes(viagensCC) {
   return MESES.map((_, m) => (viagensCC || []).reduce((acc, v) => acc + computeViagemMes(v, m), 0));
 }
 
+// IPCA mensal composto a partir de um IPCA anual (%) — usado só pelo tipo
+// de premissa 'reajuste_inflacao'. (1+ipcaAnual/100)^(1/12) - 1.
+function ipcaMensalDe(ipcaAnualPct) {
+  const anual = parseNum(ipcaAnualPct);
+  if (!anual) return 0;
+  return Math.pow(1 + anual / 100, 1 / 12) - 1;
+}
+
 // Valor de uma linha (chave CC|Conta) em um mês, de acordo com o tipo de premissa.
 // receitaBrutaMes/receitaLiquidaMes são arrays de 12 posições, vindos do computeDRE.
-function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes) {
+// ipcaAnualPct (2026-08-20, tipo 'reajuste_inflacao') e volumeTotalKgMes
+// (tipo 'custo_por_kg') são opcionais — quando quem chama não os informa
+// (telas secundárias que ainda não foram atualizadas: exportações,
+// comparação de versões), o cálculo degrada sem quebrar: reajuste_inflacao
+// cai pro valor-base sem reajuste (equivalente a IPCA 0%) e custo_por_kg
+// cai pra zero (sem volume, não tem como multiplicar).
+function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
   if (!linha) return 0;
   if (linha.premissaTipo === 'qtd_valor') {
     return parseNum(linha.quantidades?.[m]) * parseNum(linha.valoresUnit?.[m]);
@@ -1718,10 +1750,19 @@ function valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes) {
     else base = parseNum(linha.baseManual?.[m]);
     return base * pct;
   }
+  if (linha.premissaTipo === 'reajuste_inflacao') {
+    const base = parseNum(linha.valores?.[m]);
+    const fatorAcumulado = Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1);
+    return base * fatorAcumulado;
+  }
+  if (linha.premissaTipo === 'custo_por_kg') {
+    const kg = parseNum(volumeTotalKgMes?.[m]);
+    return kg * parseNum(linha.valoresUnit?.[m]);
+  }
   return parseNum(linha.valores?.[m]);
 }
-function valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes) {
-  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes), 0);
+function valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
 }
 // Checagem de coerência: premissa qtd_valor/rateio com apenas um dos dois campos preenchido em algum mês.
 function linhaIncoerente(linha) {
@@ -1746,7 +1787,8 @@ function linhaTemNegativo(linha) {
   if (!linha) return false;
   const campos = linha.premissaTipo === 'qtd_valor' ? [linha.quantidades, linha.valoresUnit]
     : linha.premissaTipo === 'rateio' ? [linha.baseManual, linha.percentuais]
-    : [linha.valores];
+    : linha.premissaTipo === 'custo_por_kg' ? [linha.valoresUnit]
+    : [linha.valores]; // 'direto' e 'reajuste_inflacao' usam `valores` (base, no caso do reajuste)
   return campos.some(arr => (arr || []).some(v => parseNum(v) < 0));
 }
 
@@ -1983,10 +2025,20 @@ function receitaBrutaPorMes(data) {
   return { receitaBrutaMes: totalMes, linhasReceitaMes: null };
 }
 
-function computeDRE(data, ref) {
+function computeDRE(data, ref, ipcaAnualPct) {
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data);
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
+
+  // Volume total (kg) por mês — só pra contas com premissaTipo
+  // 'custo_por_kg' (2026-08-20). Só o modelo `produtos` (Têxtil/Agrícola)
+  // tem Volume; unidades com `receita.linhas` (Resorts) ou sem receita
+  // (Corporativo) caem em [] e o reduce dá 0 — nunca quebra, essas
+  // unidades nem oferecem 'custo_por_kg' como opção (ver
+  // UNIDADES_COM_CUSTO_POR_KG). Volume vem em toneladas — ×1000 pra kg.
+  const volumeTotalKgMes = MESES.map((_, m) =>
+    (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000
+  );
 
   // Base do percentual de dedução: normalmente a receita bruta total
   // (Têxtil/Agrícola), mas uma linha pode apontar `baseLinhaIds` — soma só
@@ -2010,7 +2062,7 @@ function computeDRE(data, ref) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
     if (ref.todasContas[contaCodigo]?.pacoteId === 'pessoal') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
@@ -2020,7 +2072,7 @@ function computeDRE(data, ref) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao' || pacoteId === 'pessoal') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const ebitda = lucroBruto - despesasSemDA;
   const margemEbitda = receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0;
@@ -2030,7 +2082,7 @@ function computeDRE(data, ref) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
   }, 0);
 
   const resultadoFinanceiro = somaMes(data.resultado.receitaFinanceira) - somaMes(data.resultado.despesaFinanceira);
@@ -2048,6 +2100,10 @@ function computeDRE(data, ref) {
     despesasSemDA, ebitda, margemEbitda, depreciacao, resultadoFinanceiro, outras,
     ebt, ircsl, lucroLiquido, margemLiquida, capexTotal,
     receitaBrutaMes, receitaLiquidaMes,
+    // Exposto pra quem precisa recalcular valorLinhaMes/valorLinhaAnual de
+    // uma linha específica fora daqui (AbaCustos, LinhaConta) sem duplicar
+    // o cálculo de volume — mesmo racional de receitaBrutaMes/receitaLiquidaMes.
+    volumeTotalKgMes,
     totalGeral: lucroLiquido,
   };
 }
@@ -2120,15 +2176,15 @@ function ehSnapshotConsolidado(d) {
 // `dados.custos` no formato esperado). Antes do primeiro envio do
 // Consolidado, `dadosUnidade` é só um emptyFormData comum — cai no caminho
 // normal, mostra zero, não quebra nada.
-function dreDaUnidade(dadosUnidade, unidadeId) {
+function dreDaUnidade(dadosUnidade, unidadeId, ipcaAnualPct) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
     const [dreA, dreB] = consolidado.sites.map(siteId =>
-      computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId))
+      computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId), ipcaAnualPct)
     );
     return somarDRE(dreA, dreB);
   }
-  return computeDRE(dadosUnidade, referenciaDaUnidade(unidadeId));
+  return computeDRE(dadosUnidade, referenciaDaUnidade(unidadeId), ipcaAnualPct);
 }
 
 // ---------------------------------------------------------------------------
@@ -3170,24 +3226,32 @@ export default function OrcamentoARA({ usuario }) {
 
   useEffect(() => { if (role === 'fpa') carregarFPA(); }, [role, carregarFPA]);
 
+  // Premissas macro (2026-08-20): saíram do legacyStorage (localStorage,
+  // só do navegador de quem preencheu — ver legacyStorage.js) pra uma
+  // tabela de verdade (premissas_macro), porque o "Reajuste Inflação"
+  // (tipo de premissa de Custos e Despesas) precisa do IPCA chegando igual
+  // pra qualquer gestor, não só pra quem está na mesma aba do FP&A que
+  // preencheu. Leitura liberada a qualquer perfil autenticado.
   useEffect(() => {
     (async () => {
       try {
-        const r = await legacyStorage.get('ara-orc:premissas-macro');
-        if (r) setPremissasMacro(JSON.parse(r.value));
+        const salvas = await listarPremissasMacroApi();
+        setPremissasMacro(prev => prev.map(p => {
+          const s = salvas.find(x => x.id === p.id);
+          return s ? { ...p, valor: s.valor || '', fonte: s.fonte, atualizadoEm: s.atualizado_em } : p;
+        }));
       } catch (e) {
-        // mantém os valores padrão (vazios) se ainda não houver nada salvo
+        // mantém os valores padrão (vazios) se a leitura falhar
       }
     })();
   }, []);
 
   async function updatePremissaMacroGlobal(id, valor) {
-    const novas = premissasMacro.map(p => p.id === id ? { ...p, valor, fonte: 'Manual', atualizadoEm: new Date().toISOString() } : p);
-    setPremissasMacro(novas);
     try {
-      await legacyStorage.set('ara-orc:premissas-macro', JSON.stringify(novas));
+      const p = await atualizarPremissaMacroApi(id, valor);
+      setPremissasMacro(prev => prev.map(x => x.id === id ? { ...x, valor: p.valor || '', fonte: p.fonte, atualizadoEm: p.atualizado_em } : x));
     } catch (e) {
-      // silencioso — próxima gravação tenta novamente
+      // silencioso — mesmo padrão de antes (sem toast de erro nesta tela)
     }
   }
 
@@ -3216,7 +3280,14 @@ export default function OrcamentoARA({ usuario }) {
       }
       setPremissasMacro(atualizadas);
       try {
-        await legacyStorage.set('ara-orc:premissas-macro', JSON.stringify(atualizadas));
+        // Só persiste as que o Focus realmente respondeu (fonte mudou pra
+        // 'Boletim Focus (BCB)') — "Reajuste salarial/dissídio", que não
+        // tem indicador no Focus, não muda e não precisa regravar.
+        await Promise.all(
+          atualizadas
+            .filter(p => p.fonte === 'Boletim Focus (BCB)')
+            .map(p => atualizarPremissaMacroApi(p.id, p.valor, p.fonte))
+        );
       } catch (e) {
         // silencioso
       }
@@ -3269,12 +3340,16 @@ export default function OrcamentoARA({ usuario }) {
   }
 
   const refUnidadeAtual = referenciaDaUnidade(unidadeAtual);
+  // IPCA (2026-08-20, tipo de premissa 'reajuste_inflacao') — vem das
+  // premissas macro do FP&A (premissasMacro, agora persistidas no banco,
+  // ver listarPremissasMacroApi acima).
+  const ipcaAnualPct = premissasMacro.find(p => p.id === 'ipca')?.valor;
   // dreDaUnidade (não computeDRE direto): quando unidadeAtual é um
   // Consolidado ('agricola'/'resorts') e já houve um envio, o `dados` salvo
   // é o wrapper (ver CONSOLIDADOS_MULTISITE/ConsolidadoAgricola/
   // ConsolidadoResorts). computeDRE quebraria tentando ler `dados.receita`
   // direto do wrapper.
-  const dre = useMemo(() => dreDaUnidade(dados, unidadeAtual), [dados, unidadeAtual]);
+  const dre = useMemo(() => dreDaUnidade(dados, unidadeAtual, ipcaAnualPct), [dados, unidadeAtual, ipcaAnualPct]);
   // Mesmo motivo do dre acima: runAuditoria também espera o formato normal
   // de `dados` — Consolidado calcula as próprias checagens (dos sites,
   // separadas) dentro de si mesmo, não usa este `checks`.
@@ -3861,6 +3936,7 @@ export default function OrcamentoARA({ usuario }) {
         <ModalVersao
           unidadeId={versaoAberta.unidadeId} versaoId={versaoAberta.versaoId}
           onClose={() => setVersaoAberta(null)}
+          ipcaAnualPct={ipcaAnualPct}
         />
       )}
 
@@ -4009,6 +4085,12 @@ function VisaoGerente(props) {
     abrirVersao,
   } = props;
 
+  // IPCA (2026-08-20, tipo de premissa 'reajuste_inflacao') — ver nota
+  // igual no componente pai (App). Recalculado aqui porque premissasMacro
+  // já é prop desta tela (usada por AbaEstrategicas) e não vale a pena
+  // encher a lista de props do topo com mais um item derivável localmente.
+  const ipcaAnualPct = premissasMacro.find(p => p.id === 'ipca')?.valor;
+
   return (
     <div style={{ padding: 22, maxWidth: 1520, margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
@@ -4155,11 +4237,11 @@ function VisaoGerente(props) {
         // Consolidado da Agrícola (2026-08-20): nunca editado direto — é
         // sempre TDS + FDS somados, com o próprio envio/histórico. Ver
         // ConsolidadoAgricola.
-        <ConsolidadoAgricola autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} />
+        <ConsolidadoAgricola autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} ipcaAnualPct={ipcaAnualPct} />
       ) : unidadeAtual === 'resorts' ? (
         // Consolidado do Resorts (2026-08-20): mesmo racional — sempre
         // Samoa Beach + Samoa Villa somados. Ver ConsolidadoResorts.
-        <ConsolidadoResorts autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} />
+        <ConsolidadoResorts autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} ipcaAnualPct={ipcaAnualPct} />
       ) : (
         <>
       <div style={{ display: 'flex', gap: 2, borderBottom: `2px solid ${COR.borda}`, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -4226,7 +4308,7 @@ function VisaoGerente(props) {
           <AbaCustos
             refUnidade={referenciaDaUnidade(unidadeAtual)}
             unidadeId={unidadeAtual} usuario={usuario}
-            linhas={dados.custos.linhas} updateLinha={updateLinha} dre={dre}
+            linhas={dados.custos.linhas} updateLinha={updateLinha} dre={dre} ipcaAnualPct={ipcaAnualPct}
             detalhes={dados.custos.detalhes} addDetalhe={addDetalhe} updateDetalhe={updateDetalhe} removeDetalhe={removeDetalhe}
             funcionarios={dados.custos.funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
             premissasPessoal={dados.custos.premissasPessoal} updatePremissaPessoal={updatePremissaPessoal}
@@ -4422,7 +4504,7 @@ function LinhaContaViagensLeitura({ conta, viagens, total }) {
   );
 }
 
-function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre }) {
+function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }) {
   const [ccSel, setCcSel] = useState(refUnidade.ccs?.[0]?.codigo);
   const [pacotesAbertos, setPacotesAbertos] = useState({});
   const [contaAberta, setContaAberta] = useState(null);
@@ -4436,7 +4518,7 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre }) {
   const ccAtual = refUnidade.ccs.find(c => c.codigo === ccSel) || refUnidade.ccs[0];
   const origemAlvo = ccAtual.tipo === 'producao' ? 'Custo' : 'Despesa';
   function chaveLinha(contaCodigo) { return `${ccSel}|${contaCodigo}`; }
-  function totalConta(contaCodigo) { return valorLinhaAnual(linhas[chaveLinha(contaCodigo)], dre.receitaBrutaMes, dre.receitaLiquidaMes); }
+  function totalConta(contaCodigo) { return valorLinhaAnual(linhas[chaveLinha(contaCodigo)], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes); }
   const gruposPacote = (refUnidade.pacotes || [])
     .map(p => ({ ...p, contas: (refUnidade.planoContas?.[p.id] || []).filter(c => c.origem === origemAlvo) }))
     .filter(g => g.contas.length > 0);
@@ -4490,6 +4572,7 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre }) {
                         total={totalConta(c.codigo)}
                         receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                         ocultarClassificacao={unidadeId === 'corporativo'}
+                        ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
                       />
                     )
                   ))
@@ -4653,7 +4736,7 @@ const ABAS_DETALHE_VERSAO = [
 // possível comparação" — por isso ganhou abas internas, com destaque pra
 // Custos e Despesas (CC → Pacote → Conta, com a premissa por trás de cada
 // valor, igual ao editor, só que sem nenhum campo editável).
-function ModalVersao({ unidadeId, versaoId, onClose }) {
+function ModalVersao({ unidadeId, versaoId, onClose, ipcaAnualPct }) {
   const [versao, setVersao] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
@@ -4682,9 +4765,9 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   const ehConsolidado = !!(consolidado && versao?.dados?._tipo === consolidado.tipo);
   const dresSites = ehConsolidado
-    ? consolidado.sites.map(siteId => computeDRE(versao.dados[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId)))
+    ? consolidado.sites.map(siteId => computeDRE(versao.dados[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId), ipcaAnualPct))
     : null;
-  const dre = versao ? (ehConsolidado ? somarDRE(dresSites[0], dresSites[1]) : computeDRE(versao.dados, ref)) : null;
+  const dre = versao ? (ehConsolidado ? somarDRE(dresSites[0], dresSites[1]) : computeDRE(versao.dados, ref, ipcaAnualPct)) : null;
 
   return (
     <div
@@ -4756,7 +4839,7 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
                 {abaDetalhe === 'custos' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                     {consolidado.sites.map((siteId, i) => (
-                      <div key={siteId}><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>{consolidado.labels[i]}</h4><CustosLeituraVersao refUnidade={referenciaDaUnidade(siteId)} unidadeId={siteId} dados={versao.dados[siteId] || emptyFormData(siteId)} dre={dresSites[i]} /></div>
+                      <div key={siteId}><h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>{consolidado.labels[i]}</h4><CustosLeituraVersao refUnidade={referenciaDaUnidade(siteId)} unidadeId={siteId} dados={versao.dados[siteId] || emptyFormData(siteId)} dre={dresSites[i]} ipcaAnualPct={ipcaAnualPct} /></div>
                     ))}
                   </div>
                 )}
@@ -4778,7 +4861,7 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
             ) : (
               <>
                 {abaDetalhe === 'receita' && <ReceitaLeituraVersao dados={versao.dados} />}
-                {abaDetalhe === 'custos' && <CustosLeituraVersao refUnidade={ref} unidadeId={unidadeId} dados={versao.dados} dre={dre} />}
+                {abaDetalhe === 'custos' && <CustosLeituraVersao refUnidade={ref} unidadeId={unidadeId} dados={versao.dados} dre={dre} ipcaAnualPct={ipcaAnualPct} />}
                 {abaDetalhe === 'capex' && <CapexLeituraVersao dados={versao.dados} />}
                 {abaDetalhe === 'provisoes' && <ProvisoesLeituraVersao dados={versao.dados} />}
               </>
@@ -4797,7 +4880,7 @@ function ModalVersao({ unidadeId, versaoId, onClose }) {
 // CC são os mesmos nas duas, mesclar arriscaria colisão de chave
 // CC|Conta). É aqui que vive o envio/histórico de versões da Agrícola —
 // TDS/FDS não têm aba de Revisão própria (ver ABAS/FAMILIA_AGRICOLA).
-function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao }) {
+function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct }) {
   const [dadosTds, setDadosTds] = useState(null);
   const [dadosFds, setDadosFds] = useState(null);
   const [versoes, setVersoes] = useState([]);
@@ -4841,8 +4924,8 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao }) {
   }
 
   const refAg = referenciaDaUnidade('agricola_tds');
-  const dreTds = computeDRE(dadosTds, refAg);
-  const dreFds = computeDRE(dadosFds, refAg);
+  const dreTds = computeDRE(dadosTds, refAg, ipcaAnualPct);
+  const dreFds = computeDRE(dadosFds, refAg, ipcaAnualPct);
   const dre = somarDRE(dreTds, dreFds);
   const checksTds = runAuditoria(dadosTds, dreTds, refAg, 'agricola_tds');
   const checksFds = runAuditoria(dadosFds, dreFds, refAg, 'agricola_fds');
@@ -4927,14 +5010,14 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao }) {
             Terra do Sol <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreTds.receitaBruta)} receita bruta)</span>
           </div>
           <ReceitaLeituraVersao dados={dadosTds} />
-          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refAg} unidadeId="agricola_tds" dados={dadosTds} dre={dreTds} /></div>
+          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refAg} unidadeId="agricola_tds" dados={dadosTds} dre={dreTds} ipcaAnualPct={ipcaAnualPct} /></div>
         </div>
         <div>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
             Frutos do Sol <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreFds.receitaBruta)} receita bruta)</span>
           </div>
           <ReceitaLeituraVersao dados={dadosFds} />
-          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refAg} unidadeId="agricola_fds" dados={dadosFds} dre={dreFds} /></div>
+          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refAg} unidadeId="agricola_fds" dados={dadosFds} dre={dreFds} ipcaAnualPct={ipcaAnualPct} /></div>
         </div>
       </div>
 
@@ -5004,7 +5087,7 @@ const botaoSecundarioLocal = {
 // Villa — ver CCS_RESORTS), então cada lado usa a própria referência
 // (referenciaDaUnidade('samoa_beach')/('samoa_villa')), nunca uma única
 // referência compartilhada como a Agrícola faz.
-function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao }) {
+function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct }) {
   const [dadosBeach, setDadosBeach] = useState(null);
   const [dadosVilla, setDadosVilla] = useState(null);
   const [versoes, setVersoes] = useState([]);
@@ -5049,8 +5132,8 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao }) {
 
   const refBeach = referenciaDaUnidade('samoa_beach');
   const refVilla = referenciaDaUnidade('samoa_villa');
-  const dreBeach = computeDRE(dadosBeach, refBeach);
-  const dreVilla = computeDRE(dadosVilla, refVilla);
+  const dreBeach = computeDRE(dadosBeach, refBeach, ipcaAnualPct);
+  const dreVilla = computeDRE(dadosVilla, refVilla, ipcaAnualPct);
   const dre = somarDRE(dreBeach, dreVilla);
   const checksBeach = runAuditoria(dadosBeach, dreBeach, refBeach, 'samoa_beach');
   const checksVilla = runAuditoria(dadosVilla, dreVilla, refVilla, 'samoa_villa');
@@ -5131,14 +5214,14 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao }) {
             Samoa Beach <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreBeach.receitaBruta)} receita bruta)</span>
           </div>
           <ReceitaLeituraVersao dados={dadosBeach} />
-          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refBeach} unidadeId="samoa_beach" dados={dadosBeach} dre={dreBeach} /></div>
+          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refBeach} unidadeId="samoa_beach" dados={dadosBeach} dre={dreBeach} ipcaAnualPct={ipcaAnualPct} /></div>
         </div>
         <div>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
             Samoa Villa <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreVilla.receitaBruta)} receita bruta)</span>
           </div>
           <ReceitaLeituraVersao dados={dadosVilla} />
-          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refVilla} unidadeId="samoa_villa" dados={dadosVilla} dre={dreVilla} /></div>
+          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refVilla} unidadeId="samoa_villa" dados={dadosVilla} dre={dreVilla} ipcaAnualPct={ipcaAnualPct} /></div>
         </div>
       </div>
 
@@ -5735,9 +5818,16 @@ function LinhaCalculadaMensal({ label, valoresMensal, formatarCelula, formatarTo
   );
 }
 
-function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao }) {
-  const valoresMensaisCalc = MESES.map((_, m) => valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes));
+function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, unidadeId, ipcaAnualPct, volumeTotalKgMes }) {
+  const valoresMensaisCalc = MESES.map((_, m) => valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes));
   const incoerente = linhaIncoerente(linha);
+  // "Custo/Despesa por kg" só aparece nas opções nas unidades com Volume em
+  // toneladas na Receita (Têxtil/Agrícola) — ver UNIDADES_COM_CUSTO_POR_KG.
+  const opcoesPremissa = TIPOS_PREMISSA.filter(t => t.id !== 'custo_por_kg' || UNIDADES_COM_CUSTO_POR_KG.includes(unidadeId));
+  // Linha de referência não-editável do IPCA acumulado mês a mês, a partir
+  // da premissa macro do FP&A Corporativo (ipcaAnualPct) — pedido de
+  // 2026-08-20.
+  const ipcaAcumuladoMensal = MESES.map((_, m) => (Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1) - 1) * 100);
 
   return (
     <div style={{ border: `1px solid ${incoerente ? COR.vermelho : COR.borda}`, borderRadius: 6, marginBottom: 6, background: COR.branco, overflow: 'hidden' }}>
@@ -5784,7 +5874,7 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
       {aberta && (
         <div style={{ padding: '10px 10px 12px', borderTop: `1px solid ${COR.borda}` }}>
           <div style={{ marginBottom: 8, maxWidth: 260 }}>
-            <Selecao value={linha.premissaTipo} onChange={v => onUpdate('premissaTipo', v)} opcoes={TIPOS_PREMISSA} />
+            <Selecao value={linha.premissaTipo} onChange={v => onUpdate('premissaTipo', v)} opcoes={opcoesPremissa} />
           </div>
           <div style={{ overflowX: 'auto', marginBottom: 8 }}>
             <table>
@@ -5817,9 +5907,43 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdate, total, receitaBr
                     <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
                   </>
                 )}
+                {linha.premissaTipo === 'reajuste_inflacao' && (
+                  <>
+                    <LinhaCalculadaMensal
+                      label={`IPCA acumulado (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
+                      valoresMensal={ipcaAcumuladoMensal}
+                      formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
+                      formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}%`}
+                    />
+                    <GradeMensalLinha label="Valor-base (R$)" valores={linha.valores} onChange={(mi, v) => onUpdate('valores', atualizarArray(linha.valores, mi, v))} />
+                    <LinhaCalculadaMensal label="Valor projetado (R$)" valoresMensal={valoresMensaisCalc} />
+                  </>
+                )}
+                {linha.premissaTipo === 'custo_por_kg' && (
+                  <>
+                    <LinhaCalculadaMensal
+                      label="Volume total (kg) — da Receita"
+                      valoresMensal={volumeTotalKgMes || Array(12).fill(0)}
+                      formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
+                      formatarTotal={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
+                    />
+                    <GradeMensalLinha label="Valor unit. (R$/kg)" valores={linha.valoresUnit} onChange={(mi, v) => onUpdate('valoresUnit', atualizarArray(linha.valoresUnit, mi, v))} />
+                    <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+                  </>
+                )}
               </tbody>
             </table>
           </div>
+          {linha.premissaTipo === 'reajuste_inflacao' && (
+            <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
+              IPCA vem da premissa macro do FP&A Corporativo (tela "Gestão do Orçamento"). O gestor digita o valor-base mensal (R$); o sistema aplica o reajuste acumulado a partir de Janeiro automaticamente.
+            </p>
+          )}
+          {linha.premissaTipo === 'custo_por_kg' && (
+            <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
+              Volume vem da aba Receita (soma dos produtos, toneladas × 1000). O gestor digita o R$/kg; o valor calculado é Volume (kg) × R$/kg.
+            </p>
+          )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
             {linha.premissaTipo === 'qtd_valor' && (
               <div style={{ maxWidth: 260, flex: 1 }}>
@@ -5970,9 +6094,10 @@ function LinhaContaViagens({ conta, viagens, aberta, onToggle, onUpdateViagens, 
 // analítica e por premissas"). Mostra as mesmas linhas de premissa que o
 // editor mostra (quantidade/valor unit., ou base/%, ou valor direto), só
 // que via LinhaCalculadaMensal (sem <input>) em vez de GradeMensalLinha.
-function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao }) {
-  const valoresMensaisCalc = MESES.map((_, m) => valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes));
+function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, ipcaAnualPct, volumeTotalKgMes }) {
+  const valoresMensaisCalc = MESES.map((_, m) => valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes));
   const formatarPct = (v) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+  const ipcaAcumuladoMensal = MESES.map((_, m) => (Math.pow(1 + ipcaMensalDe(ipcaAnualPct), m + 1) - 1) * 100);
   return (
     <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 6, marginBottom: 6, background: COR.branco, overflow: 'hidden' }}>
       <button
@@ -6025,6 +6150,30 @@ function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBruta
                       <LinhaCalculadaMensal label="Base manual (R$)" valoresMensal={(linha.baseManual || mesesVazios()).map(parseNum)} />
                     )}
                     <LinhaCalculadaMensal label={`Percentual — base: ${BASES_RATEIO.find(b => b.id === linha.baseTipo)?.nome || linha.baseTipo}`} valoresMensal={(linha.percentuais || mesesVazios()).map(parseNum)} formatarCelula={formatarPct} />
+                    <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+                  </>
+                )}
+                {linha.premissaTipo === 'reajuste_inflacao' && (
+                  <>
+                    <LinhaCalculadaMensal
+                      label={`IPCA acumulado (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
+                      valoresMensal={ipcaAcumuladoMensal}
+                      formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
+                      formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}%`}
+                    />
+                    <LinhaCalculadaMensal label="Valor-base (R$)" valoresMensal={(linha.valores || mesesVazios()).map(parseNum)} />
+                    <LinhaCalculadaMensal label="Valor projetado (R$)" valoresMensal={valoresMensaisCalc} />
+                  </>
+                )}
+                {linha.premissaTipo === 'custo_por_kg' && (
+                  <>
+                    <LinhaCalculadaMensal
+                      label="Volume total (kg) — da Receita"
+                      valoresMensal={volumeTotalKgMes || Array(12).fill(0)}
+                      formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
+                      formatarTotal={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
+                    />
+                    <LinhaCalculadaMensal label="Valor unit. (R$/kg)" valoresMensal={(linha.valoresUnit || mesesVazios()).map(parseNum)} />
                     <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
                   </>
                 )}
@@ -6311,7 +6460,7 @@ function QuadroPessoal({ ccCodigo, funcionarios, addFuncionario, updateFuncionar
   );
 }
 
-function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote, viagens, atualizar }) {
+function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote, viagens, atualizar }) {
   // Gestor de CC (perfil gerente_cc_corporativo) só vê/edita os CCs que
   // lhe foram atribuídos nesta unidade (usuario.ccsPermitidos, de
   // /auth/me) — pedido de 2026-08-16 ("os CCs ainda estão aparecendo
@@ -6356,10 +6505,10 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
   // (ex.: Transporte de Pessoal é 'Custo' dentro de uma área majoritariamente
   // 'Adm'), por isso a origem é resolvida por CC, não herdada da área.
   function totalContaAnualCC(ccCodigo, contaCodigo) {
-    return valorLinhaAnual(linhas[`${ccCodigo}|${contaCodigo}`], dre.receitaBrutaMes, dre.receitaLiquidaMes);
+    return valorLinhaAnual(linhas[`${ccCodigo}|${contaCodigo}`], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
   }
   function totalContaMesCC(ccCodigo, contaCodigo, m) {
-    return valorLinhaMes(linhas[`${ccCodigo}|${contaCodigo}`], m, dre.receitaBrutaMes, dre.receitaLiquidaMes);
+    return valorLinhaMes(linhas[`${ccCodigo}|${contaCodigo}`], m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
   }
   function contasDoCc(cc) {
     const origem = cc.tipo === 'producao' ? 'Custo' : 'Despesa';
@@ -6652,6 +6801,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
                         total={totalConta(c.codigo)}
                         receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                         ocultarClassificacao={unidadeId === 'corporativo'}
+                        unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
                       />
                     )
                   ))
@@ -6688,6 +6838,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateLinha, dre, d
                   total={totalConta(c.codigo)}
                   receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                   ocultarClassificacao={unidadeId === 'corporativo'}
+                  unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
                 />
               ))}
             </div>
