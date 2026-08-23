@@ -7,8 +7,13 @@ export async function listarUsuarios() {
   // senha_texto (2026-08-23, ver migração 0005_senha_texto_visivel.sql):
   // exposto aqui porque esta função só é chamada pelas rotas /api/admin/*,
   // todas atrás de exigirPerfil('admin_fpa') — nunca exposta a outro perfil.
+  // acesso_expira_em/acesso_expirado (2026-08-23, ver migração
+  // 0006_acesso_expira_em.sql): mesmo padrão de db/usuarios.js::buscarUsuarioComEscopo.
   const { rows: usuarios } = await pool.query(
-    `SELECT id, nome, email, perfil, ativo, criado_em, ultimo_login, senha_texto FROM usuarios ORDER BY nome`
+    `SELECT id, nome, email, perfil, ativo, criado_em, ultimo_login, senha_texto,
+       TO_CHAR(acesso_expira_em, 'YYYY-MM-DD') AS acesso_expira_em,
+       (acesso_expira_em IS NOT NULL AND acesso_expira_em < CURRENT_DATE) AS acesso_expirado
+     FROM usuarios ORDER BY nome`
   );
   const [unidades, ccs] = await Promise.all([
     pool.query(`SELECT usuario_id, unidade_id FROM usuario_unidade`),

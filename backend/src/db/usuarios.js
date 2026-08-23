@@ -3,8 +3,16 @@ import { pool } from './pool.js';
 /** Usuário completo por id, incluindo vínculos de unidade/CC e concessões
  * temporárias ativas — a fonte única de verdade para autorização (seção 4). */
 export async function buscarUsuarioComEscopo(usuarioId) {
+  // acesso_expira_em/acesso_expirado (2026-08-23, ver migração
+  // 0006_acesso_expira_em.sql): "expirado" já calculado no Postgres
+  // (CURRENT_DATE), não em JS — exigirAcessoNaoExpirado (middleware/
+  // authorize.js) só lê o boolean pronto. TO_CHAR formata a data como texto
+  // simples ('AAAA-MM-DD'), sem depender de como o driver serializa DATE.
   const { rows } = await pool.query(
-    `SELECT id, nome, email, perfil, ativo FROM usuarios WHERE id = $1`,
+    `SELECT id, nome, email, perfil, ativo,
+       TO_CHAR(acesso_expira_em, 'YYYY-MM-DD') AS acesso_expira_em,
+       (acesso_expira_em IS NOT NULL AND acesso_expira_em < CURRENT_DATE) AS acesso_expirado
+     FROM usuarios WHERE id = $1`,
     [usuarioId]
   );
   const usuario = rows[0];
@@ -74,6 +82,22 @@ export async function buscarUsuarioParaEnvioAcesso(usuarioId) {
     [usuarioId]
   );
   return rows[0] || null;
+}
+
+/** Define o tempo de acesso do usuário (2026-08-23) — null = Indefinido
+ * (comportamento de sempre); uma data 'AAAA-MM-DD' = Definido, a partir do
+ * dia seguinte o usuário continua vendo o orçamento mas perde a escrita
+ * (ver exigirAcessoNaoExpirado em middleware/authorize.js). Sempre um SET
+ * explícito (nunca COALESCE) — é a única forma de também poder voltar pra
+ * Indefinido (gravando null de propósito). */
+export async function definirAcessoExpiracao(usuarioId, acessoExpiraEm) {
+  const { rows } = await pool.query(
+    `UPDATE usuarios SET acesso_expira_em = $2
+     WHERE id = $1
+     RETURNING id, TO_CHAR(acesso_expira_em, 'YYYY-MM-DD') AS acesso_expira_em`,
+    [usuarioId, acessoExpiraEm]
+  );
+  return rows[0];
 }
 
 export async function registrarLogin(usuarioId) {

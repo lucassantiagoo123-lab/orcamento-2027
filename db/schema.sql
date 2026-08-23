@@ -32,7 +32,11 @@ CREATE TABLE usuarios (
   perfil        TEXT NOT NULL CHECK (perfil IN ('admin_fpa', 'gerente_unidade', 'gerente_cc_corporativo')),
   ativo         BOOLEAN NOT NULL DEFAULT true,
   criado_em     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ultimo_login  TIMESTAMPTZ
+  ultimo_login  TIMESTAMPTZ,
+  -- acesso_expira_em (2026-08-23, ver migração 0006_acesso_expira_em.sql):
+  -- NULL = Indefinido; uma data = Definido — depois dela, o usuário
+  -- continua vendo o orçamento mas perde a escrita.
+  acesso_expira_em DATE
 );
 
 -- Vínculo Gerente de Unidade -> unidade (N:N: permite mais de 1 usuário por unidade,

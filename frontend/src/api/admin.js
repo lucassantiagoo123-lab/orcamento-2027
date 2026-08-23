@@ -4,6 +4,10 @@ export const listarUsuarios = () => apiFetch('/api/admin/usuarios');
 export const criarUsuario = (dados) => apiFetch('/api/admin/usuarios', { method: 'POST', body: dados });
 export const atualizarUsuario = (id, dados) => apiFetch(`/api/admin/usuarios/${id}`, { method: 'PATCH', body: dados });
 
+// Tempo de acesso (2026-08-23): acessoExpiraEm null = Indefinido, 'AAAA-MM-DD' = Definido.
+export const definirAcessoUsuario = (id, acessoExpiraEm) =>
+  apiFetch(`/api/admin/usuarios/${id}/acesso`, { method: 'PATCH', body: { acessoExpiraEm } });
+
 export const vincularUnidade = (usuarioId, unidadeId) =>
   apiFetch(`/api/admin/usuarios/${usuarioId}/unidades`, { method: 'POST', body: { unidadeId } });
 export const desvincularUnidade = (usuarioId, unidadeId) =>

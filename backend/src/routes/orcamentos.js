@@ -3,7 +3,7 @@
 // server.js) e por exigirUnidade, que rejeita (403) qualquer unidade_id fora
 // do vínculo real do usuário no banco — nunca confia no que vem da URL.
 import { Router } from 'express';
-import { exigirUnidade, exigirPerfil } from '../middleware/authorize.js';
+import { exigirUnidade, exigirPerfil, exigirAcessoNaoExpirado } from '../middleware/authorize.js';
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
 import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade, ehSnapshotConsolidado } from '../calc/orcamento.js';
@@ -147,7 +147,7 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
   } catch (err) { next(err); }
 });
 
-orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirLancamentoHabilitado, async (req, res, next) => {
+orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoExpirado, exigirLancamentoHabilitado, async (req, res, next) => {
   try {
     const { dados, motivo } = req.body;
     if (!dados) return res.status(400).json({ erro: 'dados_obrigatorio' });
@@ -183,7 +183,7 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirLancamento
   } catch (err) { next(err); }
 });
 
-orcamentosRouter.post('/:unidadeId/enviar', exigirUnidade('unidadeId'), exigirLancamentoHabilitado, async (req, res, next) => {
+orcamentosRouter.post('/:unidadeId/enviar', exigirUnidade('unidadeId'), exigirAcessoNaoExpirado, exigirLancamentoHabilitado, async (req, res, next) => {
   try {
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
     // Pedido de 2026-08-16: trava reenvio até um admin_fpa liberar — o

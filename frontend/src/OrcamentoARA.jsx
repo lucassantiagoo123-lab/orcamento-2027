@@ -3406,7 +3406,10 @@ export default function OrcamentoARA({ usuario }) {
         await putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } });
         setUltimoSalvoEm(new Date());
       } catch (e) {
-        setErro('Não foi possível salvar o rascunho automaticamente. Verifique a conexão.');
+        // 403 acesso_expirado (2026-08-23, ver middleware/authorize.js)
+        // vem com mensagem específica do backend — as outras falhas caem
+        // no texto genérico de sempre.
+        setErro(e instanceof ApiError && e.status === 403 ? e.message : 'Não foi possível salvar o rascunho automaticamente. Verifique a conexão.');
       }
     }, 900);
     return () => clearTimeout(t);
@@ -3426,7 +3429,7 @@ export default function OrcamentoARA({ usuario }) {
       await putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } });
       setUltimoSalvoEm(new Date());
     } catch (e) {
-      setErro('Não foi possível salvar o rascunho. Verifique a conexão.');
+      setErro(e instanceof ApiError && e.status === 403 ? e.message : 'Não foi possível salvar o rascunho. Verifique a conexão.');
     }
     setSalvandoRascunho(false);
   }
@@ -3577,10 +3580,10 @@ export default function OrcamentoARA({ usuario }) {
 
       setComentarioEnvio('');
     } catch (e) {
-      // 409 aguardando_liberacao_fpa vem com mensagem específica do backend
-      // (ApiError.message já traz body.mensagem) — as outras falhas caem no
-      // texto genérico de sempre.
-      setErro(e instanceof ApiError && e.status === 409 ? e.message : 'Falha ao enviar a versão. Tente novamente em instantes.');
+      // 409 aguardando_liberacao_fpa e 403 acesso_expirado (2026-08-23) vêm
+      // com mensagem específica do backend (ApiError.message já traz
+      // body.mensagem) — as outras falhas caem no texto genérico de sempre.
+      setErro(e instanceof ApiError && (e.status === 409 || e.status === 403) ? e.message : 'Falha ao enviar a versão. Tente novamente em instantes.');
       if (e instanceof ApiError && e.status === 409) setAguardandoLiberacao(true);
     }
     setEnviando(false);

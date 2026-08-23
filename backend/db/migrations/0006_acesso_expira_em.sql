@@ -1,0 +1,14 @@
+-- Pedido de 2026-08-23: "coluna referente a tempo de acesso na plataforma
+-- que pode ser Indefinido ou Definido. Se for Definido incluir campo para
+-- data, após essa data o usuário poderá acessar o orçamento, mas não
+-- poderá editar."
+-- NULL = Indefinido (comportamento de sempre, sem mudança). Uma data =
+-- Definido — a partir do dia seguinte a essa data, o usuário continua
+-- enxergando o orçamento (GET) mas perde a escrita (PUT /:unidadeId e
+-- POST /:unidadeId/enviar), ver middleware/authorize.js::exigirAcessoNaoExpirado.
+-- DATE (não TEXT) porque a comparação "expirou?" é feita no Postgres
+-- (CURRENT_DATE), não em JS — evita o problema de fuso/parse de data que já
+-- apareceu antes com colunas DATE lidas de volta pro driver (ver nota em
+-- 0004_etapas_processo.sql): aqui a leitura sempre passa por TO_CHAR nas
+-- queries (db/usuarios.js, db/admin.js), nunca devolve o tipo Date cru.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS acesso_expira_em DATE;

@@ -8,7 +8,7 @@ import {
   vincularUnidade, desvincularUnidade, vincularCc, desvincularCc, removerTodosCcUsuario,
   listarConcessoes, criarConcessao, revogarConcessao,
 } from '../db/admin.js';
-import { definirSenha, buscarUsuarioParaEnvioAcesso } from '../db/usuarios.js';
+import { definirSenha, buscarUsuarioParaEnvioAcesso, definirAcessoExpiracao } from '../db/usuarios.js';
 import { validarSenha, gerarHashSenha } from '../auth/senha.js';
 import { enviarAcesso } from '../email/notificacoes.js';
 
@@ -100,6 +100,26 @@ adminRouter.post('/usuarios/:id/enviar-acesso', async (req, res, next) => {
       return res.status(503).json({ erro: 'smtp_nao_configurado', mensagem: 'E-mail não configurado no servidor (SMTP_HOST/SMTP_USER/SMTP_PASS) — copie a senha manualmente.' });
     }
     res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+const DATA_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Tempo de acesso do usuário (2026-08-23): null/ausente = Indefinido;
+ * 'AAAA-MM-DD' = Definido — a partir do dia seguinte a essa data o usuário
+ * continua vendo o orçamento (GET) mas perde a escrita (PUT/POST enviar,
+ * ver exigirAcessoNaoExpirado em middleware/authorize.js). Sempre um SET
+ * explícito, nunca ignora o campo — é como o admin também volta pra
+ * Indefinido (mandando acessoExpiraEm: null de propósito). */
+adminRouter.patch('/usuarios/:id/acesso', async (req, res, next) => {
+  try {
+    const { acessoExpiraEm } = req.body || {};
+    if (acessoExpiraEm != null && !DATA_REGEX.test(acessoExpiraEm)) {
+      return res.status(400).json({ erro: 'data_invalida', mensagem: 'Data deve estar no formato AAAA-MM-DD.' });
+    }
+    const usuario = await definirAcessoExpiracao(req.params.id, acessoExpiraEm || null);
+    if (!usuario) return res.status(404).json({ erro: 'usuario_nao_encontrado' });
+    res.json({ usuario });
   } catch (err) { next(err); }
 });
 

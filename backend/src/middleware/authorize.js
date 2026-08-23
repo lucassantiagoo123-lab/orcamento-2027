@@ -71,3 +71,19 @@ export function exigirPerfil(...perfis) {
     next();
   };
 }
+
+/** Tempo de acesso (2026-08-23, ver migração 0006_acesso_expira_em.sql):
+ * "Indefinido" (padrão) nunca bloqueia; "Definido" com uma data passada
+ * bloqueia só a ESCRITA (esta rota) — leitura (GET) nunca passa por aqui,
+ * de propósito ("o usuário poderá acessar o orçamento, mas não poderá
+ * editar"). req.usuario.acesso_expirado já vem calculado do banco
+ * (buscarUsuarioComEscopo), não recalculado aqui. */
+export function exigirAcessoNaoExpirado(req, res, next) {
+  if (req.usuario.acesso_expirado) {
+    return res.status(403).json({
+      erro: 'acesso_expirado',
+      mensagem: `Seu acesso expirou em ${req.usuario.acesso_expira_em}. Você ainda pode visualizar o orçamento, mas não pode editá-lo — fale com um Admin FP&A para renovar.`,
+    });
+  }
+  next();
+}

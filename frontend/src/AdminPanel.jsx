@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import {
   listarUsuarios, criarUsuario, atualizarUsuario, vincularUnidade, desvincularUnidade,
   vincularCc, desvincularCc, removerTodosCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
+  definirAcessoUsuario,
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
@@ -95,7 +96,7 @@ const botaoPrimario = {
 const th = { textAlign: 'left', fontSize: 11, color: '#7A8088', padding: '6px 8px', borderBottom: `1px solid ${COR.borda}` };
 const td = { fontSize: 12.5, padding: '8px', borderBottom: `1px solid ${COR.borda}`, verticalAlign: 'top' };
 
-const FILTRO_VAZIO = { nome: '', email: '', perfil: '', unidade: '', cc: '', ativo: '' };
+const FILTRO_VAZIO = { nome: '', email: '', perfil: '', unidade: '', cc: '', acesso: '', ativo: '' };
 
 // Nome do CC a partir do código, procurando em todas as listas de CC
 // conhecidas (a mesma código pode existir em unidades diferentes, mas o
@@ -138,6 +139,9 @@ function SecaoUsuarios({ usuarios, onMudou }) {
       const bate = u.ccs.some((c) => c.codigo.toLowerCase().includes(alvo) || nomeCcPorCodigo(c.codigo).toLowerCase().includes(alvo));
       if (!bate) return false;
     }
+    if (filtro.acesso === 'indefinido' && u.acesso_expira_em) return false;
+    if (filtro.acesso === 'definido' && !u.acesso_expira_em) return false;
+    if (filtro.acesso === 'expirado' && !u.acesso_expirado) return false;
     if (filtro.ativo === 'ativo' && !u.ativo) return false;
     if (filtro.ativo === 'inativo' && u.ativo) return false;
     return true;
@@ -173,7 +177,7 @@ function SecaoUsuarios({ usuarios, onMudou }) {
           <tr>
             <th style={th}>#</th>
             <th style={th}>Nome</th><th style={th}>E-mail</th><th style={th}>Perfil</th>
-            <th style={th}>Unidades</th><th style={th}>Centro de Custo</th><th style={th}>Senha</th><th style={th}>Ativo</th>
+            <th style={th}>Unidades</th><th style={th}>Centro de Custo</th><th style={th}>Senha</th><th style={th}>Tempo de Acesso</th><th style={th}>Ativo</th>
           </tr>
           <tr>
             <th style={thFiltro}></th>
@@ -200,6 +204,14 @@ function SecaoUsuarios({ usuarios, onMudou }) {
             </th>
             <th style={thFiltro}></th>
             <th style={thFiltro}>
+              <select value={filtro.acesso} onChange={(e) => setFiltro({ ...filtro, acesso: e.target.value })} style={campoFiltro}>
+                <option value="">Todos</option>
+                <option value="indefinido">Indefinido</option>
+                <option value="definido">Definido</option>
+                <option value="expirado">Expirado</option>
+              </select>
+            </th>
+            <th style={thFiltro}>
               <select value={filtro.ativo} onChange={(e) => setFiltro({ ...filtro, ativo: e.target.value })} style={campoFiltro}>
                 <option value="">Todos</option>
                 <option value="ativo">Ativos</option>
@@ -225,6 +237,11 @@ function LinhaUsuario({ usuario, numero, onMudou }) {
   const [senhaNova, setSenhaNova] = useState('');
   const [erroSenha, setErroSenha] = useState(null);
   const [salvandoSenha, setSalvandoSenha] = useState(false);
+  const [editandoAcesso, setEditandoAcesso] = useState(false);
+  const [tipoAcesso, setTipoAcesso] = useState(usuario.acesso_expira_em ? 'definido' : 'indefinido');
+  const [dataAcesso, setDataAcesso] = useState(usuario.acesso_expira_em || '');
+  const [erroAcesso, setErroAcesso] = useState(null);
+  const [salvandoAcesso, setSalvandoAcesso] = useState(false);
   const [nome, setNome] = useState(usuario.nome);
   const [email, setEmail] = useState(usuario.email);
   const [erroPerfilBasico, setErroPerfilBasico] = useState(null);
@@ -267,6 +284,34 @@ function LinhaUsuario({ usuario, numero, onMudou }) {
       setErroSenha(err instanceof ApiError ? err.message : 'Falha ao definir senha.');
     }
     setSalvandoSenha(false);
+  }
+
+  // Tempo de acesso (2026-08-23): Indefinido (padrão, sem mudança de
+  // comportamento) ou Definido com uma data — depois dela o usuário
+  // continua vendo o orçamento (GET) mas perde a escrita (bloqueado no
+  // backend, ver middleware/authorize.js::exigirAcessoNaoExpirado).
+  async function handleSalvarAcesso(e) {
+    e.preventDefault();
+    if (tipoAcesso === 'definido' && !dataAcesso) {
+      setErroAcesso('Informe a data.');
+      return;
+    }
+    setSalvandoAcesso(true);
+    setErroAcesso(null);
+    try {
+      await definirAcessoUsuario(usuario.id, tipoAcesso === 'definido' ? dataAcesso : null);
+      setEditandoAcesso(false);
+      onMudou();
+    } catch (err) {
+      setErroAcesso(err instanceof ApiError ? err.message : 'Falha ao salvar o tempo de acesso.');
+    }
+    setSalvandoAcesso(false);
+  }
+  function cancelarEdicaoAcesso() {
+    setEditandoAcesso(false);
+    setErroAcesso(null);
+    setTipoAcesso(usuario.acesso_expira_em ? 'definido' : 'indefinido');
+    setDataAcesso(usuario.acesso_expira_em || '');
   }
 
   // Abre o app de e-mail padrão do Windows (Outlook, se for o padrão) com
@@ -424,6 +469,53 @@ function LinhaUsuario({ usuario, numero, onMudou }) {
                 </button>
               )}
             </div>
+          </div>
+        )}
+      </td>
+      <td style={td}>
+        {editandoAcesso ? (
+          <form onSubmit={handleSalvarAcesso} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', border: `1px solid ${COR.borda}`, borderRadius: 12, overflow: 'hidden', width: 'fit-content' }}>
+              <button
+                type="button" onClick={() => setTipoAcesso('indefinido')}
+                style={{
+                  fontSize: 10.5, fontWeight: 700, padding: '3px 8px', border: 'none', cursor: 'pointer',
+                  background: tipoAcesso === 'indefinido' ? COR.azul : '#fff',
+                  color: tipoAcesso === 'indefinido' ? '#fff' : COR.azul,
+                }}
+              >Indefinido</button>
+              <button
+                type="button" onClick={() => setTipoAcesso('definido')}
+                style={{
+                  fontSize: 10.5, fontWeight: 700, padding: '3px 8px', border: 'none', cursor: 'pointer',
+                  background: tipoAcesso === 'definido' ? COR.laranja : '#fff',
+                  color: tipoAcesso === 'definido' ? '#fff' : COR.azul,
+                }}
+              >Definido</button>
+            </div>
+            {tipoAcesso === 'definido' && (
+              <input
+                required type="date" value={dataAcesso} onChange={(e) => setDataAcesso(e.target.value)}
+                style={{ ...campo, width: 132 }}
+              />
+            )}
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button type="submit" disabled={salvandoAcesso} style={{ ...botaoSecundario, padding: '4px 8px' }}>✓</button>
+              <button type="button" onClick={cancelarEdicaoAcesso} style={{ ...botaoSecundario, padding: '4px 8px' }}>×</button>
+            </div>
+            {erroAcesso && <div style={{ color: '#C00000', fontSize: 10.5 }}>{erroAcesso}</div>}
+          </form>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {usuario.acesso_expira_em ? (
+              <span style={{ fontSize: 11, color: usuario.acesso_expirado ? '#C00000' : COR.texto, fontWeight: usuario.acesso_expirado ? 700 : 400 }}>
+                {usuario.acesso_expirado ? 'Expirado em ' : 'Definido até '}
+                {new Date(usuario.acesso_expira_em + 'T00:00:00').toLocaleDateString('pt-BR')}
+              </span>
+            ) : (
+              <span style={{ fontSize: 11, color: '#B5BAC0' }}>Indefinido</span>
+            )}
+            <button onClick={() => setEditandoAcesso(true)} style={{ ...botaoSecundario, padding: '3px 7px', fontSize: 10.5, width: 'fit-content' }}>Editar</button>
           </div>
         )}
       </td>
