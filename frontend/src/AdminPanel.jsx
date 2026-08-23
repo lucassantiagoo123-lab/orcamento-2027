@@ -7,7 +7,7 @@ import {
   listarUsuarios, criarUsuario, atualizarUsuario, vincularUnidade, desvincularUnidade,
   vincularCc, desvincularCc, removerTodosCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
 } from './api/admin.js';
-import { definirSenhaUsuario, enviarAcessoUsuario } from './api/senha.js';
+import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
 import { CCS_TEXTIL, CCS_AGRICOLA, CCS_RESORTS, CCS_CORPORATIVO } from './OrcamentoARA.jsx';
 
@@ -225,8 +225,6 @@ function LinhaUsuario({ usuario, numero, onMudou }) {
   const [senhaNova, setSenhaNova] = useState('');
   const [erroSenha, setErroSenha] = useState(null);
   const [salvandoSenha, setSalvandoSenha] = useState(false);
-  const [enviandoAcesso, setEnviandoAcesso] = useState(false);
-  const [msgAcesso, setMsgAcesso] = useState(null); // { texto, erro }
   const [nome, setNome] = useState(usuario.nome);
   const [email, setEmail] = useState(usuario.email);
   const [erroPerfilBasico, setErroPerfilBasico] = useState(null);
@@ -271,17 +269,27 @@ function LinhaUsuario({ usuario, numero, onMudou }) {
     setSalvandoSenha(false);
   }
 
-  async function handleEnviarAcesso() {
-    setEnviandoAcesso(true);
-    setMsgAcesso(null);
-    try {
-      await enviarAcessoUsuario(usuario.id);
-      setMsgAcesso({ texto: 'Enviado!', erro: false });
-    } catch (err) {
-      setMsgAcesso({ texto: err instanceof ApiError ? err.message : 'Falha ao enviar.', erro: true });
-    }
-    setEnviandoAcesso(false);
-    setTimeout(() => setMsgAcesso(null), 5000);
+  // Abre o app de e-mail padrão do Windows (Outlook, se for o padrão) com
+  // destinatário, assunto e corpo já preenchidos — pedido de 2026-08-23,
+  // alternativa ao envio via SMTP do servidor (que precisa de
+  // SMTP_HOST/SMTP_USER/SMTP_PASS configurados no Railway, e hoje não
+  // estão). Não depende de nenhuma configuração: mailto: é só um link, o
+  // navegador delega pro app de e-mail já instalado no computador do admin.
+  // O admin ainda precisa clicar em "Enviar" lá — isto só monta o rascunho.
+  function abrirNoOutlook() {
+    const assunto = 'Seu acesso à plataforma de Orçamento 2027';
+    const corpo = [
+      `Olá, ${usuario.nome}.`,
+      '',
+      'Seu acesso à plataforma de Orçamento 2027 do Grupo ARA:',
+      `Login: ${usuario.email}`,
+      `Senha: ${usuario.senha_texto}`,
+      '',
+      `Acessar: ${window.location.origin}`,
+      '',
+      'Guarde este e-mail em local seguro. Se precisar trocar a senha, peça a um Admin FP&A.',
+    ].join('\n');
+    window.location.href = `mailto:${usuario.email}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`;
   }
 
   async function mudarPerfil(perfil) {
@@ -411,14 +419,11 @@ function LinhaUsuario({ usuario, numero, onMudou }) {
                 {usuario.senha_texto ? 'Redefinir' : 'Definir'}
               </button>
               {usuario.senha_texto && (
-                <button onClick={handleEnviarAcesso} disabled={enviandoAcesso} style={{ ...botaoSecundario, padding: '3px 7px', fontSize: 10.5 }}>
-                  {enviandoAcesso ? 'Enviando…' : 'Enviar e-mail'}
+                <button onClick={abrirNoOutlook} style={{ ...botaoSecundario, padding: '3px 7px', fontSize: 10.5 }}>
+                  Abrir no Outlook
                 </button>
               )}
             </div>
-            {msgAcesso && (
-              <span style={{ fontSize: 10.5, color: msgAcesso.erro ? '#C00000' : '#008000' }}>{msgAcesso.texto}</span>
-            )}
           </div>
         )}
       </td>
