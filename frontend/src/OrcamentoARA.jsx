@@ -5169,12 +5169,21 @@ function VisaoGerente(props) {
       ) : (
         <>
       <div style={{ display: 'flex', gap: 2, borderBottom: `2px solid ${COR.borda}`, marginBottom: 18, flexWrap: 'wrap' }}>
-        {/* Gestor de CC (pedido de 2026-08-16): só Custos e Despesas — a
-            visão completa das seções é exclusiva de Gestor da Unidade e
-            Admin FP&A. Terra do Sol/Frutos do Sol (2026-08-20) não têm aba
-            de Revisão própria — o envio/histórico da Agrícola/Resorts é só
-            no Consolidado (ver ConsolidadoAgricola/ConsolidadoResorts). */}
-        {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos')
+        {/* Gestor de CC (pedido de 2026-08-16, revisado em 2026-08-23:
+            "cada gestor do CC corporativo também terá o campo de envio do
+            orçamento") — só Custos e Despesas + Revisão, Análise e Envio
+            (a visão completa das demais seções — Estratégicas, Receita,
+            CAPEX etc. — continua exclusiva de Gestor da Unidade e Admin
+            FP&A). O envio em si (POST /enviar) já era liberado no backend
+            pra quem tem pelo menos 1 CC na unidade (ver exigirUnidade em
+            authorize.js) — só faltava o botão aparecer na tela. A DRE/
+            Bridge/Sensibilidades mostradas ali são as do Corporativo
+            inteiro (não dá pra recortar por CC — Receita/IR são da
+            unidade toda), mesma tela que Admin FP&A vê. Terra do Sol/
+            Frutos do Sol (2026-08-20) não têm aba de Revisão própria — o
+            envio/histórico da Agrícola/Resorts é só no Consolidado (ver
+            ConsolidadoAgricola/ConsolidadoResorts). */}
+        {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos' || a.id === 'revisao')
           : IDS_MULTISITE_FILHOS.includes(unidadeAtual) ? ABAS.filter(a => a.id !== 'revisao')
           : ABAS).map(a => (
           <button
