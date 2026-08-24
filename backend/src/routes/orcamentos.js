@@ -112,12 +112,22 @@ function validarEscritaCcCustos(usuario, unidadeId, dadosNovos) {
  * única forma de garantir isso de verdade é comparar o que veio com o que
  * já estava salvo: qualquer seção fora de 'custos' que tenha mudado é
  * rejeitada. dadosAntes vem do próprio buscarOuCriarOrcamento já chamado
- * na rota — não gera consulta extra. */
+ * na rota — não gera consulta extra.
+ * 'meta' (2026-08-23, bug corrigido — "Orçamento do corporativo não está
+ * salvando rascunho"): fica de fora da comparação junto com 'custos'.
+ * atualizadoEm muda em TODO salvo (o autosave grava um novo timestamp a
+ * cada chamada, ver salvarRascunhoAgora/PUT no frontend), e status pode
+ * legitimamente virar 'em_preenchimento' — isso nunca é uma tentativa do
+ * Gestor de CC de mexer em outra seção, é bookkeeping automático do
+ * próprio mecanismo de salvar. Sem essa exclusão, a checagem rejeitava
+ * (403) o autosave de QUALQUER gestor de CC, em QUALQUER unidade, a
+ * partir do segundo salvamento — pareceu "só o Corporativo" porque é
+ * onde a maioria dos Gestores de CC atua. */
 function validarSoCustosAlterado(usuario, dadosAntes, dadosNovos) {
   if (usuario.perfil !== 'gerente_cc_corporativo') return null;
   const chaves = new Set([...Object.keys(dadosAntes || {}), ...Object.keys(dadosNovos || {})]);
   for (const chave of chaves) {
-    if (chave === 'custos') continue;
+    if (chave === 'custos' || chave === 'meta') continue;
     if (JSON.stringify(dadosAntes?.[chave]) !== JSON.stringify(dadosNovos?.[chave])) {
       return `Gestor de CC só pode alterar a seção Custos e Despesas (tentativa de mudar "${chave}").`;
     }
