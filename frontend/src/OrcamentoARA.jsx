@@ -6039,7 +6039,7 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma linha com seta para abrir a quebra por Terra do Sol (TDS) e Frutos do Sol (FDS).</p>
       <div style={{ marginBottom: 24 }}>
         <DREMensalConsolidada
-          lados={[{ nome: 'Terra do Sol', dados: dadosTds, dre: dreTds, ref: refAg }, { nome: 'Frutos do Sol', dados: dadosFds, dre: dreFds, ref: refAg }]}
+          lados={[{ nome: 'Terra do Sol', dados: dadosTds, dre: dreTds, fd: fdTds, ref: refAg }, { nome: 'Frutos do Sol', dados: dadosFds, dre: dreFds, fd: fdFds, ref: refAg }]}
           unidadeKind="agricola" ipcaAnualPct={ipcaAnualPct} cambios={cambios}
         />
       </div>
@@ -6287,7 +6287,7 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma linha com seta para abrir a quebra por Samoa Beach e Samoa Villa.</p>
       <div style={{ marginBottom: 24 }}>
         <DREMensalConsolidada
-          lados={[{ nome: 'Samoa Beach', dados: dadosBeach, dre: dreBeach, ref: refBeach }, { nome: 'Samoa Villa', dados: dadosVilla, dre: dreVilla, ref: refVilla }]}
+          lados={[{ nome: 'Samoa Beach', dados: dadosBeach, dre: dreBeach, fd: fdBeach, ref: refBeach }, { nome: 'Samoa Villa', dados: dadosVilla, dre: dreVilla, fd: fdVilla, ref: refVilla }]}
           unidadeKind="resorts" ipcaAnualPct={ipcaAnualPct} cambios={cambios}
         />
       </div>
@@ -9043,10 +9043,16 @@ function DREMensalConsolidada({ lados, unidadeKind, ipcaAnualPct, cambios }) {
   const geraisMes = somarPorLado(despesasOp.gerais);
   const despesasOperacionaisMes = MESES.map((_, m) => pessoalMes[m] + vendasMes[m] + geraisMes[m]);
   const ebitdaMes = MESES.map((_, m) => lucroBrutoMes[m] - despesasOperacionaisMes[m]);
-  const depreciacaoMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.dre.depreciacaoMes[m], 0));
-  const resultadoFinanceiroMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.dre.resultadoFinanceiroMes[m], 0));
-  const outrasMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.dre.outrasMes[m], 0));
-  const ircslMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.dre.ircslMes[m], 0));
+  // Bug corrigido em 2026-08-24 ("ARA Agrícola tela em branco" — TypeError
+  // reading '0'): computeDRE (l.dre) só tem depreciacao/resultadoFinanceiro/
+  // outras/ircsl como TOTAL ANUAL (escalar), nunca como *Mes (array mensal)
+  // — só computeFluxoIndiretoMensal tem essa versão mensal. `l.fd` (ver
+  // ConsolidadoAgricola/ConsolidadoResorts, mesmo objeto já calculado ali
+  // pro Bridge EBITDA→FCO) é a fonte certa.
+  const depreciacaoMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.fd.depreciacaoMes[m], 0));
+  const resultadoFinanceiroMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.fd.resultadoFinanceiroMes[m], 0));
+  const outrasMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.fd.outrasMes[m], 0));
+  const ircslMes = MESES.map((_, m) => lados.reduce((acc, l) => acc + l.fd.ircslMes[m], 0));
   const ebtMes = MESES.map((_, m) => ebitdaMes[m] - depreciacaoMes[m] + resultadoFinanceiroMes[m] + outrasMes[m]);
   const lucroLiquidoMes = MESES.map((_, m) => ebtMes[m] - ircslMes[m]);
 
