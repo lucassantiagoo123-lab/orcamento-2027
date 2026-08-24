@@ -3725,6 +3725,7 @@ export default function OrcamentoARA({ usuario }) {
         const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
         await putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } });
         setUltimoSalvoEm(new Date());
+        setErro(null); // limpa um erro anterior assim que um salvamento subsequente dá certo
       } catch (e) {
         // 403 acesso_expirado (2026-08-23, ver middleware/authorize.js)
         // vem com mensagem específica do backend — as outras falhas caem
@@ -5102,7 +5103,17 @@ function VisaoGerente(props) {
               ConsolidadoAgricola/ConsolidadoResorts). */}
           {UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual) && unidadeAtual !== 'agricola' && unidadeAtual !== 'resorts' && (
             <>
-              {ultimoSalvoEm && (
+              {/* Erro de salvamento (2026-08-23) — antes só aparecia dentro
+                  da aba Revisão, então uma falha no autosave passava em
+                  branco pra quem não estava naquela aba (sintoma reportado:
+                  "não salva e não aparece nada"). Agora mostra aqui do lado
+                  do próprio botão de salvar, sempre visível. */}
+              {erro && (
+                <span style={{ fontSize: 10.5, color: COR.vermelho, maxWidth: 320 }} title={erro}>
+                  ⚠ {erro}
+                </span>
+              )}
+              {!erro && ultimoSalvoEm && (
                 <span style={{ fontSize: 10.5, color: '#7A8088' }}>
                   Salvo às {ultimoSalvoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                 </span>
