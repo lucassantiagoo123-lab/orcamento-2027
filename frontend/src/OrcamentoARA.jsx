@@ -785,6 +785,7 @@ const PLANO_CONTAS_AGRICOLA = {
     { codigo: '34202037', nome: "CERTIFICACOES", origem: 'Despesa' },
     { codigo: '34202090', nome: "DIVERSOS", origem: 'Despesa' },
     { codigo: '34202091', nome: "DESPESA COM CARTAO DE CREDITO", origem: 'Despesa' },
+    { codigo: '34202093', nome: "MEDICAMENTO E FARMACIA", origem: 'Despesa' }, // Base orçamento 2026.xlsx 2026-08-24 — não existia na Matriz de Governança, conta real do CC DP e SESTR
   ],
   servicos: [
     { codigo: '71102003', nome: "SERVICOS DE TERCEIROS", origem: 'Custo' },
@@ -792,6 +793,8 @@ const PLANO_CONTAS_AGRICOLA = {
     { codigo: '71102017', nome: "SERVICO PRESTADO PESSOA FISICA", origem: 'Custo' },
     { codigo: '71102031', nome: "SEGURANCA E VIGILANCIA", origem: 'Custo' },
     { codigo: '71103001', nome: "SERVICOS TECNICOS", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20 — não existia na Matriz de Governança, conta real do CC Adm Fazenda
+    { codigo: '71103099', nome: "SERVICOS DIVERSOS", origem: 'Custo' }, // Base orçamento 2026.xlsx 2026-08-24 — não existia na Matriz de Governança, conta real do CC Adm PH
+    { codigo: '71105002', nome: "CERTIFICADO DE QUALIDADE", origem: 'Custo' }, // Base orçamento 2026.xlsx 2026-08-24 — idem, conta real do CC Certificações
     { codigo: '34104013', nome: "SERVICOS PRESTADOS PESSOA JURIDICA", origem: 'Despesa' },
     { codigo: '34104019', nome: "SERVICO PRESTADO PESSOA FISICA", origem: 'Despesa' },
     { codigo: '34202010', nome: "SERVICOS DE TERCEIROS - PESSSOA JURIDICA", origem: 'Despesa' },
@@ -804,6 +807,7 @@ const PLANO_CONTAS_AGRICOLA = {
     { codigo: '71102034', nome: "PECAS E SERV - TRATORES-IMPLEMENTOS", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20 — não existia na Matriz de Governança, conta real usada pelos CCs da área Fazenda (Cabeçal 1/2, Adm Fazenda, Irrigação)
     { codigo: '71102036', nome: "MANUTENCAO DA COMUNICACAO", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20 — idem
     { codigo: '71102046', nome: "MATERIAL DE OFICINA", origem: 'Custo' },
+    { codigo: '71102050', nome: "PECAS E SERV", origem: 'Custo' }, // Base orçamento 2026.xlsx 2026-08-24 — não existia na Matriz de Governança, conta real do CC Adm PH
     { codigo: '71102103', nome: "MANUTENCAO DE EQUIPAMENTOS MECANICOS", origem: 'Custo' },
     { codigo: '34104002', nome: "MANUTENCAO DE VEICULOS", origem: 'Despesa' },
     { codigo: '34104010', nome: "MATERIAL DE MANUTENCAO", origem: 'Despesa' },
@@ -969,38 +973,57 @@ export const RESPONSAVEIS_AREA_AGRICOLA = {
   '508': 'Emanuela Pereira', '511': 'Edivania Parente',
 };
 
-// De/Para conta analítica × CC — Camadas.xlsx (fornecida em 2026-08-20),
-// conferido linha a linha. Só cobre os 5 CCs da área Fazenda (503/504) —
-// as outras 8 áreas do Plano de CC ainda não têm essa planilha de origem,
-// então ficam com CC e usuário criados mas sem conta mapeada (painel de
-// referência dentro de Custos e Despesas, sem lançamento) até o FP&A trazer
-// o De/Para delas — mesmo racional de "não inventar CC/conta sem
-// dado-fonte" já usado no resto do app. Todos os códigos abaixo já existem
-// em PLANO_CONTAS_AGRICOLA (4 deles foram adicionados agora, ver notas
-// "De/Para Camadas.xlsx" acima, os demais já vinham da Matriz de
-// Governança) — aqui só se decide QUAIS valem para QUAL CC.
+// De/Para conta analítica × CC — Camadas.xlsx (2026-08-20, só as 5 áreas da
+// Fazenda) mais Base orçamento 2026.xlsx (fornecida em 2026-08-24, cobre 30
+// dos 44 CCs — as 9 áreas exceto Uva Terceiros (508, 12 sub-CCs de
+// fornecedores terceiros), Investimentos/Projetos (507xx CAPEX-like, exceto
+// Suprimentos/Gente e Gestão) e CMV (511), que continuam sem planilha de
+// origem própria e ficam como painel de referência, sem lançamento).
+//
+// A planilha-fonte tem uma FAZENDA por linha (TDS/FDS) e as duas usam
+// contas ligeiramente diferentes por CC (conferido linha a linha, ver
+// scripts de importação da sessão de 2026-08-24) — como CONTAS_POR_CC_AGRICOLA
+// é uma estrutura única compartilhada pelas duas fazendas (mesmo CC
+// analítico nas duas, ver CCS_AGRICOLA), cada lista abaixo é a UNIÃO
+// TDS ∪ FDS: nenhuma conta real de nenhuma das duas fica de fora, ao custo
+// de um gestor eventualmente ver 1-2 contas a mais do que usa na prática
+// (nunca a menos). Só entram linhas de Custo/Despesa (prefixo 71/34) — as
+// linhas de Receita (31xxx) da mesma planilha não pertencem a este módulo
+// (ver receita.produtos). Todos os códigos abaixo já existem em
+// PLANO_CONTAS_AGRICOLA (4 deles foram adicionados agora — ver notas "Base
+// orçamento 2026.xlsx" acima — os demais já vinham da Matriz de Governança
+// ou do De/Para Camadas.xlsx) — aqui só se decide QUAIS valem para QUAL CC.
 export const CONTAS_POR_CC_AGRICOLA = {
-  '50301': [ // Cabeçal 1 — idêntico ao Cabeçal 2 na planilha-fonte
-    '71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101010', '71101011', '71101022',
-    '71102003', '71102004', '71102005', '71102007', '71102011', '71102012', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102033', '71102034', '71102036', '71102037', '71102045', '71102046', '71102047', '71102048',
-  ],
-  '50302': [ // Cabeçal 2
-    '71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101010', '71101011', '71101022',
-    '71102003', '71102004', '71102005', '71102007', '71102011', '71102012', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102033', '71102034', '71102036', '71102037', '71102045', '71102046', '71102047', '71102048',
-  ],
-  '50402': [ // Adm Fazenda
-    '71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101011',
-    '71102003', '71102004', '71102005', '71102007', '71102009', '71102012', '71102018', '71102019', '71102022', '71102024', '71102033', '71102034', '71102036', '71102037',
-    '71103001',
-  ],
-  '50403': [ // Irrigação
-    '71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101011',
-    '71102001', '71102003', '71102004', '71102005', '71102007', '71102012', '71102018', '71102022', '71102024', '71102033', '71102034', '71102036', '71102043', '71102045', '71102049',
-  ],
-  '50405': [ // Bloco Teste Mirtilo
-    '71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008',
-    '71102004', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102037', '71102047', '71102048',
-  ],
+  '50101': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34201019', '34202003', '34202004', '34202006', '34202007', '34202010', '34202011', '34202014', '34202015', '34202016', '34202017', '34202021', '34202022', '34202025', '34202026', '34202028', '34202029', '34202030', '34202031', '34202090', '71102008'], // Adm. Financeiro
+  '50102': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34202004', '34202006', '34202007', '34202010', '34202011', '34202021', '34202026', '34202029', '34202031', '34202090', '34202093', '71102008'], // DP e SESTR
+  '50103': ['34202011', '34202027', '71102008'], // TI Software
+  '50105': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '71102008'], // Fiscal
+  '50201': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201008', '34201010', '34202011', '71102008'], // Segurança e Portaria
+  '50202': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34201022', '34202011', '34202026', '71102008'], // Oficina e Manutenção
+  '50203': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34201022', '34202004', '34202006', '34202007', '34202011', '34202023', '34202029', '34202030', '34202031', '71102008'], // Infra Estrutura
+  '50204': ['71101017'], // Transporte de Pessoal
+  '50205': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201011', '34201014', '34202006', '34202007', '34202010', '34202011', '34202021', '34202026', '71102008'], // Cantina
+  '50206': ['34201001'], // Adm. Operação
+  '50207': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34201022', '34202006'], // Almoxarifado
+  '50301': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101010', '71101011', '71101022', '71102001', '71102003', '71102004', '71102005', '71102007', '71102008', '71102009', '71102011', '71102012', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102033', '71102034', '71102036', '71102037', '71102045', '71102046', '71102047', '71102048', '71102049'], // Cabeçal 1 — idêntico ao Cabeçal 2
+  '50302': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101010', '71101011', '71101022', '71102001', '71102003', '71102004', '71102005', '71102007', '71102008', '71102009', '71102011', '71102012', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102033', '71102034', '71102036', '71102037', '71102045', '71102046', '71102047', '71102048', '71102049'], // Cabeçal 2
+  '50303': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101010', '71101011', '71101022', '71102003', '71102004', '71102005', '71102007', '71102008', '71102009', '71102011', '71102012', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102033', '71102034', '71102036', '71102037', '71102045', '71102046', '71102047', '71102048', '71102049'], // Cabeçal 3
+  '50402': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101011', '71101022', '71102003', '71102004', '71102005', '71102007', '71102008', '71102009', '71102012', '71102016', '71102018', '71102019', '71102022', '71102024', '71102032', '71102033', '71102034', '71102036', '71102037', '71102045', '71103001'], // Adm Fazenda
+  '50403': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101009', '71101011', '71102001', '71102003', '71102004', '71102005', '71102007', '71102008', '71102012', '71102018', '71102022', '71102024', '71102033', '71102034', '71102036', '71102043', '71102045', '71102046', '71102049'], // Irrigação
+  '50404': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71102004', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102037', '71102047', '71102048'], // Bloco Teste Uva
+  '50405': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71102004', '71102014', '71102015', '71102018', '71102019', '71102022', '71102024', '71102037', '71102047', '71102048'], // Bloco Teste Mirtilo
+  '50501': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71102008', '71102037', '71105002'], // Certificações
+  '50502': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101011', '71101015', '71102001', '71102003', '71102004', '71102007', '71102008', '71102009', '71102012', '71102018', '71102019', '71102022', '71102024', '71102026', '71102032', '71102033', '71102034', '71102036', '71102040', '71102045', '71102046', '71102049', '71102050', '71102090', '71103099'], // Adm PH
+  '50503': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101010', '71102008'], // Operações PH
+  '50504': ['71102013'], // Embalagem
+  '50505': ['34101001', '34101003', '34101004', '34101005', '34101006', '34101014', '34101015', '34104009', '34104031', '34202010', '34202011', '34202015', '34202036', '71102038', '71102039'], // Logística
+  '50506': ['71101001', '71101002', '71101004', '71101005', '71101006', '71101007'], // Câmara Fria
+  '50601': ['34102001', '34104003', '34202034', '71102042'], // Vendas
+  '50602': ['34103001', '34202010'], // Marketing
+  '50605': ['34202006', '34202010', '34202036', '71102009', '71102026', '71102038', '71102039', '71103001'], // Logística (Comercial)
+  '50606': ['71101001', '71101002', '71101004', '71101005', '71101006', '71101007', '71102008'], // Câmara Fria (Comercial)
+  '50710': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201012', '34202006', '34202018', '34202031', '34202035'], // Suprimentos
+  '50711': ['34202035'], // Gente e Gestão
 };
 
 // Resorts_Contas_x_Pacote: 260 contas classificadas (OK), 16 fora do escopo (CAPEX/obra, conta sintética, despesa financeira, ou sem pacote) — excluídas
@@ -8114,9 +8137,10 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
           <div>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{ccAtual.nome}: sem contas analíticas mapeadas ainda</div>
             <div style={{ fontSize: 11.5, color: COR.texto }}>
-              O De/Para conta × CC (Camadas.xlsx) por enquanto só cobre os CCs da área Fazenda (Cabeçal 1, Cabeçal 2,
-              Adm Fazenda, Irrigação, Bloco Teste Mirtilo). Este CC já está cadastrado e o gestor já tem acesso — falta
-              o FP&A trazer o De/Para dessa área pra habilitar o lançamento aqui.
+              O De/Para conta × CC (Camadas.xlsx + Base orçamento 2026.xlsx) por enquanto cobre 30 dos 44 CCs — faltam
+              Uva Terceiros (fornecedores/fazendas terceiras), os CCs de Investimentos/Projetos de 507 e Custo da
+              Mercadoria Vendida. Este CC já está cadastrado e o gestor já tem acesso — falta o FP&A trazer o De/Para
+              dessa área pra habilitar o lançamento aqui.
             </div>
           </div>
         </div>

@@ -208,6 +208,7 @@ export const PLANO_CONTAS_AGRICOLA = {
     { codigo: '34202037', nome: "CERTIFICACOES", origem: 'Despesa' },
     { codigo: '34202090', nome: "DIVERSOS", origem: 'Despesa' },
     { codigo: '34202091', nome: "DESPESA COM CARTAO DE CREDITO", origem: 'Despesa' },
+    { codigo: '34202093', nome: "MEDICAMENTO E FARMACIA", origem: 'Despesa' }, // Base orçamento 2026.xlsx 2026-08-24
   ],
   servicos: [
     { codigo: '71102003', nome: "SERVICOS DE TERCEIROS", origem: 'Custo' },
@@ -215,6 +216,8 @@ export const PLANO_CONTAS_AGRICOLA = {
     { codigo: '71102017', nome: "SERVICO PRESTADO PESSOA FISICA", origem: 'Custo' },
     { codigo: '71102031', nome: "SEGURANCA E VIGILANCIA", origem: 'Custo' },
     { codigo: '71103001', nome: "SERVICOS TECNICOS", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20
+    { codigo: '71103099', nome: "SERVICOS DIVERSOS", origem: 'Custo' }, // Base orçamento 2026.xlsx 2026-08-24
+    { codigo: '71105002', nome: "CERTIFICADO DE QUALIDADE", origem: 'Custo' }, // Base orçamento 2026.xlsx 2026-08-24
     { codigo: '34104013', nome: "SERVICOS PRESTADOS PESSOA JURIDICA", origem: 'Despesa' },
     { codigo: '34104019', nome: "SERVICO PRESTADO PESSOA FISICA", origem: 'Despesa' },
     { codigo: '34202010', nome: "SERVICOS DE TERCEIROS - PESSSOA JURIDICA", origem: 'Despesa' },
@@ -227,6 +230,7 @@ export const PLANO_CONTAS_AGRICOLA = {
     { codigo: '71102034', nome: "PECAS E SERV - TRATORES-IMPLEMENTOS", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20
     { codigo: '71102036', nome: "MANUTENCAO DA COMUNICACAO", origem: 'Custo' }, // De/Para Camadas.xlsx 2026-08-20
     { codigo: '71102046', nome: "MATERIAL DE OFICINA", origem: 'Custo' },
+    { codigo: '71102050', nome: "PECAS E SERV", origem: 'Custo' }, // Base orçamento 2026.xlsx 2026-08-24
     { codigo: '71102103', nome: "MANUTENCAO DE EQUIPAMENTOS MECANICOS", origem: 'Custo' },
     { codigo: '34104002', nome: "MANUTENCAO DE VEICULOS", origem: 'Despesa' },
     { codigo: '34104010', nome: "MATERIAL DE MANUTENCAO", origem: 'Despesa' },
