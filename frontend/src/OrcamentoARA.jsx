@@ -10045,13 +10045,13 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
       )}
 
       {subVisao === 'resultados' && (
-        <VisaoResultadosConsolidados statusUnidades={statusUnidades} totalGrupo={totalGrupo} ipcaAnualPct={ipcaAnualPct} />
+        <VisaoResultadosConsolidados statusUnidades={statusUnidades} totalGrupo={totalGrupo} ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
       )}
     </div>
   );
 }
 
-function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct }) {
+function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct, cambios }) {
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
   const [linhasAbertasDFC, setLinhasAbertasDFC] = useState({});
 
