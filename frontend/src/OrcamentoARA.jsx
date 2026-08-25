@@ -3438,32 +3438,6 @@ function PainelAuditoria({ checks }) {
   );
 }
 
-function PainelPendencias() {
-  const itens = [
-    'Granularidade do CC: usando nível de área (8 CCs). Confirmar se deve descer ao nível de subárea.',
-    'Classificação Custo × Despesa por CC é proposta — validar com a Controladoria.',
-    'De-para de contas e Pacotes (11, ARA Têxtil) atualizado com a fonte oficial Matriz_Governanca_OBZ_2027_4 — 167 contas, 100% classificadas.',
-    'CC Logística aparece bloqueado no Protheus — confirmar se está ativo para o ciclo 2027.',
-    'CC Investimentos não entra nesta matriz — direcionado à aba de CAPEX.',
-    'Despesas Financeiras: por decisão do FP&A, seguem fora da matriz de pacotes — tratadas somente na aba FC Financiamentos.',
-  ];
-  return (
-    <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-        <Info size={16} color={COR.laranja} />
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul }}>Pendências de estrutura</span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        {itens.map((t, i) => (
-          <div key={i} style={{ fontSize: 11, color: COR.texto, display: 'flex', gap: 6 }}>
-            <span style={{ color: COR.laranja }}>•</span><span>{t}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Plano de Contas — de-para conta contábil × pacote (referência, somente leitura)
 // ---------------------------------------------------------------------------
@@ -5334,14 +5308,6 @@ function VisaoGerente(props) {
         <div style={{ flex: '1 1 360px', minWidth: 300 }}>
           <PainelAuditoria checks={checks} />
         </div>
-        {/* Pedido de 2026-08-19: Corporativo não precisa deste painel — o
-            conteúdo é fixo (texto sobre CC/pacotes/Protheus da Têxtil),
-            sem sentido nenhum pra outra unidade. */}
-        {unidadeAtual !== 'corporativo' && (
-          <div style={{ flex: '1 1 360px', minWidth: 300 }}>
-            <PainelPendencias />
-          </div>
-        )}
         <div style={{ flex: '1 1 300px', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {/* 3 formatos de exportação (2026-08-23): Cálculo (projeções
               calculadas, por aba, mês a mês — ver exportarExcelCalculo) ×
@@ -7791,17 +7757,37 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
 // só as ~10 pills de área em vez dos ~35 pills soltos do antigo layout
 // flat. Sem hierarquia (Têxtil/Corporativo), mantém a lista simples de
 // sempre — nada muda pra essas unidades.
+// Redesenhado em 2026-08-25 (pedido: "visão de agrupamento dos CC na ARA
+// Agrícola está muito confusa") — o problema do layout anterior era permitir
+// várias áreas abertas ao mesmo tempo, cada uma virando uma fileira de pills
+// dentro de outra fileira de pills, tudo quebrando linha junto: em unidades
+// com muitas áreas/CCs (Agrícola: 9 áreas, até 12 filhos numa só — Uva
+// Terceiros; Resorts: parecido) virava uma parede sem hierarquia visual
+// clara. Agora é um accordion de UMA área aberta por vez: primeira fileira
+// só com as áreas (nível 2), fileira de baixo mostra só os CCs da área
+// selecionada — like breadcrumb de 2 níveis, não uma lista plana.
 function SeletorCcs({ ccs, ccSel, onSelect }) {
-  const [areasAbertas, setAreasAbertas] = useState({});
   const temHierarquia = ccs.some(cc => cc.nivel === 2);
+  const areas = temHierarquia ? ccs.filter(cc => cc.nivel === 2) : [];
+  const areaDoSelecionado = ccs.find(cc => cc.codigo === ccSel)?.areaCodigo || (areas.some(a => a.codigo === ccSel) ? ccSel : null);
+  const [areaAberta, setAreaAberta] = useState(areaDoSelecionado || areas[0]?.codigo || null);
 
-  function Pill({ cc }) {
+  // Se o CC selecionado mudar por fora (ex.: outro componente chama onSelect
+  // programaticamente) e cair numa área diferente da aberta, acompanha —
+  // sem isso o accordion podia ficar mostrando uma área sem o CC ativo nela.
+  useEffect(() => {
+    if (areaDoSelecionado && areaDoSelecionado !== areaAberta) setAreaAberta(areaDoSelecionado);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ccSel]);
+
+  function Pill({ cc, tamanho }) {
+    const selecionado = cc.codigo === ccSel;
     return (
       <button onClick={() => onSelect(cc.codigo)}
         style={{
-          fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 16, cursor: 'pointer',
-          border: `1.5px solid ${cc.codigo === ccSel ? COR.azul : COR.borda}`,
-          background: cc.codigo === ccSel ? COR.azul : COR.branco, color: cc.codigo === ccSel ? COR.branco : COR.texto,
+          fontFamily: FONT, fontSize: tamanho === 'grande' ? 12 : 11.5, fontWeight: 700, padding: tamanho === 'grande' ? '8px 14px' : '7px 12px', borderRadius: 16, cursor: 'pointer',
+          border: `1.5px solid ${selecionado ? COR.azul : COR.borda}`,
+          background: selecionado ? COR.azul : COR.branco, color: selecionado ? COR.branco : COR.texto,
         }}
       >{cc.nome}{cc.nivel === 2 ? ' · Consolidador' : cc.tipo === 'producao' ? ' · CPV' : ' · Despesa'}</button>
     );
@@ -7815,30 +7801,49 @@ function SeletorCcs({ ccs, ccSel, onSelect }) {
     );
   }
 
-  const areas = ccs.filter(cc => cc.nivel === 2);
+  const filhosDaAreaAberta = ccs.filter(cc => cc.areaCodigo === areaAberta);
+  const areaAtual = areas.find(a => a.codigo === areaAberta);
+
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-      {areas.map(area => {
-        const filhos = ccs.filter(cc => cc.areaCodigo === area.codigo);
-        const aberta = !!areasAbertas[area.codigo];
-        const filhoSelecionado = filhos.some(f => f.codigo === ccSel);
-        return (
-          <div key={area.codigo} style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', border: `1px solid ${COR.borda}`, borderRadius: 16, padding: 2, background: filhoSelecionado ? COR.claro : 'transparent' }}>
-            <Pill cc={area} />
-            {filhos.length > 0 && (
-              <button
-                onClick={() => setAreasAbertas(prev => ({ ...prev, [area.codigo]: !prev[area.codigo] }))}
-                title={aberta ? 'Ocultar CCs da área' : `Ver ${filhos.length} CC(s) da área`}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.azul, display: 'flex', alignItems: 'center', padding: '0 4px' }}
-              >
-                {aberta ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <span style={{ fontSize: 9.5, fontWeight: 700, marginLeft: 1 }}>{filhos.length}</span>
-              </button>
-            )}
-            {aberta && filhos.map(f => <Pill key={f.codigo} cc={f} />)}
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#8A8F96', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 6 }}>
+        1. Área
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {areas.map(area => {
+          const filhos = ccs.filter(cc => cc.areaCodigo === area.codigo);
+          const areaSelecionada = area.codigo === areaAberta;
+          const filhoSelecionado = filhos.some(f => f.codigo === ccSel) || area.codigo === ccSel;
+          return (
+            <button
+              key={area.codigo}
+              onClick={() => setAreaAberta(area.codigo)}
+              style={{
+                fontFamily: FONT, fontSize: 12, fontWeight: 700, padding: '8px 14px', borderRadius: 8, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6,
+                border: `1.5px solid ${areaSelecionada ? COR.azul : COR.borda}`,
+                background: areaSelecionada ? COR.claro : COR.branco,
+                color: filhoSelecionado ? COR.azul : COR.texto,
+              }}
+            >
+              {areaSelecionada ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              {area.nome}
+              {filhos.length > 0 && <span style={{ fontSize: 9.5, fontWeight: 400, color: '#8A8F96' }}>({filhos.length})</span>}
+            </button>
+          );
+        })}
+      </div>
+      {areaAtual && (
+        <div style={{ background: COR.claro, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 10 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: '#8A8F96', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 6 }}>
+            2. Centro de Custo em {areaAtual.nome}
           </div>
-        );
-      })}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <Pill cc={areaAtual} tamanho="grande" />
+            {filhosDaAreaAberta.map(f => <Pill key={f.codigo} cc={f} />)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
