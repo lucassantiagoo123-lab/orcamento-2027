@@ -20,7 +20,17 @@ const PERFIS_VALIDOS = ['admin_fpa', 'gerente_unidade', 'gerente_cc_corporativo'
 // 2026-08-16 — id interno gerente_cc_corporativo mantido (evita migrar o
 // CHECK constraint do enum em produção), mas agora vale para qualquer
 // unidade, não só Corporativo.
-const UNIDADES_VALIDAS = ['textil', 'agricola', 'resorts', 'ei', 'energia', 'corporativo'];
+// Bug corrigido em 2026-08-30 ("não estou conseguindo selecionar a
+// unidade" — vínculo de Alice Fernandes/Resorts): esta lista ficou
+// desatualizada desde 2026-08-20, quando Agrícola e Resorts viraram 3
+// "unidades" cada (os 2 sites editáveis + o Consolidado — ver
+// FAMILIA_AGRICOLA/FAMILIA_RESORTS em frontend/src/OrcamentoARA.jsx).
+// Faltavam agricola_tds/agricola_fds/samoa_beach/samoa_villa — só
+// 'agricola'/'resorts' (o Consolidado) validavam. POST/DELETE
+// /usuarios/:id/unidades pra qualquer site individual sempre voltava 400
+// unidadeId_invalido, silenciosamente (o frontend não tinha tratamento de
+// erro nesse clique — parecia que o botão não fazia nada).
+const UNIDADES_VALIDAS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'resorts', 'ei', 'energia', 'corporativo'];
 
 adminRouter.get('/usuarios', async (req, res, next) => {
   try {
