@@ -2405,11 +2405,21 @@ function computeGruposReceitaTipo(lados, unidadeKind, cambios) {
   const mapa = new Map();
   lados.forEach(lado => {
     const tipos = unidadeKind === 'resorts'
-      ? LINHAS_RECEITA_RESORTS.filter(def => def.id !== LINHA_RECEITA_INFORMATIVA_RESORTS).map(def => ({
-          chave: def.id,
-          nome: def.nome,
-          valoresMensal: MESES.map((_, m) => valorLinhaMes(lado.dados.receita.linhas?.[def.id], m, null, null)),
-        }))
+      ? LINHAS_RECEITA_RESORTS.filter(def => def.id !== LINHA_RECEITA_INFORMATIVA_RESORTS).map(def => {
+          // Bug de 2026-08-30 (ver nota em tipoLinhaReceitaResorts): nunca
+          // confiar no premissaTipo armazenado nessas linhas — esta função
+          // ficou de fora da correção original (só cobriu
+          // receitaBrutaPorMes/runAuditoria/AbaReceitaResorts) e a quebra
+          // por tipo de receita do Consolidado (DREMensalConsolidada)
+          // continuava somando 0 pra Hospedagem/A&B/Café e Pensão.
+          const linha = lado.dados.receita.linhas?.[def.id];
+          const linhaTipada = linha ? { ...linha, premissaTipo: tipoLinhaReceitaResorts(def.id) || linha.premissaTipo } : linha;
+          return {
+            chave: def.id,
+            nome: def.nome,
+            valoresMensal: MESES.map((_, m) => valorLinhaMes(linhaTipada, m, null, null)),
+          };
+        })
       // Mercado Externo (2026-08-23): mesmo racional de receitaBrutaPorMes —
       // preço na moeda × câmbio, não `p.precos` direto (que fica vazio pra
       // produto externo).
