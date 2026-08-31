@@ -71,6 +71,21 @@ export const LINHAS_RECEITA_RESORTS = [
 // inclui. Somar Café e Pensão de novo na ROB duplicaria essa receita.
 export const LINHA_RECEITA_INFORMATIVA_RESORTS = 'cafePensao';
 
+// O tipo de premissa de cada linha de receita.linhas (Resorts) é fixo pela
+// definição da linha acima (LINHAS_RECEITA_RESORTS) — não existe seletor de
+// premissaTipo nesta tela, diferente de Custos (ver AbaReceitaResorts em
+// frontend/src/OrcamentoARA.jsx, sem <Selecao>). Documentos criados antes da
+// linha existir, ou reidratados a partir de novaLinhaVazia(), carregam
+// premissaTipo:'direto' por padrão (bug encontrado em 2026-08-30: Hospedagem/
+// A&B/Café e Pensão somavam R$0,00 mesmo com quantidade/valor unitário
+// preenchidos, porque valorLinhaMes caía no branch 'direto' e lia
+// `linha.valores`, que essas 3 linhas nunca preenchem). Nunca confiar no
+// premissaTipo armazenado pra essas linhas — sempre normalizar com esta
+// função antes de calcular. Espelho exato de frontend/src/OrcamentoARA.jsx.
+export function tipoLinhaReceitaResorts(id) {
+  return LINHAS_RECEITA_RESORTS.find(d => d.id === id)?.tipo;
+}
+
 export const REFERENCIA_2026_RESORTS = {
   hospedagem: {
     quantidades: [4371.7905, 3927.924, 4283.8125, 3747.15, 3880.7505, 3462.03, 4327.8015, 3915.021, 3861, 4092, 3762, 4092],
