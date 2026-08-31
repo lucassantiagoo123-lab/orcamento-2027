@@ -7,7 +7,7 @@
 // Não alterar a lógica de negócio aqui sem replicar a mudança no .jsx (ou,
 // depois que a Fase 6 aposentar o protótipo, aqui passa a ser a única fonte).
 import { MESES, mesesVazios, PRODUTOS_REF, DEDUCOES_REF } from './constantesTextil.js';
-import { PRODUTOS_REF_AGRICOLA, DEDUCOES_REF_AGRICOLA, LINHAS_RECEITA_RESORTS, DEDUCOES_REF_RESORTS, LINHA_RECEITA_INFORMATIVA_RESORTS } from './receitaAgricolaResorts.js';
+import { PRODUTOS_REF_AGRICOLA, DEDUCOES_REF_AGRICOLA, LINHAS_RECEITA_RESORTS, DEDUCOES_REF_RESORTS, LINHA_RECEITA_INFORMATIVA_RESORTS, tipoLinhaReceitaResorts } from './receitaAgricolaResorts.js';
 import { premissasRecebimentoVazias, planoContasBalancoVazio, saldosIniciaisBalancoVazio, computeRecebimentosKgiroMensal, pagamentosManuaisVazios, computePagamentosManuaisMes, saldosAberturaFc } from './kgiroBalancoTextil.js';
 // Só pra dreDaUnidade resolver a referência de agricola_tds/agricola_fds no
 // ramo do Consolidado (ver nota lá embaixo) — sem ciclo: registroUnidades.js
@@ -175,7 +175,8 @@ export function linhaTemNegativo(linha) {
   if (!linha) return false;
   const campos = linha.premissaTipo === 'qtd_valor' ? [linha.quantidades, linha.valoresUnit]
     : linha.premissaTipo === 'rateio' ? [linha.baseManual, linha.percentuais]
-    : [linha.valores];
+    : linha.premissaTipo === 'custo_por_kg' ? [linha.valoresUnit]
+    : [linha.valores]; // 'direto' e 'reajuste_inflacao' usam `valores` (base, no caso do reajuste)
   return campos.some(arr => (arr || []).some(v => parseNum(v) < 0));
 }
 // Wrappers em nível de CONTA (2026-08-23) — usados por runAuditoria, que
@@ -222,7 +223,11 @@ function receitaVazia(unidadeId) {
   }
   if (unidadeId === 'resorts' || unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa') {
     const linhas = {};
-    LINHAS_RECEITA_RESORTS.forEach((l) => { linhas[l.id] = novaLinhaVazia(); });
+    // premissaTipo já nasce correto por linha (ver tipoLinhaReceitaResorts) —
+    // não é escolha do usuário, é fixo pela definição. Cálculo (computeDRE/
+    // runAuditoria) normaliza de novo por segurança, mas documento novo já
+    // sai certo.
+    LINHAS_RECEITA_RESORTS.forEach((l) => { linhas[l.id] = { ...novaLinhaVazia(), premissaTipo: l.tipo }; });
     return {
       linhas,
       deducoes: DEDUCOES_REF_RESORTS.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
@@ -389,7 +394,10 @@ function receitaBrutaPorMes(data, cambios) {
   if (data.receita.linhas) {
     const linhasMes = {};
     Object.entries(data.receita.linhas).forEach(([id, linha]) => {
-      linhasMes[id] = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
+      // Bug de 2026-08-30: nunca confiar no premissaTipo armazenado nessas
+      // linhas — ver nota em tipoLinhaReceitaResorts.
+      const linhaTipada = { ...linha, premissaTipo: tipoLinhaReceitaResorts(id) || linha.premissaTipo };
+      linhasMes[id] = MESES.map((_, m) => valorLinhaMes(linhaTipada, m, null, null));
     });
     // Café e Pensão não soma na ROB — ver LINHA_RECEITA_INFORMATIVA_RESORTS
     // em receitaAgricolaResorts.js. Continua em linhasMes (ex.: pra exibir
@@ -927,7 +935,10 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   // receitaBrutaPorMes() em computeDRE. Auditoria checa o que existir.
   if (temReceita) {
     if (data.receita.linhas) {
-      const linhasReceitaValidas = Object.values(data.receita.linhas).filter(l => valorLinhaAnual(l, null, null) > 0);
+      // Mesma normalização de premissaTipo de receitaBrutaPorMes — ver
+      // tipoLinhaReceitaResorts (bug de 2026-08-30).
+      const linhasReceitaValidas = Object.entries(data.receita.linhas)
+        .filter(([id, l]) => valorLinhaAnual({ ...l, premissaTipo: tipoLinhaReceitaResorts(id) || l.premissaTipo }, null, null) > 0);
       checks.push({
         label: 'Receita: ao menos uma linha (Hospedagem, A&B, etc.) com valor lançado',
         ok: linhasReceitaValidas.length > 0,

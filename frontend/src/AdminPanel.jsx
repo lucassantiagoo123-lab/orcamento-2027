@@ -10,7 +10,7 @@ import {
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
-import { CCS_TEXTIL, CCS_AGRICOLA, CCS_RESORTS, CCS_CORPORATIVO } from './OrcamentoARA.jsx';
+import { CCS_TEXTIL, CCS_AGRICOLA, CCS_RESORTS, CCS_CORPORATIVO, FAMILIA_AGRICOLA, FAMILIA_RESORTS } from './OrcamentoARA.jsx';
 
 const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9D9D9', claro: '#F7F7F7' };
 // 2026-08-20: Agrícola e Resorts viraram 3 "unidades" cada — os 2 sites
@@ -21,6 +21,15 @@ const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9
 // Consolidado); um Gestor de CC só precisa dos dois sites (não acessa o
 // Consolidado).
 const UNIDADES_IDS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'resorts', 'ei', 'energia', 'corporativo'];
+// Bug encontrado em 2026-08-30: os 3 botões de uma família (ex.: samoa_beach/
+// samoa_villa/resorts) eram toggles independentes — marcar só 'resorts' (ou
+// esquecer um dos dois sites) deixava um Gestor da Unidade com vínculo
+// inconsistente: a aba "Consolidado" aparece pra ele (por causa de 'resorts'
+// nos vínculos), mas ConsolidadoResorts busca os dois sites + o consolidado
+// juntos (Promise.all) e quebra com "Sem acesso à unidade samoa_villa" (ou
+// samoa_beach) assim que falta um dos três. Agrupar aqui pra marcar/
+// desmarcar a família inteira de uma vez elimina esse estado inválido.
+const FAMILIAS_UNIDADE = [FAMILIA_AGRICOLA, FAMILIA_RESORTS];
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
   gerente_unidade: 'Gestor da Unidade',
@@ -345,7 +354,19 @@ function LinhaUsuario({ usuario, numero, onMudou }) {
     await atualizarUsuario(usuario.id, { ativo: !usuario.ativo });
     onMudou();
   }
+  // Bug de 2026-08-30 (ver nota em FAMILIAS_UNIDADE): id de uma família
+  // (Agrícola/Resorts) sempre vincula/desvincula os 3 juntos — nunca deixa
+  // marcar só 1 ou 2. Se a família já está completa, o clique desfaz tudo;
+  // caso contrário, completa o que faltar (sem desmarcar o que já tinha).
   async function toggleUnidade(unidadeId) {
+    const familia = FAMILIAS_UNIDADE.find((f) => f.includes(unidadeId));
+    if (familia) {
+      const completa = familia.every((id) => usuario.unidades.includes(id));
+      if (completa) await Promise.all(familia.map((id) => desvincularUnidade(usuario.id, id)));
+      else await Promise.all(familia.filter((id) => !usuario.unidades.includes(id)).map((id) => vincularUnidade(usuario.id, id)));
+      onMudou();
+      return;
+    }
     if (usuario.unidades.includes(unidadeId)) await desvincularUnidade(usuario.id, unidadeId);
     else await vincularUnidade(usuario.id, unidadeId);
     onMudou();

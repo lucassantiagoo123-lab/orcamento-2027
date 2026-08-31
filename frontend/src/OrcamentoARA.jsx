@@ -76,14 +76,16 @@ const UNIDADES = [
 
 // As 3 "unidades" da Agrícola (2026-08-20) — agrupadas visualmente sob um
 // único botão "ARA Agrícola" na barra de navegação (ver VisaoGerente).
-const FAMILIA_AGRICOLA = ['agricola_tds', 'agricola_fds', 'agricola'];
+// Exportado (2026-08-30) pra AdminPanel.jsx vincular a família inteira de
+// uma vez ao marcar um Gestor da Unidade — ver nota em toggleUnidade lá.
+export const FAMILIA_AGRICOLA = ['agricola_tds', 'agricola_fds', 'agricola'];
 const SUBUNIDADES_AGRICOLA = [
   { id: 'agricola_tds', nome: 'Terra do Sol (TDS)' },
   { id: 'agricola_fds', nome: 'Frutos do Sol (FDS)' },
   { id: 'agricola', nome: 'Consolidado' },
 ];
 // Mesmo padrão, aplicado ao Resorts em 2026-08-20 (ver ConsolidadoResorts).
-const FAMILIA_RESORTS = ['samoa_beach', 'samoa_villa', 'resorts'];
+export const FAMILIA_RESORTS = ['samoa_beach', 'samoa_villa', 'resorts'];
 const SUBUNIDADES_RESORTS = [
   { id: 'samoa_beach', nome: 'Samoa Beach' },
   { id: 'samoa_villa', nome: 'Samoa Villa' },
@@ -1641,6 +1643,19 @@ const LINHAS_RECEITA_RESORTS = [
   { id: 'outrasIss', nome: '1.4 Outras Receitas — ISS', tipo: 'direto' },
   { id: 'arrumacao', nome: '1.4 Outras Receitas — Arrumação (LFCVH)', tipo: 'direto' },
 ];
+// O tipo de premissa de cada linha de receita.linhas (Resorts) é fixo pela
+// definição acima — não existe seletor de premissaTipo nesta tela, diferente
+// de Custos (AbaReceitaResorts não usa <Selecao>). Documentos criados antes
+// da linha existir, ou reidratados a partir de novaLinhaVazia(), carregam
+// premissaTipo:'direto' por padrão (bug encontrado em 2026-08-30: Hospedagem/
+// A&B/Café e Pensão somavam R$0,00 mesmo com quantidade/valor unitário
+// preenchidos, porque valorLinhaMes caía no branch 'direto' e lia
+// `linha.valores`, que essas 3 linhas nunca preenchem). Nunca confiar no
+// premissaTipo armazenado pra essas linhas — sempre normalizar com esta
+// função antes de calcular. Espelho exato de backend/src/calc/receitaAgricolaResorts.js.
+function tipoLinhaReceitaResorts(id) {
+  return LINHAS_RECEITA_RESORTS.find(d => d.id === id)?.tipo;
+}
 // Café e Pensão NÃO soma na Receita Operacional Bruta (conferido célula a
 // célula em Premissa Resorts.xlsx, aba "1.1 DRE"): a linha 42 "Receita
 // Operacional Bruta" é a soma de Hospedagem(43) + A&B(44) + Moorea(45) +
@@ -2028,7 +2043,11 @@ function receitaVazia(unidadeId) {
   }
   if (unidadeId === 'resorts' || unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa') {
     const linhas = {};
-    LINHAS_RECEITA_RESORTS.forEach((l) => { linhas[l.id] = novaLinhaVazia(); });
+    // premissaTipo já nasce correto por linha (ver tipoLinhaReceitaResorts) —
+    // não é escolha do usuário, é fixo pela definição. Cálculo (computeDRE/
+    // runAuditoria) normaliza de novo por segurança, mas documento novo já
+    // sai certo.
+    LINHAS_RECEITA_RESORTS.forEach((l) => { linhas[l.id] = { ...novaLinhaVazia(), premissaTipo: l.tipo }; });
     // Hospedagem ganha o racional Total de Acomodações × Taxa de Ocupação =
     // Acomodações Ocupadas — pedido explícito de 2026-08-09: a "quantidade"
     // não é um número solto, é derivada da taxa de ocupação sobre a
@@ -2209,7 +2228,10 @@ function receitaBrutaPorMes(data, cambios) {
   if (data.receita.linhas) {
     const linhasMes = {};
     Object.entries(data.receita.linhas).forEach(([id, linha]) => {
-      linhasMes[id] = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
+      // Bug de 2026-08-30: nunca confiar no premissaTipo armazenado nessas
+      // linhas — ver nota em tipoLinhaReceitaResorts.
+      const linhaTipada = { ...linha, premissaTipo: tipoLinhaReceitaResorts(id) || linha.premissaTipo };
+      linhasMes[id] = MESES.map((_, m) => valorLinhaMes(linhaTipada, m, null, null));
     });
     // Café e Pensão não soma na ROB — ver LINHA_RECEITA_INFORMATIVA_RESORTS.
     // Continua em linhasMes (ex.: pra exibir ou usar como base de dedução,
@@ -2948,7 +2970,10 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
 
   if (temReceita) {
     if (data.receita.linhas) {
-      const linhasReceitaValidas = Object.values(data.receita.linhas).filter(l => valorLinhaAnual(l, null, null) > 0);
+      // Mesma normalização de premissaTipo de receitaBrutaPorMes — ver
+      // tipoLinhaReceitaResorts (bug de 2026-08-30).
+      const linhasReceitaValidas = Object.entries(data.receita.linhas)
+        .filter(([id, l]) => valorLinhaAnual({ ...l, premissaTipo: tipoLinhaReceitaResorts(id) || l.premissaTipo }, null, null) > 0);
       checks.push({
         label: 'Receita: ao menos uma linha (Hospedagem, A&B, etc.) com valor lançado',
         ok: linhasReceitaValidas.length > 0,
@@ -6684,7 +6709,10 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
 
       {LINHAS_RECEITA_RESORTS.map((def, i) => {
         const linha = linhas[def.id] || novaLinhaVazia();
-        const receitaMensal = MESES.map((_, m) => valorLinhaMes(linha, m, null, null));
+        // Bug de 2026-08-30: nunca confiar no premissaTipo armazenado nessas
+        // linhas — ver nota em tipoLinhaReceitaResorts.
+        const linhaTipada = { ...linha, premissaTipo: def.tipo };
+        const receitaMensal = MESES.map((_, m) => valorLinhaMes(linhaTipada, m, null, null));
         const totalLinha = receitaMensal.reduce((a, v) => a + v, 0);
         // Hospedagem: a "quantidade" (acomodações ocupadas) não é digitada
         // direto — é derivada de Total de Acomodações × Taxa de Ocupação
@@ -6761,8 +6789,10 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
         linhasCalculadas={[
           {
             key: 'hospedagemSemPensao', label: 'Receita com Hospedagem sem Pensão (informativo)',
-            valoresMensal: MESES.map((_, m) => valorLinhaMes(linhas.hospedagem || novaLinhaVazia(), m, null, null) - valorLinhaMes(linhas.cafePensao || novaLinhaVazia(), m, null, null)),
-            totalValor: valorLinhaAnual(linhas.hospedagem || novaLinhaVazia(), null, null) - valorLinhaAnual(linhas.cafePensao || novaLinhaVazia(), null, null),
+            // Bug de 2026-08-30: nunca confiar no premissaTipo armazenado —
+            // ver nota em tipoLinhaReceitaResorts.
+            valoresMensal: MESES.map((_, m) => valorLinhaMes({ ...(linhas.hospedagem || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts('hospedagem') }, m, null, null) - valorLinhaMes({ ...(linhas.cafePensao || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts('cafePensao') }, m, null, null)),
+            totalValor: valorLinhaAnual({ ...(linhas.hospedagem || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts('hospedagem') }, null, null) - valorLinhaAnual({ ...(linhas.cafePensao || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts('cafePensao') }, null, null),
             cor: '#8A8F96',
           },
           { key: 'receitaBruta', label: 'Receita Operacional Bruta (R$)', valoresMensal: dre.receitaBrutaMes, totalValor: dre.receitaBruta, cor: COR.verde },
@@ -6792,8 +6822,10 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
         corTotal={COR.vermelho}
         sufixo="%"
         linhasCalculadas={deducoes.map(d => {
+          // Bug de 2026-08-30: nunca confiar no premissaTipo armazenado —
+          // ver nota em tipoLinhaReceitaResorts.
           const baseMes = MESES.map((_, m) =>
-            (d.baseLinhaIds || []).reduce((s, id) => s + valorLinhaMes(linhas[id] || novaLinhaVazia(), m, null, null), 0)
+            (d.baseLinhaIds || []).reduce((s, id) => s + valorLinhaMes({ ...(linhas[id] || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts(id) }, m, null, null), 0)
           );
           const valoresMensal = MESES.map((_, m) => baseMes[m] * (parseNum(d.pcts?.[m]) / 100));
           return { key: `${d.id}_abs`, label: `${d.nome} (R$)`, valoresMensal, totalValor: valoresMensal.reduce((a, v) => a + v, 0), cor: COR.vermelho };
