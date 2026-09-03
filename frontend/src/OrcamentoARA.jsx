@@ -3164,6 +3164,15 @@ function CampoJustificativa({ value, onChange, placeholder, obrigatorio }) {
 // partida Dez/25 do Balanço). Cada linha (de `linhas` ou `linhasCalculadas`)
 // carrega opcionalmente `[chave]: { valor, onChange, placeholder }`; quando
 // ausente, a célula mostra um traço.
+// totalValor/formatarTotal (2026-08-30, bug: "coluna Total do Preço R$/t
+// soma os 12 meses"): uma linha de `linhas` normalmente é aditiva (Volume,
+// Receita — Total = soma dos 12 meses faz sentido), mas uma linha de PREÇO
+// não é — R$3 em Set + R$4 em Out não vira "R$7 de total", vira uma média
+// ponderada por volume (Receita do ano / Volume do ano), que quem chama já
+// sabe calcular (tem os dois arrays) e a tabela genérica não. Por isso cada
+// item de `linhas` pode opcionalmente trazer `totalValor` (usa esse valor
+// em vez de somar `valores`) e `formatarTotal` (formatação só dessa linha,
+// tem prioridade sobre o `formatarTotal` da tabela inteira).
 function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal, linhasCalculadas, colunaExtra }) {
   function celulaExtra(linha, i) {
     const dado = colunaExtra && linha[colunaExtra.chave];
@@ -3198,7 +3207,8 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
         </thead>
         <tbody>
           {linhas.map((linha, i) => {
-            const total = somaMes(linha.valores);
+            const total = linha.totalValor !== undefined ? linha.totalValor : somaMes(linha.valores);
+            const formatarTotalLinha = linha.formatarTotal || formatarTotal;
             return (
               <tr key={linha.key} style={{ background: i % 2 ? COR.claro : COR.branco }}>
                 <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: i % 2 ? COR.claro : COR.branco }}>{linha.label}</td>
@@ -3214,7 +3224,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
                   </td>
                 ))}
                 <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontWeight: 700, fontSize: 11, color: corTotal || COR.azul, textAlign: 'right' }}>
-                  {formatarTotal ? formatarTotal(total) : `${total.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}${sufixo || ''}`}
+                  {formatarTotalLinha ? formatarTotalLinha(total) : `${total.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}${sufixo || ''}`}
                 </td>
               </tr>
             );
@@ -6548,6 +6558,18 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
           ? parseNum(p.volumes?.[m]) * parseNum(p.precoMoeda?.[m]) * taxaCambio
           : parseNum(p.volumes?.[m]) * parseNum(p.precos?.[m]));
         const totalProduto = receitaMensal.reduce((a, v) => a + v, 0);
+        const volumeAnualProduto = MESES.reduce((acc, _, m) => acc + parseNum(p.volumes?.[m]), 0);
+        // Preço ponderado do produto (2026-08-30, bug: Total da linha
+        // "Preço (R$/t)" somava os 12 meses, ex. R$3+R$4=R$7, em vez da
+        // média ponderada por volume) — Receita do ano do produto / Volume
+        // do ano do produto, na moeda da própria linha (precoMoeda pra
+        // Externo não precisa de câmbio aqui: é preço médio na moeda
+        // original, o câmbio só entra na conversão pra Receita em R$).
+        const precoPonderadoProduto = (precosArr) => {
+          if (!volumeAnualProduto) return 0;
+          const numerador = MESES.reduce((acc, _, m) => acc + parseNum(p.volumes?.[m]) * parseNum(precosArr?.[m]), 0);
+          return numerador / volumeAnualProduto;
+        };
         return (
           <div key={p.id} style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: i % 2 ? COR.claro : COR.branco }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
@@ -6591,10 +6613,10 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
             <TabelaMensal
               linhas={externo ? [
                 { key: 'volume', label: 'Volume (t)', valores: p.volumes },
-                { key: 'precoMoeda', label: `Preço (${moedaNome}/t)`, valores: p.precoMoeda },
+                { key: 'precoMoeda', label: `Preço (${moedaNome}/t)`, valores: p.precoMoeda, totalValor: precoPonderadoProduto(p.precoMoeda), formatarTotal: v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
               ] : [
                 { key: 'volume', label: 'Volume (t)', valores: p.volumes },
-                { key: 'preco', label: 'Preço (R$/t)', valores: p.precos },
+                { key: 'preco', label: 'Preço (R$/t)', valores: p.precos, totalValor: precoPonderadoProduto(p.precos), formatarTotal: v => formatBRL(v) },
               ]}
               onChangeCelula={(linhaKey, mesIdx, valor) => {
                 if (!externo) {
@@ -6645,7 +6667,16 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Deduções sobre a receita</h4>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Percentual sobre a receita bruta, mês a mês. Linhas em laranja mostram o valor absoluto (R$) correspondente e o total geral das deduções.</p>
       <TabelaMensal
-        linhas={deducoes.map(d => ({ key: d.id, label: d.nome, valores: d.pcts }))}
+        linhas={deducoes.map(d => {
+          // Mesmo bug de "Preço (R$/t)" (ver TabelaMensal/precoPonderadoProduto
+          // acima) — % de dedução não é aditivo mês a mês (Set 2% + Out 3%
+          // não é "Total 5%"), é o valor absoluto do ano / receita bruta do
+          // ano, ponderado pela base de cada mês.
+          const valoresMensal = MESES.map((_, m) => (dre.receitaBrutaMes?.[m] || 0) * (parseNum(d.pcts?.[m]) / 100));
+          const totalAbs = valoresMensal.reduce((a, v) => a + v, 0);
+          const pctPonderado = dre.receitaBruta > 0 ? (totalAbs / dre.receitaBruta) * 100 : 0;
+          return { key: d.id, label: d.nome, valores: d.pcts, totalValor: pctPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` };
+        })}
         onChangeCelula={(dedId, mesIdx, valor) => {
           const d = deducoes.find(x => x.id === dedId);
           updateDeducao(dedId, atualizarArray(d.pcts, mesIdx, valor));
@@ -6729,16 +6760,31 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
         // (mesmo racional da planilha: linha 16 = linha 17 × linha 18).
         // Pedido explícito de 2026-08-09.
         const ehHospedagem = def.id === 'hospedagem';
+        // Valor unitário ponderado (2026-08-30, mesmo bug de "Preço (R$/t)"
+        // no Têxtil/Agrícola — ver TabelaMensal/AbaReceita): o Total da
+        // linha Tarifa Média/Consumo Médio não pode ser a soma dos 12
+        // meses — é Receita do ano da linha / Quantidade do ano da linha.
+        const quantidadeAnualLinha = def.tipo === 'qtd_valor'
+          ? MESES.reduce((acc, _, m) => acc + parseNum(linha.quantidades?.[m]), 0)
+          : 0;
+        const valorUnitPonderado = quantidadeAnualLinha > 0 ? totalLinha / quantidadeAnualLinha : 0;
+        // Taxa de Ocupação (%) tem o mesmo problema — Total não pode ser a
+        // soma dos 12 meses (ex.: 70%+75%=145%). Total certo = Acomodações
+        // Ocupadas do ano / Total de Acomodações do ano.
+        const totalAcomodacoesAnual = ehHospedagem
+          ? MESES.reduce((acc, _, m) => acc + parseNum(linha.totalAcomodacoes?.[m]), 0)
+          : 0;
+        const taxaOcupacaoPonderada = totalAcomodacoesAnual > 0 ? (quantidadeAnualLinha / totalAcomodacoesAnual) * 100 : 0;
         const camposEditaveis = ehHospedagem
           ? [
               { key: 'totalAcomodacoes', label: 'Total de Acomodações (#) — UH × dias do mês', valores: linha.totalAcomodacoes || mesesVazios() },
-              { key: 'taxaOcupacao', label: 'Taxa de Ocupação (%)', valores: linha.taxaOcupacao || mesesVazios() },
-              { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit },
+              { key: 'taxaOcupacao', label: 'Taxa de Ocupação (%)', valores: linha.taxaOcupacao || mesesVazios(), totalValor: taxaOcupacaoPonderada, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` },
+              { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit, totalValor: valorUnitPonderado, formatarTotal: v => formatBRL(v) },
             ]
           : def.tipo === 'qtd_valor'
           ? [
               { key: 'quantidade', label: def.rotuloQtd, valores: linha.quantidades },
-              { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit },
+              { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit, totalValor: valorUnitPonderado, formatarTotal: v => formatBRL(v) },
             ]
           : [
               { key: 'valor', label: 'Valor (R$)', valores: linha.valores },
@@ -6823,7 +6869,20 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
         incide só sobre a receita de Hospedagem, não sobre o total) — não sobre a receita bruta total.
       </p>
       <TabelaMensal
-        linhas={deducoes.map(d => ({ key: d.id, label: d.nome, valores: d.pcts }))}
+        linhas={deducoes.map(d => {
+          // Bug de 2026-08-30: nunca confiar no premissaTipo armazenado —
+          // ver nota em tipoLinhaReceitaResorts. Mesmo bug de "Preço (R$/t)"
+          // (ver precoPonderadoProduto em AbaReceita): % de dedução não é
+          // aditivo mês a mês — Total é o valor absoluto do ano / base do
+          // ano (baseLinhaIds), não a soma dos percentuais mensais.
+          const baseMes = MESES.map((_, m) =>
+            (d.baseLinhaIds || []).reduce((s, id) => s + valorLinhaMes({ ...(linhas[id] || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts(id) }, m, null, null), 0)
+          );
+          const baseAnual = baseMes.reduce((a, v) => a + v, 0);
+          const valorAbsAnual = MESES.reduce((acc, _, m) => acc + baseMes[m] * (parseNum(d.pcts?.[m]) / 100), 0);
+          const pctPonderado = baseAnual > 0 ? (valorAbsAnual / baseAnual) * 100 : 0;
+          return { key: d.id, label: d.nome, valores: d.pcts, totalValor: pctPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` };
+        })}
         onChangeCelula={(dedId, mesIdx, valor) => {
           const d = deducoes.find(x => x.id === dedId);
           const novoArray = atualizarArray(d.pcts, mesIdx, valor);
@@ -8676,7 +8735,11 @@ function AbaProvisoes({ provisoes, resultado, atualizar }) {
 
       <TabelaMensal
         linhas={[
-          { key: 'inadimplencia', label: 'Inadimplência (%)', valores: provisoes.inadimplencia },
+          // Inadimplência é % (não é multiplicada por nada mês a mês no
+          // motor de cálculo hoje — só a Auditoria checa a faixa 0-100%),
+          // então o Total certo é a média simples dos 12 meses, não a soma
+          // (2026-08-30, mesmo bug de "Preço (R$/t)" — ver TabelaMensal).
+          { key: 'inadimplencia', label: 'Inadimplência (%)', valores: provisoes.inadimplencia, totalValor: somaMes(provisoes.inadimplencia) / 12, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` },
           { key: 'contingencias', label: 'Provisão contingências', valores: provisoes.contingencias },
           { key: 'perdas', label: 'Provisão perdas', valores: provisoes.perdas },
         ]}
