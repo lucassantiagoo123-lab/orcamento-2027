@@ -3825,11 +3825,19 @@ export default function OrcamentoARA({ usuario }) {
         await putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } });
         setUltimoSalvoEm(new Date());
         setErro(null); // limpa um erro anterior assim que um salvamento subsequente dá certo
+        setPedindoMotivo(false);
       } catch (e) {
-        // 403 acesso_expirado (2026-08-23, ver middleware/authorize.js)
-        // vem com mensagem específica do backend — as outras falhas caem
-        // no texto genérico de sempre.
-        setErro(e instanceof ApiError && e.status === 403 ? e.message : 'Não foi possível salvar o rascunho automaticamente. Verifique a conexão.');
+        // Bug de 2026-08-30 — ver nota completa em salvarRascunhoAgora:
+        // qualquer ApiError mostra a mensagem real do backend agora (não
+        // só 403), inclusive orcamento_bloqueado/motivo_obrigatorio (aqui
+        // o autosave não tenta reenviar sozinho com motivo — só sinaliza
+        // pra o gestor usar o botão "Salvar rascunho" e justificar ali).
+        if (e instanceof ApiError) {
+          setErro(e.message);
+          setPedindoMotivo(e.body?.erro === 'motivo_obrigatorio' || e.body?.erro === 'orcamento_bloqueado');
+        } else {
+          setErro('Não foi possível salvar o rascunho automaticamente. Verifique a conexão.');
+        }
       }
     }, 900);
     return () => clearTimeout(t);
@@ -3841,15 +3849,36 @@ export default function OrcamentoARA({ usuario }) {
   // a confirmação visual de "salvei agora" em vez de confiar no automático.
   const [salvandoRascunho, setSalvandoRascunho] = useState(false);
   const [ultimoSalvoEm, setUltimoSalvoEm] = useState(null);
-  async function salvarRascunhoAgora() {
+  // Bug corrigido em 2026-08-30 ("admin também precisa ter a opção de
+  // salvar rascunho" — Admin FP&A editando a Têxtil recebia sempre
+  // "Verifique a conexão", mesmo com o backend respondendo normalmente):
+  // qualquer erro que NÃO fosse 403 caía nesse texto genérico, escondendo
+  // o motivo real — em especial 400 motivo_obrigatorio/403
+  // orcamento_bloqueado (seção 4.5: orçamento aprovado só admin_fpa edita,
+  // e só informando motivo — ver PUT /orcamentos/:unidadeId no backend),
+  // um fluxo que tinha rota pronta mas nenhuma UI pra preencher o motivo.
+  // Agora qualquer ApiError mostra a mensagem real do backend (só erro de
+  // rede de verdade — fetch falhou antes de chegar no servidor — cai no
+  // texto genérico); e quando o erro é especificamente por falta de
+  // motivo, aparece um campo pra justificar e tentar de novo.
+  const [motivoBloqueio, setMotivoBloqueio] = useState('');
+  const [pedindoMotivo, setPedindoMotivo] = useState(false);
+  async function salvarRascunhoAgora(motivo) {
     setSalvandoRascunho(true);
     setErro(null);
     try {
       const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
-      await putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } });
+      await putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } }, motivo);
       setUltimoSalvoEm(new Date());
+      setPedindoMotivo(false);
+      setMotivoBloqueio('');
     } catch (e) {
-      setErro(e instanceof ApiError && e.status === 403 ? e.message : 'Não foi possível salvar o rascunho. Verifique a conexão.');
+      if (e instanceof ApiError) {
+        setErro(e.message);
+        setPedindoMotivo(e.body?.erro === 'motivo_obrigatorio' || e.body?.erro === 'orcamento_bloqueado');
+      } else {
+        setErro('Não foi possível salvar o rascunho. Verifique a conexão.');
+      }
     }
     setSalvandoRascunho(false);
   }
@@ -4946,6 +4975,7 @@ export default function OrcamentoARA({ usuario }) {
           usuario={usuario}
           unidadesVisiveis={unidadesVisiveis}
           salvarRascunhoAgora={salvarRascunhoAgora} salvandoRascunho={salvandoRascunho} ultimoSalvoEm={ultimoSalvoEm}
+          pedindoMotivo={pedindoMotivo} motivoBloqueio={motivoBloqueio} setMotivoBloqueio={setMotivoBloqueio}
           unidadeAtual={unidadeAtual} setUnidadeAtual={setUnidadeAtual} unidadeObj={unidadeObj}
           aba={aba} setAba={setAba} dados={dados} dre={dre} checks={checks} tudoOk={tudoOk} aguardandoLiberacao={aguardandoLiberacao}
           updateProduto={updateProduto} updateDeducao={updateDeducao}
@@ -5119,6 +5149,7 @@ function VisaoGerente(props) {
   const {
     usuario,
     unidadesVisiveis, salvarRascunhoAgora, salvandoRascunho, ultimoSalvoEm,
+    pedindoMotivo, motivoBloqueio, setMotivoBloqueio,
     unidadeAtual, setUnidadeAtual, unidadeObj, aba, setAba, dados, dre, checks, tudoOk, aguardandoLiberacao,
     updateProduto, updateDeducao, premissasMacro,
     addObjetivo, updateObjetivo, removeObjetivo, addIniciativa, updateIniciativa, removeIniciativa,
@@ -5223,8 +5254,30 @@ function VisaoGerente(props) {
                   Salvo às {ultimoSalvoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                 </span>
               )}
+              {/* Bug de 2026-08-30 (ver nota completa em salvarRascunhoAgora):
+                  orçamento aprovado/bloqueado (seção 4.5) exige motivo pra
+                  admin_fpa editar — antes não tinha nenhum jeito de
+                  preencher esse motivo pela UI, então a edição travava com
+                  uma mensagem genérica de conexão. Este campo só aparece
+                  quando o erro é especificamente por falta de motivo. */}
+              {pedindoMotivo && (
+                <>
+                  <input
+                    type="text" value={motivoBloqueio} onChange={e => setMotivoBloqueio(e.target.value)}
+                    placeholder="Motivo da edição pós-aprovação"
+                    style={{ fontFamily: FONT, fontSize: 11, border: `1px solid ${COR.laranja}`, borderRadius: 6, padding: '6px 8px', width: 200 }}
+                  />
+                  <button
+                    onClick={() => salvarRascunhoAgora(motivoBloqueio)} disabled={salvandoRascunho || !motivoBloqueio.trim()}
+                    style={{
+                      fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 7, cursor: (salvandoRascunho || !motivoBloqueio.trim()) ? 'default' : 'pointer',
+                      border: `1px solid ${COR.laranja}`, background: COR.laranja, color: COR.branco,
+                    }}
+                  >Salvar com justificativa</button>
+                </>
+              )}
               <button
-                onClick={salvarRascunhoAgora} disabled={salvandoRascunho}
+                onClick={() => salvarRascunhoAgora()} disabled={salvandoRascunho}
                 style={{
                   fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 7,
                   border: `1px solid ${COR.azul}`, background: '#fff', color: COR.azul, cursor: salvandoRascunho ? 'default' : 'pointer',
