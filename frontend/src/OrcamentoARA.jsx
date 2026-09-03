@@ -4170,9 +4170,12 @@ export default function OrcamentoARA({ usuario }) {
 
     const linhasDRE = [['Unidade', 'Receita Bruta', 'Deduções', 'Receita Líquida', 'CPV', 'Lucro Bruto', 'Margem Bruta %', 'Despesas Op.', 'EBITDA', 'Margem EBITDA %', 'D&A', 'Result. Financeiro', 'Outras', 'IRCSL', 'Lucro Líquido', 'Margem Líquida %']];
     unidadesParaExportar.forEach(u => {
-      const d = role === 'fpa' ? statusUnidades[u.id] : dados;
-      if (!d) return;
-      const t = dreDaUnidade(d, u.id, ipcaAnualPct, cambios);
+      // 'agricola'/'resorts' somam sempre ao vivo dos sites (Excel do FP&A)
+      // — ver nota completa em dreEDfcGrupoUnidade (bug de 2026-08-30).
+      const t = role === 'fpa'
+        ? dreEDfcGrupoUnidade(statusUnidades, u.id, ipcaAnualPct, cambios).dre
+        : (dados && dreDaUnidade(dados, u.id, ipcaAnualPct, cambios));
+      if (!t) return;
       linhasDRE.push([u.nome, t.receitaBruta, -t.deducoes, t.receitaLiquida, -t.cpv, t.lucroBruto, t.margemBruta, -t.despesasSemDA, t.ebitda, t.margemEbitda, -t.depreciacao, t.resultadoFinanceiro, t.outras, -t.ircsl, t.lucroLiquido, t.margemLiquida]);
     });
     const wsD = XLSX.utils.aoa_to_sheet(linhasDRE);
@@ -4703,9 +4706,10 @@ export default function OrcamentoARA({ usuario }) {
         s1.addText(tituloUnidade, { x: 0.6, y: 0.9, w: 9, h: 0.8, fontSize: 30, bold: true, color: 'FFFFFF' });
         s1.addText(`Resumo Executivo — Apresentação ao Conselho de Administração · ${dataGeracao}`, { x: 0.6, y: 1.55, w: 9, h: 0.4, fontSize: 12, color: 'D9E4F5' });
 
+        // 'agricola'/'resorts' somam sempre ao vivo dos sites — ver nota
+        // completa em dreEDfcGrupoUnidade (bug de 2026-08-30).
         const totais = UNIDADES_PARA_TOTAL_GRUPO.reduce((acc, u) => {
-          const d = statusUnidades[u.id];
-          const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct, cambios) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct, cambios);
+          const t = dreEDfcGrupoUnidade(statusUnidades, u.id, ipcaAnualPct, cambios).dre;
           acc.receitaLiquida += t.receitaLiquida; acc.ebitda += t.ebitda; acc.lucroLiquido += t.lucroLiquido;
           return acc;
         }, { receitaLiquida: 0, ebitda: 0, lucroLiquido: 0 });
@@ -4734,7 +4738,9 @@ export default function OrcamentoARA({ usuario }) {
         ]];
         UNIDADES.forEach((u) => {
           const d = statusUnidades[u.id];
-          const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct, cambios) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct, cambios);
+          // 'agricola'/'resorts' somam sempre ao vivo dos sites — ver nota
+          // completa em dreEDfcGrupoUnidade (bug de 2026-08-30).
+          const t = dreEDfcGrupoUnidade(statusUnidades, u.id, ipcaAnualPct, cambios).dre;
           linhas2.push([u.nome, formatBRL(t.receitaLiquida), formatBRL(t.ebitda), formatPct(t.margemEbitda), formatBRL(t.lucroLiquido), d?.meta?.status || 'nao_iniciado']);
         });
         s2.addTable(linhas2, { x: 0.5, y: 1.0, w: 9, fontSize: 10.5, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
@@ -10159,7 +10165,12 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 26 }}>
             {UNIDADES.filter(u => filtroStatus === 'todos' || (statusUnidades[u.id]?.meta?.status || 'nao_iniciado') === filtroStatus).map(u => {
               const d = statusUnidades[u.id];
-              const t = d ? dreDaUnidade(d, u.id, ipcaAnualPct, cambios) : dreDaUnidade(emptyFormData(u.id), u.id, ipcaAnualPct, cambios);
+              // 'agricola'/'resorts' somam sempre ao vivo dos sites — ver
+              // nota completa em dreEDfcGrupoUnidade (bug de 2026-08-30,
+              // aqui também: este card mostrava o valor do documento
+              // standalone da unidade — às vezes lixo antigo de antes dela
+              // virar multi-site — em vez da soma real de TDS+FDS).
+              const t = dreEDfcGrupoUnidade(statusUnidades, u.id, ipcaAnualPct, cambios).dre;
               const aberto = unidadeDrill === u.id;
               return (
                 <div key={u.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
