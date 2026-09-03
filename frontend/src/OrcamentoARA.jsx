@@ -3234,7 +3234,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
   function celulaExtra(linha, i) {
     const dado = colunaExtra && linha[colunaExtra.chave];
     return (
-      <td style={{ padding: 3, border: `1px solid ${COR.borda}`, background: i % 2 ? COR.claro : COR.branco }}>
+      <td style={{ padding: 3, border: `1px solid ${COR.borda}`, background: COR.branco }}>
         {dado ? (
           <input
             type="text" inputMode="decimal" value={dado.valor} placeholder={dado.placeholder}
@@ -3263,12 +3263,19 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
           </tr>
         </thead>
         <tbody>
+          {/* Pedido de 2026-08-30: "considere apenas o fundo branco ao
+              invés de branco e cinza" nos campos de dados — removido o
+              zebra-striping (i % 2 ? COR.claro : COR.branco) de todas as
+              tabelas de dados do app, aqui e nos outros ~15 lugares com o
+              mesmo padrão (todas as unidades usam esta mesma
+              TabelaMensal). Linha de subtotal/total continua com fundo
+              próprio (COR.total), só a alternância cinza que saiu. */}
           {linhas.map((linha, i) => {
             const total = linha.totalValor !== undefined ? linha.totalValor : somaMes(linha.valores);
             const formatarTotalLinha = linha.formatarTotal || formatarTotal;
             return (
-              <tr key={linha.key} style={{ background: i % 2 ? COR.claro : COR.branco }}>
-                <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: i % 2 ? COR.claro : COR.branco }}>{linha.label}</td>
+              <tr key={linha.key} style={{ background: COR.branco }}>
+                <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco }}>{linha.label}</td>
                 {colunaExtra && celulaExtra(linha, i)}
                 {MESES.map((m, mi) => (
                   <td key={m} style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
@@ -6564,7 +6571,7 @@ function AbaEstrategicas({ estrategicas, atualizar, premissasMacro, addObjetivo,
           </thead>
           <tbody>
             {premissasMacro.map((p, i) => (
-              <tr key={p.id} style={{ background: i % 2 ? COR.claro : COR.branco }}>
+              <tr key={p.id} style={{ background: COR.branco }}>
                 <td style={{ fontSize: 12, color: COR.texto, padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.nome}</td>
                 <td style={{ fontSize: 12, fontWeight: 700, color: COR.azul, padding: '6px 10px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{p.valor || '—'}</td>
                 <td style={{ fontSize: 11, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.unidade}</td>
@@ -6687,7 +6694,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
           return numerador / volumeAnualProduto;
         };
         return (
-          <div key={p.id} style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: i % 2 ? COR.claro : COR.branco }}>
+          <div key={p.id} style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: COR.branco }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
               <span style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul }}>{p.nome}</span>
               <span style={{ fontSize: 10.5, color: '#8A8F96' }}>
@@ -6906,7 +6913,7 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
               { key: 'valor', label: 'Valor (R$)', valores: linha.valores },
             ];
         return (
-          <div key={def.id} style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: i % 2 ? COR.claro : COR.branco }}>
+          <div key={def.id} style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: COR.branco }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>{def.nome}</div>
             {ehHospedagem && (
               <p style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 8 }}>
@@ -7803,7 +7810,7 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
 
   function LinhaFuncionario(f, i, mostrarAdmissao) {
     return (
-      <tr key={f.id} style={{ background: i % 2 ? COR.claro : COR.branco }}>
+      <tr key={f.id} style={{ background: COR.branco }}>
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
           <CampoTexto value={f.nome} onChange={v => updateFuncionario(f.id, 'nome', v)} placeholder="Nome do funcionário" />
         </td>
@@ -9244,7 +9251,7 @@ function CascataDRE({ dre, ifrs18 }) {
             style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               padding: '8px 12px', fontSize: isMargem ? 10.5 : 12.5,
-              background: isSubtotalForte ? COR.total : (i % 2 ? COR.claro : COR.branco),
+              background: isSubtotalForte ? COR.total : (COR.branco),
               borderBottom: `1px solid ${COR.borda}`,
               fontWeight: isSubtotalForte ? 700 : (isMargem ? 400 : 500),
               fontStyle: isMargem ? 'italic' : 'normal',
@@ -9429,7 +9436,7 @@ function CascataDFC({ dfc }) {
               style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 padding: '8px 12px', fontSize: 12.5,
-                background: isSubtotalForte ? COR.total : (i % 2 ? COR.claro : COR.branco),
+                background: isSubtotalForte ? COR.total : (COR.branco),
                 borderBottom: `1px solid ${COR.borda}`,
                 fontWeight: isSubtotalForte ? 700 : 500,
                 color: COR.texto,
@@ -9590,7 +9597,7 @@ function AbaPlano5Y({ dre, plano5y, updatePremissa5Y, atualizar }) {
   const linhaEstilo = (i, forte) => ({
     display: 'grid', gridTemplateColumns: '220px repeat(5, 1fr)', alignItems: 'center',
     padding: '6px 10px', fontSize: forte ? 12 : 11.5, fontWeight: forte ? 700 : 400,
-    background: forte ? COR.total : (i % 2 ? COR.claro : COR.branco), borderBottom: `1px solid ${COR.borda}`,
+    background: forte ? COR.total : (COR.branco), borderBottom: `1px solid ${COR.borda}`,
   });
 
   return (
@@ -9688,7 +9695,7 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
   const linhaEstilo = (i, forte) => ({
     display: 'grid', gridTemplateColumns: '230px repeat(3, 1fr)', alignItems: 'center',
     padding: '6px 10px', fontSize: forte ? 12 : 11.5, fontWeight: forte ? 700 : 400,
-    background: forte ? COR.total : (i % 2 ? COR.claro : COR.branco), borderBottom: `1px solid ${COR.borda}`,
+    background: forte ? COR.total : (COR.branco), borderBottom: `1px solid ${COR.borda}`,
   });
 
   const indicadores = [
@@ -10020,8 +10027,8 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes, ipcaAnua
     const diffPct = versao !== 0 ? (diff / Math.abs(versao)) * 100 : (diff !== 0 ? null : 0);
     const cor = diff > 0 ? COR.verde : diff < 0 ? COR.vermelho : '#8A8F96';
     return (
-      <tr key={label} style={{ background: i % 2 ? COR.claro : COR.branco }}>
-        <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: i % 2 ? COR.claro : COR.branco }}>{label}</td>
+      <tr key={label} style={{ background: COR.branco }}>
+        <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco }}>{label}</td>
         <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{formatBRL(atual)}</td>
         <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{formatBRL(versao)}</td>
         <td style={{ fontSize: 11, fontWeight: 700, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right', color: cor }}>{diff > 0 ? '+' : ''}{formatBRL(diff)}</td>
@@ -10183,7 +10190,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
               </thead>
               <tbody>
                 {premissasMacro.map((p, i) => (
-                  <tr key={p.id} style={{ background: i % 2 ? COR.claro : COR.branco }}>
+                  <tr key={p.id} style={{ background: COR.branco }}>
                     <td style={{ fontSize: 12, color: COR.texto, padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.nome}</td>
                     <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
                       <CampoNumero value={p.valor} onChange={v => updatePremissaMacroGlobal(p.id, v)} placeholder="0,00" />
@@ -10292,7 +10299,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
             {backlog.map((b, i) => {
               const u = UNIDADES.find(x => x.id === b.unidadeId);
               return (
-                <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: i % 2 ? COR.claro : COR.branco, borderBottom: `1px solid ${COR.borda}` }}>
+                <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: COR.branco, borderBottom: `1px solid ${COR.borda}` }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: u?.cor || COR.borda, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, fontWeight: 700, color: COR.texto, minWidth: 110 }}>{u?.nome || b.unidadeId}</span>
                   <span style={{ fontSize: 11.5, color: '#7A8088', minWidth: 140 }}>{formatData(b.timestamp)}</span>
