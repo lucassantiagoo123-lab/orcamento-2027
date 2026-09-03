@@ -2639,6 +2639,40 @@ function dfcDaUnidade(dadosUnidade, dreUnidade, unidadeId, ipcaAnualPct, cambios
   return computeDFC(dadosUnidade, dreUnidade, referenciaDaUnidade(unidadeId), ipcaAnualPct);
 }
 
+// Bug corrigido em 2026-08-30 ("na Visão Grupo do FP&A, o consolidador da
+// ARA Resorts e ARA Agrícola não está sendo vinculado, não apresentando
+// valores"): dreDaUnidade/dfcDaUnidade só somam TDS+FDS (ou Beach+Villa)
+// quando o documento salvo em 'agricola'/'resorts' já é o wrapper gravado
+// no envio do Consolidado (ver CONSOLIDADOS_MULTISITE) — antes do
+// primeiro "Enviar versão consolidada", esse documento é só um
+// emptyFormData comum (às vezes com lixo de antes da unidade virar
+// multi-site), então a Visão Grupo do FP&A (VisaoFPA/
+// VisaoResultadosConsolidados, que usa dreDaUnidade/dfcDaUnidade direto
+// sobre statusUnidades['agricola']/['resorts']) mostrava 0 (ou um valor
+// errado) mesmo com TDS/FDS/Beach/Villa cheios de dado — inconsistente
+// com ConsolidadoAgricola/ConsolidadoResorts, que sempre somam TDS+FDS
+// "ao vivo" direto dos dois sites, nunca dependem desse envio. Esta
+// função replica esse mesmo racional "ao vivo": para 'agricola'/'resorts'
+// soma sempre statusUnidades['agricola_tds']+['agricola_fds'] (ou
+// samoa_beach+samoa_villa), ignorando o documento wrapper por completo;
+// para qualquer outra unidade, cai no caminho normal de sempre.
+function dreEDfcGrupoUnidade(statusUnidades, unidadeId, ipcaAnualPct, cambios) {
+  const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
+  if (consolidado) {
+    const dres = consolidado.sites.map(siteId =>
+      computeDRE(statusUnidades[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId), ipcaAnualPct, cambios)
+    );
+    const dfcs = consolidado.sites.map((siteId, i) =>
+      computeDFC(statusUnidades[siteId] || emptyFormData(siteId), dres[i], referenciaDaUnidade(siteId), ipcaAnualPct)
+    );
+    return { dre: somarDRE(dres[0], dres[1]), dfc: somarDFC(dfcs[0], dfcs[1]) };
+  }
+  const d = statusUnidades[unidadeId] || emptyFormData(unidadeId);
+  const dre = dreDaUnidade(d, unidadeId, ipcaAnualPct, cambios);
+  const dfc = dfcDaUnidade(d, dre, unidadeId, ipcaAnualPct, cambios);
+  return { dre, dfc };
+}
+
 // ---------------------------------------------------------------------------
 // Fluxo de Caixa Indireto mensal, partindo do EBITDA — para a Revisão, Análise e Envio.
 // FC Operacional: EBITDA mensal - IRCSL proporcional + variação de capital de
@@ -10024,9 +10058,9 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
   const cambios = cambiosDePremissas(premissasMacro);
 
   const totalGrupo = UNIDADES_PARA_TOTAL_GRUPO.reduce((acc, u) => {
-    const d = statusUnidades[u.id];
-    if (!d) return acc;
-    const t = dreDaUnidade(d, u.id, ipcaAnualPct, cambios);
+    // 'agricola'/'resorts' somam sempre ao vivo dos sites — ver nota
+    // completa em dreEDfcGrupoUnidade (bug de 2026-08-30).
+    const { dre: t } = dreEDfcGrupoUnidade(statusUnidades, u.id, ipcaAnualPct, cambios);
     return {
       receitaLiquida: acc.receitaLiquida + t.receitaLiquida,
       ebitda: acc.ebitda + t.ebitda,
@@ -10221,10 +10255,11 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct,
   const porUnidadeDRE = {};
   const porUnidadeDFC = {};
   UNIDADES_PARA_TOTAL_GRUPO.forEach(u => {
-    const d = statusUnidades[u.id] || emptyFormData(u.id);
-    const t = dreDaUnidade(d, u.id, ipcaAnualPct, cambios);
+    // 'agricola'/'resorts' somam sempre ao vivo dos sites — ver nota
+    // completa em dreEDfcGrupoUnidade (bug de 2026-08-30).
+    const { dre: t, dfc } = dreEDfcGrupoUnidade(statusUnidades, u.id, ipcaAnualPct, cambios);
     porUnidadeDRE[u.id] = t;
-    porUnidadeDFC[u.id] = dfcDaUnidade(d, t, u.id, ipcaAnualPct, cambios);
+    porUnidadeDFC[u.id] = dfc;
   });
   const grupoDRE = agregarDRE(Object.values(porUnidadeDRE));
   const grupoDFC = agregarDFC(Object.values(porUnidadeDFC));
