@@ -2688,7 +2688,32 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const ebitdaMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m] - despesasSemDAmes[m]);
 
-  const ircslMes = MESES.map(() => dre.ircsl / 12);
+  // depreciacaoMes/resultadoFinanceiroMes/outrasMes/ebtMes precisam vir
+  // antes de ircslMes (movidos pra cá em 2026-08-30 — antes ficavam lá
+  // embaixo, depois de fcOperacionalMes já ter usado ircslMes, então o
+  // IRCSL nunca tinha como saber o EBT de cada mês).
+  const depreciacaoMes = MESES.map((_, m) => linhasCustos.reduce((acc, [chave, linha]) => {
+    const [ccCodigo, contaCodigo] = chave.split('|');
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+    const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
+    if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
+    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+  }, 0));
+  const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
+  const outrasMes = MESES.map((_, m) => parseNum(data.resultado.outrasReceitasDespesas?.[m]));
+  const ebtMes = MESES.map((_, m) => ebitdaMes[m] - depreciacaoMes[m] + resultadoFinanceiroMes[m] + outrasMes[m]);
+
+  // Bug corrigido em 2026-08-30 ("IRCSL calculado mesmo sem apresentar
+  // receita"): antes, dre.ircsl (o total anual — calculado sobre o EBT
+  // ANUAL, ver computeDRE) era simplesmente dividido por 12 e aplicado
+  // igual em todo mês, aparecendo até em meses com EBT zero ou negativo
+  // (ex.: toda a receita do ano concentrada em Janeiro). Agora o mesmo
+  // total anual é distribuído só pelos meses com EBT positivo,
+  // proporcionalmente ao EBT de cada um — mês sem lucro não carrega
+  // IRCSL, e a soma do ano continua batendo exatamente com dre.ircsl
+  // (nenhuma tela que só lê o total anual muda de valor).
+  const somaEbtPositivoMes = ebtMes.reduce((acc, v) => acc + Math.max(v, 0), 0);
+  const ircslMes = MESES.map((_, m) => somaEbtPositivoMes > 0 ? dre.ircsl * (Math.max(ebtMes[m], 0) / somaEbtPositivoMes) : 0);
 
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
@@ -2737,16 +2762,6 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 
   const lucroBrutoMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m]);
   const deducoesMes = MESES.map((_, m) => receitaBrutaMes[m] - receitaLiquidaMes[m]);
-  const depreciacaoMes = MESES.map((_, m) => linhasCustos.reduce((acc, [chave, linha]) => {
-    const [ccCodigo, contaCodigo] = chave.split('|');
-    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
-    const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-    if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
-    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
-  }, 0));
-  const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
-  const outrasMes = MESES.map((_, m) => parseNum(data.resultado.outrasReceitasDespesas?.[m]));
-  const ebtMes = MESES.map((_, m) => ebitdaMes[m] - depreciacaoMes[m] + resultadoFinanceiroMes[m] + outrasMes[m]);
   const lucroLiquidoMes = MESES.map((_, m) => ebtMes[m] - ircslMes[m]);
 
   const variacaoCaixaMes = MESES.map((_, m) => fcOperacionalMes[m] + fcInvestimentoMes[m] + fcFinanciamentoMes[m]);
@@ -2841,7 +2856,15 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
     return cpvSemPessoalMes[m] + (estoqueMes[m] - estAnt) - (apMes[m] - apAnt);
   });
   const pagamentosDespesasMes = despesasCaixaSemPessoalMes;
-  const ircslMes = MESES.map(() => dre.ircsl / 12);
+  // Bug corrigido em 2026-08-30 ("IRCSL calculado mesmo sem apresentar
+  // receita") — mesmo racional do método Indireto (ver
+  // computeFluxoIndiretoMensal): não dividir dre.ircsl (total anual) por
+  // 12 igual em todo mês, senão aparece IRCSL até em mês sem lucro.
+  // Reaproveita o ircslMes já calculado (proporcional ao EBT positivo de
+  // cada mês) do método Indireto, em vez de duplicar a lógica — os dois
+  // métodos já são descritos como "duas leituras do mesmo número" (ver
+  // nota no topo desta função).
+  const ircslMes = computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct).ircslMes;
 
   // "Deixe a opção de incluir manualmente algum pagamento" (pedido de
   // 2026-08-16) — plano de contas fixo (ver PLANO_CONTAS_PAGAMENTOS_TEXTIL,

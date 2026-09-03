@@ -661,7 +661,25 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
   const ebitdaMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m] - despesasSemDAmes[m]);
 
-  const ircslMes = MESES.map(() => dre.ircsl / 12);
+  // depreciacaoMes/resultadoFinanceiroMes/outrasMes/ebtMes precisam vir
+  // antes de ircslMes — espelho de frontend/src/OrcamentoARA.jsx (ver nota
+  // completa lá, bug de 2026-08-30 "IRCSL calculado mesmo sem receita").
+  const depreciacaoMes = MESES.map((_, m) => linhasCustos.reduce((acc, [chave, linha]) => {
+    const [ccCodigo, contaCodigo] = chave.split('|');
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+    const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
+    if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
+    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+  }, 0));
+  const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
+  const outrasMes = MESES.map((_, m) => parseNum(data.resultado.outrasReceitasDespesas?.[m]));
+  const ebtMes = MESES.map((_, m) => ebitdaMes[m] - depreciacaoMes[m] + resultadoFinanceiroMes[m] + outrasMes[m]);
+
+  // dre.ircsl (total anual) distribuído só pelos meses com EBT positivo,
+  // proporcionalmente — não mais dividido igual por 12 (aparecia até em
+  // mês sem lucro). Soma do ano continua batendo com dre.ircsl.
+  const somaEbtPositivoMes = ebtMes.reduce((acc, v) => acc + Math.max(v, 0), 0);
+  const ircslMes = MESES.map((_, m) => somaEbtPositivoMes > 0 ? dre.ircsl * (Math.max(ebtMes[m], 0) / somaEbtPositivoMes) : 0);
 
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
@@ -706,16 +724,6 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 
   const lucroBrutoMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m]);
   const deducoesMes = MESES.map((_, m) => receitaBrutaMes[m] - receitaLiquidaMes[m]);
-  const depreciacaoMes = MESES.map((_, m) => linhasCustos.reduce((acc, [chave, linha]) => {
-    const [ccCodigo, contaCodigo] = chave.split('|');
-    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
-    const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-    if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
-    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
-  }, 0));
-  const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
-  const outrasMes = MESES.map((_, m) => parseNum(data.resultado.outrasReceitasDespesas?.[m]));
-  const ebtMes = MESES.map((_, m) => ebitdaMes[m] - depreciacaoMes[m] + resultadoFinanceiroMes[m] + outrasMes[m]);
   const lucroLiquidoMes = MESES.map((_, m) => ebtMes[m] - ircslMes[m]);
 
   const variacaoCaixaMes = MESES.map((_, m) => fcOperacionalMes[m] + fcInvestimentoMes[m] + fcFinanciamentoMes[m]);
@@ -801,7 +809,10 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
     return cpvSemPessoalMes[m] + (estoqueMes[m] - estAnt) - (apMes[m] - apAnt);
   });
   const pagamentosDespesasMes = despesasCaixaSemPessoalMes;
-  const ircslMes = MESES.map(() => dre.ircsl / 12);
+  // Bug de 2026-08-30 ("IRCSL calculado mesmo sem receita") — espelho de
+  // frontend/src/OrcamentoARA.jsx: reaproveita o ircslMes já ponderado por
+  // EBT positivo do método Indireto, em vez de dividir dre.ircsl por 12.
+  const ircslMes = computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct).ircslMes;
 
   // "Deixe a opção de incluir manualmente algum pagamento" (pedido de
   // 2026-08-16) — plano de contas fixo (Rateio Administrativo, Matéria-Prima
