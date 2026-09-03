@@ -6110,6 +6110,20 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
     { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
     { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
   ];
+  // Bridge 2027 vs 2026 (pedido de 2026-08-30) — ver nota completa em
+  // AbaRevisao sobre a fonte de dado de 2026 ainda pendente.
+  const EBITDA_2026 = 0; // TODO: substituir pela fonte real de EBITDA 2026
+  const FCO_2026 = 0; // TODO: substituir pela fonte real de FCO 2026
+  const bridgeEbitda2027vs2026 = [
+    { label: 'EBITDA 2026', valor: EBITDA_2026, tipo: 'inicio' },
+    { label: 'Variação', valor: dre.ebitda - EBITDA_2026, tipo: 'incremento' },
+    { label: 'EBITDA 2027', valor: dre.ebitda, tipo: 'total' },
+  ];
+  const bridgeFco2027vs2026 = [
+    { label: 'FCO 2026', valor: FCO_2026, tipo: 'inicio' },
+    { label: 'Variação', valor: totalFcOperacional - FCO_2026, tipo: 'incremento' },
+    { label: 'FCO 2027', valor: totalFcOperacional, tipo: 'total' },
+  ];
 
   async function handleEnviar() {
     setEnviando(true);
@@ -6181,14 +6195,24 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
         <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
       </div>
 
+      {/* 4 gráficos de Bridge (pedido de 2026-08-30) — ver nota completa em
+          AbaRevisao. */}
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', margin: '18px 0' }}>
         <div style={{ flex: '1 1 320px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge — Receita até EBITDA</div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
           <GraficoBridge etapas={bridgeReceitaEbitda} />
         </div>
         <div style={{ flex: '1 1 320px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge — EBITDA até FCO</div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — EBITDA</div>
+          <GraficoBridge etapas={bridgeEbitda2027vs2026} />
+        </div>
+        <div style={{ flex: '1 1 320px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
           <GraficoBridge etapas={bridgeEbitdaFco} />
+        </div>
+        <div style={{ flex: '1 1 320px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — FCO</div>
+          <GraficoBridge etapas={bridgeFco2027vs2026} />
         </div>
       </div>
 
@@ -6362,6 +6386,20 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
     { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
     { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
   ];
+  // Bridge 2027 vs 2026 (pedido de 2026-08-30) — ver nota completa em
+  // AbaRevisao sobre a fonte de dado de 2026 ainda pendente.
+  const EBITDA_2026 = 0; // TODO: substituir pela fonte real de EBITDA 2026
+  const FCO_2026 = 0; // TODO: substituir pela fonte real de FCO 2026
+  const bridgeEbitda2027vs2026 = [
+    { label: 'EBITDA 2026', valor: EBITDA_2026, tipo: 'inicio' },
+    { label: 'Variação', valor: dre.ebitda - EBITDA_2026, tipo: 'incremento' },
+    { label: 'EBITDA 2027', valor: dre.ebitda, tipo: 'total' },
+  ];
+  const bridgeFco2027vs2026 = [
+    { label: 'FCO 2026', valor: FCO_2026, tipo: 'inicio' },
+    { label: 'Variação', valor: totalFcOperacional - FCO_2026, tipo: 'incremento' },
+    { label: 'FCO 2027', valor: totalFcOperacional, tipo: 'total' },
+  ];
 
   async function handleEnviar() {
     setEnviando(true);
@@ -6429,14 +6467,24 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
         <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
       </div>
 
+      {/* 4 gráficos de Bridge (pedido de 2026-08-30) — ver nota completa em
+          AbaRevisao. */}
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', margin: '18px 0' }}>
         <div style={{ flex: '1 1 320px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge — Receita até EBITDA</div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
           <GraficoBridge etapas={bridgeReceitaEbitda} />
         </div>
         <div style={{ flex: '1 1 320px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge — EBITDA até FCO</div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — EBITDA</div>
+          <GraficoBridge etapas={bridgeEbitda2027vs2026} />
+        </div>
+        <div style={{ flex: '1 1 320px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
           <GraficoBridge etapas={bridgeEbitdaFco} />
+        </div>
+        <div style={{ flex: '1 1 320px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — FCO</div>
+          <GraficoBridge etapas={bridgeFco2027vs2026} />
         </div>
       </div>
 
@@ -9799,6 +9847,23 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
     { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
     { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
   ];
+  // Bridge 2027 vs 2026 (pedido de 2026-08-30) — EBITDA/FCO de 2026 ainda
+  // sem fonte de dado definida (o app só tem referência de Receita/Volume/
+  // Preço de 2026 — REFERENCIA_2026_*, não Custos/Despesas/FCO de 2026)
+  // — fica em R$0 até o FP&A trazer essa planilha. Estrutura já pronta
+  // pra receber o valor real depois, só trocar EBITDA_2026/FCO_2026.
+  const EBITDA_2026 = 0; // TODO: substituir pela fonte real de EBITDA 2026
+  const FCO_2026 = 0; // TODO: substituir pela fonte real de FCO 2026
+  const bridgeEbitda2027vs2026 = [
+    { label: 'EBITDA 2026', valor: EBITDA_2026, tipo: 'inicio' },
+    { label: 'Variação', valor: dre.ebitda - EBITDA_2026, tipo: 'incremento' },
+    { label: 'EBITDA 2027', valor: dre.ebitda, tipo: 'total' },
+  ];
+  const bridgeFco2027vs2026 = [
+    { label: 'FCO 2026', valor: FCO_2026, tipo: 'inicio' },
+    { label: 'Variação', valor: totalFcOperacional - FCO_2026, tipo: 'incremento' },
+    { label: 'FCO 2027', valor: totalFcOperacional, tipo: 'total' },
+  ];
 
   return (
     <div>
@@ -9824,19 +9889,30 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
 
       {/* Ordem de 2026-08-09: DRE+gráficos -> DRE mensal -> FC Indireto mensal
           -> FC Direto mensal -> Análise de Sensibilidades -> envio. */}
-      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 20 }}>
-        <div style={{ flex: '1 1 380px' }}>
-          <CascataDRE dre={dre} ifrs18={ifrs18} />
+      <div style={{ marginBottom: 20 }}>
+        <CascataDRE dre={dre} ifrs18={ifrs18} />
+      </div>
+
+      {/* 4 gráficos de Bridge (pedido de 2026-08-30): os dois de sempre
+          (Orçamento — Receita→EBITDA e EBITDA→FCO) lado a lado com os dois
+          novos (2027 vs 2026 — EBITDA e FCO, ver nota em bridgeEbitda2027vs2026
+          sobre a fonte de dado de 2026 ainda pendente). */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
+          <GraficoBridge etapas={bridgeReceitaEbitda} />
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: '1 1 340px' }}>
-          <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge — Receita até EBITDA</div>
-            <GraficoBridge etapas={bridgeReceitaEbitda} />
-          </div>
-          <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge — EBITDA até FCO</div>
-            <GraficoBridge etapas={bridgeEbitdaFco} />
-          </div>
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — EBITDA</div>
+          <GraficoBridge etapas={bridgeEbitda2027vs2026} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
+          <GraficoBridge etapas={bridgeEbitdaFco} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — FCO</div>
+          <GraficoBridge etapas={bridgeFco2027vs2026} />
         </div>
       </div>
 
