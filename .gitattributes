@@ -1,0 +1,5 @@
+# Scripts de shell sempre com quebra de linha LF, mesmo em checkout no
+# Windows — um backup.sh salvo com CRLF quebra dentro do container Linux
+# (ghcr.io/.../postgres:18-alpine, ver backup/Dockerfile) com erro tipo
+# "$'\r': command not found".
+*.sh text eol=lf
