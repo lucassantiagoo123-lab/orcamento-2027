@@ -3121,21 +3121,10 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     detalhe: linhasComValorSemJustificativa.length === 0 ? 'Justificativa preenchida em todas as linhas com valor' : `${linhasComValorSemJustificativa.length} linha(s) com valor e sem justificativa`,
   });
 
-  // Descrição obrigatória (2026-08-23, pedido: "nenhuma descrição de conta
-  // analítica pode ser opcional, é obrigatória") — mesmo racional da
-  // justificativa acima: obrigatória a partir do momento que a sublinha
-  // tem valor lançado (sublinha 100% vazia, ainda não tocada pelo gestor,
-  // não é cobrada — evita acender aviso em toda conta intocada do plano).
-  const linhasComValorSemDescricao = linhasCustos.filter(([, contaRaw]) =>
-    normalizarConta(contaRaw).sublinhas.some(sub =>
-      valorLinhaAnual(sub, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0 && !(sub.descricao || '').trim()
-    )
-  );
-  checks.push({
-    label: 'Toda linha analítica com valor lançado tem descrição preenchida',
-    ok: linhasComValorSemDescricao.length === 0,
-    detalhe: linhasComValorSemDescricao.length === 0 ? 'Descrição preenchida em todas as linhas com valor' : `${linhasComValorSemDescricao.length} linha(s) com valor e sem descrição`,
-  });
+  // Descrição obrigatória — revertido em 2026-08-31 (pedido: "desconsidere
+  // o campo como obrigatório para todas as unidades... deixe o campo, mas
+  // não precisa ser por fornecedor"). Tinha sido adicionado em 2026-08-23,
+  // ver histórico do commit se precisar recuperar.
 
   const inadMensal = (data.provisoes.inadimplencia || []).map(parseNum);
   const inadForaFaixa = inadMensal.some(v => v < 0 || v > 100);
@@ -7449,7 +7438,7 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onU
               <div style={{ marginBottom: 8, maxWidth: 300 }}>
                 <CampoTexto
                   value={sub.descricao} onChange={v => onUpdateSublinha(sub.id, 'descricao', v)}
-                  placeholder="Descrição (obrigatória — ex.: nome do fornecedor)" erro={!(sub.descricao || '').trim()}
+                  placeholder="Descrição (opcional)"
                 />
               </div>
               <LinhaSublinha
