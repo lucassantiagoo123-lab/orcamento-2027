@@ -470,9 +470,12 @@ const PACOTES_TEXTIL = [
   { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Matriz_Governanca_OBZ_2027_4 (11 contas)' },
   { id: 'comercial', nome: "Comercial e Marketing", ref: 'Matriz_Governanca_OBZ_2027_4 (2 contas)' },
   { id: 'viagens', nome: "Viagens", ref: 'Matriz_Governanca_OBZ_2027_4 (3 contas)' },
-  { id: 'locacao_utilidades', nome: "Locação, Ocupação e Utilidades", ref: 'Matriz_Governanca_OBZ_2027_4 (17 contas)' },
+  // Nomenclatura padronizada em 2026-08-31 (pedido: "padronizar as
+  // nomenclaturas dos pacotes") para bater com Agrícola/Resorts — só
+  // troca de id/nome, nenhuma conta muda de pacote.
+  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Matriz_Governanca_OBZ_2027_4 (17 contas)' },
   { id: 'depreciacao', nome: "Depreciação e Amortização", ref: 'Matriz_Governanca_OBZ_2027_4 (10 contas)' },
-  { id: 'administrativo', nome: "Administrativo", ref: 'Matriz_Governanca_OBZ_2027_4 (43 contas)' },
+  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Matriz_Governanca_OBZ_2027_4 (43 contas)' },
   { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Matriz_Governanca_OBZ_2027_4 (5 contas)' },
 ];
 
@@ -584,7 +587,7 @@ const PLANO_CONTAS = {
     { codigo: '34104020', nome: "DESPESAS COM VIAGENS", origem: 'Despesa' },
     { codigo: '34202018', nome: "DESPESAS COM VIAGENS", origem: 'Despesa' },
   ],
-  locacao_utilidades: [
+  locacao: [
     { codigo: '71102027', nome: "ALUGUEL", origem: 'Custo' },
     { codigo: '71102032', nome: "LOCACAO DE MAQUINAS E EQUIPAMENTOS", origem: 'Custo' },
     { codigo: '34104019', nome: "LOCACAO DE PESSOA FISICA", origem: 'Despesa' },
@@ -615,7 +618,7 @@ const PLANO_CONTAS = {
     { codigo: '34202020', nome: "PIS / COFINS SOBRE A DEPRECIACAO", origem: 'Despesa' },
     { codigo: '34202024', nome: "ENCARGOS DE DEPRECIACAO -CUSTO ATRIBUIDO", origem: 'Despesa' },
   ],
-  administrativo: [
+  administrativo_utilidades: [
     { codigo: '71101018', nome: "ALIMENTACAO", origem: 'Custo' },
     { codigo: '71102005', nome: "MATERIAL DE USO E CONSUMO", origem: 'Custo' },
     { codigo: '71102006', nome: "REFEICOES", origem: 'Custo' },
@@ -1402,8 +1405,9 @@ const CONTAS_REFERENCIA_CORPORATIVO = [
 export const PACOTES_CORPORATIVO = [
   { id: 'pessoal', nome: "Pessoal", ref: 'Base_Corporativo.xlsx (3 contas)' },
   { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Base_Corporativo.xlsx (3 contas)' },
-  { id: 'locacao_utilidades', nome: "Locação, Ocupação e Utilidades", ref: 'Base_Corporativo.xlsx (4 contas)' },
-  { id: 'administrativo', nome: "Administrativo", ref: 'Base_Corporativo.xlsx (6 contas)' },
+  // Nomenclatura padronizada em 2026-08-31 — ver nota igual em PACOTES_TEXTIL.
+  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Base_Corporativo.xlsx (4 contas)' },
+  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Base_Corporativo.xlsx (6 contas)' },
   { id: 'manutencao', nome: "Manutenção", ref: 'Base_Corporativo.xlsx (1 conta)' },
   { id: 'comercial', nome: "Comercial e Marketing", ref: 'Base_Corporativo.xlsx (1 conta)' },
   { id: 'viagens', nome: "Viagens", ref: 'Base_Corporativo.xlsx (2 contas)' },
@@ -1430,13 +1434,13 @@ export const PLANO_CONTAS_CORPORATIVO = {
     { codigo: 'CORP04', nome: "Projetos", origem: 'Despesa' },
     { codigo: 'CORP08', nome: "Honorários Advocatícios", origem: 'Despesa' },
   ],
-  locacao_utilidades: [
+  locacao: [
     { codigo: 'CORP05', nome: "Aluguel e Condomínio", origem: 'Despesa' },
     { codigo: 'CORP09', nome: "Telefonia e Internet", origem: 'Despesa' },
     { codigo: 'CORP10', nome: "Locação de Software", origem: 'Despesa' },
     { codigo: 'CORP20', nome: "Locação de equipamentos", origem: 'Despesa' },
   ],
-  administrativo: [
+  administrativo_utilidades: [
     { codigo: 'CORP06', nome: "Material de expediente", origem: 'Despesa' },
     { codigo: 'CORP11', nome: "Material de Informática", origem: 'Despesa' },
     { codigo: 'CORP15', nome: "Eventos e Confraternizações", origem: 'Despesa' },

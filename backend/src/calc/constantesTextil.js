@@ -60,9 +60,10 @@ export const PACOTES_TEXTIL = [
   { id: 'servicos', nome: 'Serviços de Terceiros', ref: 'Matriz_Governanca_OBZ_2027_4 (11 contas)' },
   { id: 'comercial', nome: 'Comercial e Marketing', ref: 'Matriz_Governanca_OBZ_2027_4 (2 contas)' },
   { id: 'viagens', nome: 'Viagens', ref: 'Matriz_Governanca_OBZ_2027_4 (3 contas)' },
-  { id: 'locacao_utilidades', nome: 'Locação, Ocupação e Utilidades', ref: 'Matriz_Governanca_OBZ_2027_4 (17 contas)' },
+  // Nomenclatura padronizada em 2026-08-31 — espelho de frontend/src/OrcamentoARA.jsx.
+  { id: 'locacao', nome: 'Locação e Ocupação', ref: 'Matriz_Governanca_OBZ_2027_4 (17 contas)' },
   { id: 'depreciacao', nome: 'Depreciação e Amortização', ref: 'Matriz_Governanca_OBZ_2027_4 (10 contas)' },
-  { id: 'administrativo', nome: 'Administrativo', ref: 'Matriz_Governanca_OBZ_2027_4 (43 contas)' },
+  { id: 'administrativo_utilidades', nome: 'Administrativo e Utilidades', ref: 'Matriz_Governanca_OBZ_2027_4 (43 contas)' },
   { id: 'impostos', nome: 'Impostos Indiretos e Diretos', ref: 'Matriz_Governanca_OBZ_2027_4 (5 contas)' },
 ];
 
@@ -175,7 +176,7 @@ export const PLANO_CONTAS = {
     { codigo: '34104020', nome: 'DESPESAS COM VIAGENS', origem: 'Despesa' },
     { codigo: '34202018', nome: 'DESPESAS COM VIAGENS', origem: 'Despesa' },
   ],
-  locacao_utilidades: [
+  locacao: [
     { codigo: '71102027', nome: 'ALUGUEL', origem: 'Custo' },
     { codigo: '71102032', nome: 'LOCACAO DE MAQUINAS E EQUIPAMENTOS', origem: 'Custo' },
     { codigo: '34104019', nome: 'LOCACAO DE PESSOA FISICA', origem: 'Despesa' },
@@ -206,7 +207,7 @@ export const PLANO_CONTAS = {
     { codigo: '34202020', nome: 'PIS / COFINS SOBRE A DEPRECIACAO', origem: 'Despesa' },
     { codigo: '34202024', nome: 'ENCARGOS DE DEPRECIACAO -CUSTO ATRIBUIDO', origem: 'Despesa' },
   ],
-  administrativo: [
+  administrativo_utilidades: [
     { codigo: '71101018', nome: 'ALIMENTACAO', origem: 'Custo' },
     { codigo: '71102005', nome: 'MATERIAL DE USO E CONSUMO', origem: 'Custo' },
     { codigo: '71102006', nome: 'REFEICOES', origem: 'Custo' },

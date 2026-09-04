@@ -732,8 +732,9 @@ export const CCS_CORPORATIVO = [
 export const PACOTES_CORPORATIVO = [
   { id: 'pessoal', nome: "Pessoal", ref: 'Base_Corporativo.xlsx (3 contas)' },
   { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Base_Corporativo.xlsx (3 contas)' },
-  { id: 'locacao_utilidades', nome: "Locação, Ocupação e Utilidades", ref: 'Base_Corporativo.xlsx (4 contas)' },
-  { id: 'administrativo', nome: "Administrativo", ref: 'Base_Corporativo.xlsx (6 contas)' },
+  // Nomenclatura padronizada em 2026-08-31 — espelho de frontend/src/OrcamentoARA.jsx.
+  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Base_Corporativo.xlsx (4 contas)' },
+  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Base_Corporativo.xlsx (6 contas)' },
   { id: 'manutencao', nome: "Manutenção", ref: 'Base_Corporativo.xlsx (1 conta)' },
   { id: 'comercial', nome: "Comercial e Marketing", ref: 'Base_Corporativo.xlsx (1 conta)' },
   { id: 'viagens', nome: "Viagens", ref: 'Base_Corporativo.xlsx (2 contas)' },
@@ -754,13 +755,13 @@ export const PLANO_CONTAS_CORPORATIVO = {
     { codigo: 'CORP04', nome: "Projetos", origem: 'Despesa' },
     { codigo: 'CORP08', nome: "Honorários Advocatícios", origem: 'Despesa' },
   ],
-  locacao_utilidades: [
+  locacao: [
     { codigo: 'CORP05', nome: "Aluguel e Condomínio", origem: 'Despesa' },
     { codigo: 'CORP09', nome: "Telefonia e Internet", origem: 'Despesa' },
     { codigo: 'CORP10', nome: "Locação de Software", origem: 'Despesa' },
     { codigo: 'CORP20', nome: "Locação de equipamentos", origem: 'Despesa' },
   ],
-  administrativo: [
+  administrativo_utilidades: [
     { codigo: 'CORP06', nome: "Material de expediente", origem: 'Despesa' },
     { codigo: 'CORP11', nome: "Material de Informática", origem: 'Despesa' },
     { codigo: 'CORP15', nome: "Eventos e Confraternizações", origem: 'Despesa' },
