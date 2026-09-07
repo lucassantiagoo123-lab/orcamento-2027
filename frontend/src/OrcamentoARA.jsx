@@ -3282,11 +3282,11 @@ function GraficoBridge({ etapas }) {
   const passo = (W - padL - padR) / etapas.length;
   const largura = passo * 0.56;
 
+  // Sem maxWidth (removido em 2026-09-07, pedido: "gráficos [...] maior
+  // preenchendo todo o lado disponível") — viewBox preserva a proporção,
+  // então cresce até o limite do próprio container (grid/flex de quem
+  // chama), sem mais um teto fixo de 560px.
   return (
-    {/* Sem maxWidth (removido em 2026-09-07, pedido: "gráficos [...] maior
-        preenchendo todo o lado disponível") — viewBox preserva a proporção,
-        então cresce até o limite do próprio container (grid/flex de quem
-        chama), sem mais um teto fixo de 560px. */}
     <svg viewBox={`0 0 ${W} ${H}`} width="100%">
       <line x1={padL} x2={W - padR} y1={yPos(0)} y2={yPos(0)} stroke={COR.borda} strokeWidth="1" />
       {barras.slice(0, -1).map((b, i) => {
