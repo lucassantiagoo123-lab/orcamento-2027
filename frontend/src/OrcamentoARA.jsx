@@ -6521,7 +6521,7 @@ function AbaEstrategicas({ estrategicas, atualizar, premissasMacro, addObjetivo,
       />
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Premissas macroeconômicas</h4>
-      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Fixadas pelo FP&A Corporativo a partir do Boletim Focus (BCB) — somente leitura nesta visão. Referências para calibrar reajustes de preço, custo e taxas ao longo do formulário; não alimentam o cálculo automaticamente das próximas abas.</p>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Fixadas pelo FP&A Corporativo — somente leitura nesta visão. Alimentam o cálculo automaticamente ao longo do formulário (reajustes de preço, custo e taxas), conforme cada premissa for vinculada nas próximas abas.</p>
       <div style={{ overflowX: 'auto', marginBottom: 22 }}>
         <table>
           <thead>
