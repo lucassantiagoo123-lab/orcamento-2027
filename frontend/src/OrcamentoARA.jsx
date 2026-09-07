@@ -11,7 +11,7 @@ import {
   Users, Loader2, Info, Upload, FileText,
 } from 'lucide-react';
 import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi } from './api/orcamentos.js';
-import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, definirFontePremissaMacro, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
+import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
 import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
 import { logout } from './api/auth.js';
 import { ApiError } from './api/client.js';
@@ -3655,17 +3655,12 @@ export default function OrcamentoARA({ usuario }) {
     }
   }
 
-  // Só a etiqueta de "Fonte" — pedido de 2026-09-07: "mantenha a data e hora
-  // da atualização". Ao contrário de updatePremissaMacroGlobal acima, não
-  // mexe em atualizadoEm no estado local (o backend também não mexe).
-  async function definirFontePremissaMacroGlobal(id, fonte) {
-    try {
-      const p = await definirFontePremissaMacro(id, fonte);
-      setPremissasMacro(prev => prev.map(x => x.id === id ? { ...x, fonte: p.fonte } : x));
-    } catch (e) {
-      // silencioso — mesmo padrão de updatePremissaMacroGlobal
-    }
-  }
+  // definirFontePremissaMacro (PATCH /:id/fonte, troca só a etiqueta de
+  // "Fonte" sem tocar em atualizado_em) foi usado uma vez em 2026-09-07 pra
+  // aplicar as fontes padrão pedidas — a UI daquele botão foi removida logo
+  // depois ("não precisa desse botão"), mas a função/rota no backend
+  // continuam existindo (ver api/premissasMacro.js) pra um eventual ajuste
+  // pontual futuro, só não tem mais um atalho na tela.
 
   // O antigo buscarBoletimFocus (fetch direto na API do BCB a partir do
   // navegador) nunca funcionava de verdade neste ambiente — substituído em
@@ -4896,7 +4891,6 @@ export default function OrcamentoARA({ usuario }) {
           versoesDrill={versoesDrill} exportarExcel={exportarExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
           etapasProcesso={etapasProcesso} atualizarEtapa={atualizarEtapa}
           premissasMacro={premissasMacro} updatePremissaMacroGlobal={updatePremissaMacroGlobal}
-          definirFontePremissaMacroGlobal={definirFontePremissaMacroGlobal}
           abrirVersao={abrirVersao}
         />
       )}
@@ -6539,7 +6533,8 @@ function AbaEstrategicas({ estrategicas, atualizar, premissasMacro, addObjetivo,
               <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: 'left' }}>Premissa</th>
               <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: 'right', minWidth: 100 }}>Valor</th>
               <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', minWidth: 70 }}>Unidade</th>
-              <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', minWidth: 140 }}>Fonte / atualização</th>
+              <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', minWidth: 110 }}>Fonte</th>
+              <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', minWidth: 110 }}>Atualização</th>
             </tr>
           </thead>
           <tbody>
@@ -6548,7 +6543,8 @@ function AbaEstrategicas({ estrategicas, atualizar, premissasMacro, addObjetivo,
                 <td style={{ fontSize: 12, color: COR.texto, padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.nome}</td>
                 <td style={{ fontSize: 12, fontWeight: 700, color: COR.azul, padding: '6px 10px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{p.valor || '—'}</td>
                 <td style={{ fontSize: 11, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.unidade}</td>
-                <td style={{ fontSize: 10.5, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.fonte ? `${p.fonte} — ${formatData(p.atualizadoEm)}` : 'Pendente de definição'}</td>
+                <td style={{ fontSize: 10.5, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.fonte || 'Pendente de definição'}</td>
+                <td style={{ fontSize: 10.5, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.atualizadoEm ? formatData(p.atualizadoEm) : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -10370,30 +10366,9 @@ function PainelBoletimFocusPdf() {
 // Visão FP&A Corporativo
 // ---------------------------------------------------------------------------
 
-function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, definirFontePremissaMacroGlobal, abrirVersao }) {
+function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
-  const [aplicandoFontes, setAplicandoFontes] = useState(false);
-
-  // Fontes padrão das premissas macro (pedido de 2026-09-07) — mantém
-  // valor/atualizado_em como estavam, só troca a etiqueta de "Fonte" (ver
-  // definirFontePremissaMacroGlobal).
-  const FONTES_PADRAO_PREMISSAS = {
-    ipca: 'Boletim Focus', cambio: 'Boletim Focus', selic: 'Boletim Focus', pib: 'Boletim Focus',
-    cambio_eur: '1,2x USD/BRL (Paridade histórica)', cambio_gbp: '1,3x USD/BRL (Paridade histórica)',
-    reajuste_salarial: 'Estimativa Sindicato', salario_minimo: 'PLOA 2027',
-  };
-  async function aplicarFontesPadrao() {
-    setAplicandoFontes(true);
-    try {
-      for (const [id, fonte] of Object.entries(FONTES_PADRAO_PREMISSAS)) {
-        // eslint-disable-next-line no-await-in-loop
-        await definirFontePremissaMacroGlobal(id, fonte);
-      }
-    } finally {
-      setAplicandoFontes(false);
-    }
-  }
   // Mesmo racional do ipcaAnualPct no componente App — recalculado aqui
   // porque premissasMacro chega como prop, não como estado local.
   const ipcaAnualPct = premissasMacro.find(p => p.id === 'ipca')?.valor;
@@ -10442,15 +10417,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
 
       {subVisao === 'gestao' && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
-            <h3 style={{ fontSize: 14, color: COR.azul, margin: 0 }}>Premissas macroeconômicas do ciclo</h3>
-            {/* Pedido de 2026-09-07: define a coluna "Fonte / atualização" pra
-                todas as premissas de uma vez, sem mexer no valor nem na data
-                de atualização de nenhuma. */}
-            <Botao variante="secundario" icone={Info} onClick={aplicarFontesPadrao} disabled={aplicandoFontes}>
-              {aplicandoFontes ? 'Aplicando…' : 'Aplicar fontes padrão'}
-            </Botao>
-          </div>
+          <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Premissas macroeconômicas do ciclo</h3>
           <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Editáveis apenas aqui — as unidades enxergam esses valores como referência, sem poder alterá-los.</p>
           <PainelBoletimFocusPdf />
           <div style={{ overflowX: 'auto', marginBottom: 26 }}>
@@ -10460,7 +10427,8 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: 'left' }}>Premissa</th>
                   <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', minWidth: 130 }}>Valor</th>
                   <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', minWidth: 70 }}>Unidade</th>
-                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', minWidth: 160 }}>Fonte / atualização</th>
+                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', minWidth: 110 }}>Fonte</th>
+                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', minWidth: 110 }}>Atualização</th>
                 </tr>
               </thead>
               <tbody>
@@ -10471,7 +10439,8 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                       <CampoNumero value={p.valor} onChange={v => updatePremissaMacroGlobal(p.id, v)} placeholder="0,00" />
                     </td>
                     <td style={{ fontSize: 11, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.unidade}</td>
-                    <td style={{ fontSize: 10.5, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.fonte ? `${p.fonte} — ${formatData(p.atualizadoEm)}` : 'Pendente de definição'}</td>
+                    <td style={{ fontSize: 10.5, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.fonte || 'Pendente de definição'}</td>
+                    <td style={{ fontSize: 10.5, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.atualizadoEm ? formatData(p.atualizadoEm) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
