@@ -1911,22 +1911,28 @@ function receitaVazia(unidadeId) {
   }
   if (unidadeId === 'agricola' || unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') {
     return {
-      // Mercado Interno × Mercado Externo (2026-08-23, pedido: reconstruir o
-      // racional da aba "PREVISÃO DE RECEITA AJUSTADA" — separar MI/ME e,
-      // no ME, aplicar o câmbio da premissa do FP&A Corporativo como parte
-      // do cálculo). Todo produto nasce 'interno' (Volume × Preço em R$,
-      // como sempre foi); o gestor alterna pra 'externo' quando o produto é
-      // vendido em moeda estrangeira — aí o Preço passa a ser digitado na
-      // moeda (USD/EUR/GBP) e o câmbio (mesmo valor o ano inteiro, vindo da
-      // premissa macro) entra automaticamente no cálculo — ver
-      // receitaBrutaPorMes/AbaReceita. "Vendas Externas" (PRODUTOS_REF_
-      // AGRICOLA) já nasce em USD/externo, mantendo o comportamento actual.
-      produtos: PRODUTOS_REF_AGRICOLA.map(p => ({
-        id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(),
-        mercado: p.nome === 'Vendas Externas' ? 'externo' : 'interno',
-        moeda: 'usd', precoMoeda: mesesVazios(),
-      })),
-      deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
+      // Produção -> Vendas Mercado Interno/Externo (2026-09-07) — substitui
+      // o modelo anterior (Volume × Preço por produto, com câmbio por
+      // produto individual). Ver computeReceitaAgricola/AbaReceitaAgricola
+      // pro racional completo. `produtos` (PRODUTOS_REF_AGRICOLA) não é mais
+      // escrito por documento novo, mas nenhum código que já lia
+      // `data.receita.produtos` foi removido — documentos antigos (nenhum
+      // preenchido até esta data, confirmado com o usuário) continuam
+      // funcionando pelo caminho antigo até o primeiro `atualizar` neste
+      // documento criar `receita.agricola`.
+      agricola: {
+        embaladaKg: mesesVazios(),
+        refugoPct: '',
+        vendaInterna: { pctTon: mesesVazios(), precoKg: mesesVazios() },
+        vendaExterna: {
+          pctTon: mesesVazios(),
+          gbp: { pct: mesesVazios(), precoMoeda: mesesVazios() },
+          eur: { pct: mesesVazios(), precoMoeda: mesesVazios() },
+          usd: { pct: mesesVazios(), precoMoeda: mesesVazios() },
+        },
+        justificativa: '',
+      },
+      deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
     };
   }
   if (unidadeId === 'resorts' || unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa') {
@@ -2112,7 +2118,61 @@ function folhaAnualPorCC(data, ccCodigo) {
 // ver receitaVazia). Sem premissa preenchida, degrada pra câmbio 0 (receita
 // ME sai zerada até o FP&A preencher), nunca quebra — mesmo racional do
 // ipcaAnualPct em valorLinhaMes.
+// Racional de receita da ARA Agrícola (2026-09-07) — substitui o modelo
+// anterior (Volume × Preço por produto, com câmbio por produto individual,
+// ver nota acima) por uma cascata Produção -> Vendas Mercado Interno/
+// Externo: Produção Embalada (Kg, editada mês a mês) + Refugo (% ÚNICO
+// sobre a Embalada — não varia por mês, diferente de todos os outros % desta
+// cascata) = Produção Total. Cada mercado vende um % (esse sim mês a mês) da
+// Produção Total; o Mercado Externo ainda separa esse volume em 3 moedas
+// (GBP/EUR/USD), cada uma com seu próprio % mês a mês (as 3 devem somar
+// 100% do volume do Mercado Externo — só aviso visual, não trava) e seu
+// próprio preço na moeda, convertido pelo câmbio da Premissa Macro (mesmo
+// racional/mesma fonte que Mercado Externo do modelo antigo já usava).
+function computeReceitaAgricola(agricola, cambios) {
+  const embaladaKgMes = (agricola?.embaladaKg || mesesVazios()).map(parseNum);
+  const refugoPct = parseNum(agricola?.refugoPct) / 100;
+  const refugoKgMes = embaladaKgMes.map(v => v * refugoPct);
+  const producaoTotalKgMes = embaladaKgMes.map((v, m) => v + refugoKgMes[m]);
+
+  const vi = agricola?.vendaInterna || {};
+  const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => v * parseNum(vi.pctTon?.[m]) / 100);
+  const receitaInternaMes = volumeInternoKgMes.map((v, m) => v * parseNum(vi.precoKg?.[m]));
+
+  const ve = agricola?.vendaExterna || {};
+  const volumeExternoTotalKgMes = producaoTotalKgMes.map((v, m) => v * parseNum(ve.pctTon?.[m]) / 100);
+
+  function porMoeda(moedaObj, chaveCambio) {
+    const volumeKgMes = volumeExternoTotalKgMes.map((v, m) => v * parseNum(moedaObj?.pct?.[m]) / 100);
+    const taxa = parseNum(cambios?.[chaveCambio]);
+    const receitaMes = volumeKgMes.map((v, m) => v * parseNum(moedaObj?.precoMoeda?.[m]) * taxa);
+    return { volumeKgMes, receitaMes };
+  }
+  const gbp = porMoeda(ve.gbp, 'gbp');
+  const eur = porMoeda(ve.eur, 'eur');
+  const usd = porMoeda(ve.usd, 'usd');
+  const receitaExternaMes = MESES.map((_, m) => gbp.receitaMes[m] + eur.receitaMes[m] + usd.receitaMes[m]);
+
+  const receitaBrutaMes = MESES.map((_, m) => receitaInternaMes[m] + receitaExternaMes[m]);
+
+  return {
+    embaladaKgMes, refugoKgMes, producaoTotalKgMes,
+    volumeInternoKgMes, receitaInternaMes,
+    volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
+    receitaBrutaMes,
+  };
+}
+
 function receitaBrutaPorMes(data, cambios) {
+  // ARA Agrícola (2026-09-07) — ver computeReceitaAgricola acima. Detecção
+  // por presença de `receita.agricola` (não por unidadeId, que esta função
+  // não recebe): documento recém-criado, antes do primeiro `atualizar`,
+  // ainda não tem essa chave — cai no fallback de `produtos` (vazio, receita
+  // 0), o que é exatamente o esperado até o gestor começar a preencher.
+  if (data.receita.agricola) {
+    const r = computeReceitaAgricola(data.receita.agricola, cambios);
+    return { receitaBrutaMes: r.receitaBrutaMes, linhasReceitaMes: null };
+  }
   if (data.receita.linhas) {
     const linhasMes = {};
     Object.entries(data.receita.linhas).forEach(([id, linha]) => {
@@ -2147,14 +2207,17 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
 
   // Volume total (kg) por mês — só pra contas com premissaTipo
-  // 'custo_por_kg' (2026-08-20). Só o modelo `produtos` (Têxtil/Agrícola)
-  // tem Volume; unidades com `receita.linhas` (Resorts) ou sem receita
-  // (Corporativo) caem em [] e o reduce dá 0 — nunca quebra, essas
-  // unidades nem oferecem 'custo_por_kg' como opção (ver
-  // UNIDADES_COM_CUSTO_POR_KG). Volume vem em toneladas — ×1000 pra kg.
-  const volumeTotalKgMes = MESES.map((_, m) =>
-    (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000
-  );
+  // 'custo_por_kg' (2026-08-20). Modelo `produtos` (Têxtil) tem Volume em
+  // toneladas (×1000 pra kg); ARA Agrícola (2026-09-07, ver
+  // computeReceitaAgricola) já entra em kg direto e usa a Produção Total
+  // (Embalada + Refugo) — custo por kg é custo de PROCESSAR/EMBALAR, que
+  // acontece na produção, não na venda. Unidades com `receita.linhas`
+  // (Resorts) ou sem receita (Corporativo) caem em [] e o reduce dá 0 —
+  // nunca quebra, essas unidades nem oferecem 'custo_por_kg' como opção
+  // (ver UNIDADES_COM_CUSTO_POR_KG).
+  const volumeTotalKgMes = data.receita.agricola
+    ? computeReceitaAgricola(data.receita.agricola, cambios).producaoTotalKgMes
+    : MESES.map((_, m) => (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000);
 
   // Base do percentual de dedução: normalmente a receita bruta total
   // (Têxtil/Agrícola), mas uma linha pode apontar `baseLinhaIds` — soma só
@@ -2924,7 +2987,20 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   const temCcProducao = ref.ccs.some(c => c.tipo === 'producao');
 
   if (temReceita) {
-    if (data.receita.linhas) {
+    if (data.receita.agricola) {
+      // ARA Agrícola (2026-09-07) — ver computeReceitaAgricola. "Preenchida"
+      // = tem Embalada (Kg) OU alguma venda (Interna/Externa) lançada em
+      // algum mês — cobre tanto quem começou pela Produção quanto quem já
+      // tem só uma venda registrada.
+      const embaladaOk = somaMes(data.receita.agricola.embaladaKg) > 0;
+      const vendaOk = somaMes(data.receita.agricola.vendaInterna?.pctTon) > 0
+        || somaMes(data.receita.agricola.vendaExterna?.pctTon) > 0;
+      checks.push({
+        label: 'Receita: Produção (Embalada) e Vendas (Interno/Externo) com valor lançado',
+        ok: embaladaOk && vendaOk,
+        detalhe: embaladaOk && vendaOk ? 'Preenchida' : 'Pendente de preenchimento',
+      });
+    } else if (data.receita.linhas) {
       // Mesma normalização de premissaTipo de receitaBrutaPorMes — ver
       // tipoLinhaReceitaResorts (bug de 2026-08-30).
       const linhasReceitaValidas = Object.entries(data.receita.linhas)
@@ -3044,7 +3120,20 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     obrigatorio: false,
   });
 
-  const valoresNegativos = (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
+  // ARA Agrícola (2026-09-07): checa negativo em todos os arrays mensais da
+  // cascata (embaladaKg, refugoPct é um único valor — checado à parte).
+  const algumNegativo = arr => (arr || []).some(v => parseNum(v) < 0);
+  const agricolaTemNegativo = (() => {
+    const ag = data.receita.agricola;
+    if (!ag) return false;
+    const ve = ag.vendaExterna || {};
+    return algumNegativo(ag.embaladaKg) || parseNum(ag.refugoPct) < 0
+      || algumNegativo(ag.vendaInterna?.pctTon) || algumNegativo(ag.vendaInterna?.precoKg)
+      || algumNegativo(ve.pctTon)
+      || ['gbp', 'eur', 'usd'].some(m => algumNegativo(ve[m]?.pct) || algumNegativo(ve[m]?.precoMoeda));
+  })();
+  const valoresNegativos = agricolaTemNegativo
+    || (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
     || Object.values(data.custos.linhas || {}).some(linha => contaTemNegativo(linha));
   checks.push({
     label: 'Nenhum valor negativo em receita ou custos/despesas',
@@ -5314,6 +5403,17 @@ function VisaoGerente(props) {
               deducoesJustificativa={dados.receita.deducoesJustificativa} justificativaGeral={dados.receita.justificativaGeral}
               atualizar={atualizar} dre={dre}
             />
+          ) : FAMILIA_AGRICOLA.includes(unidadeAtual) ? (
+            // Pedido de 2026-09-07: cascata Produção -> Vendas Mercado
+            // Interno/Externo, substitui o antigo modelo de produtos pra
+            // Agrícola. Checagem por unidadeId (não por presença de
+            // dados.receita.agricola) porque um documento recém-criado
+            // ainda não tem essa chave — ver nota em receitaBrutaPorMes.
+            <AbaReceitaAgricola
+              agricola={dados.receita.agricola} deducoes={dados.receita.deducoes}
+              deducoesJustificativa={dados.receita.deducoesJustificativa} justificativaGeral={dados.receita.justificativaGeral}
+              atualizar={atualizar} dre={dre} cambios={cambios}
+            />
           ) : (
             <AbaReceita
               unidadeId={unidadeAtual}
@@ -5633,6 +5733,50 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
 // pra leitura não valeria o risco de divergir do cálculo real.
 function ReceitaLeituraVersao({ dados, cambios }) {
   const receita = dados.receita || {};
+  // ARA Agrícola (2026-09-07) — cascata Produção -> Vendas, ver
+  // computeReceitaAgricola. Mesmo estilo genérico de tabela mensal já usado
+  // abaixo pra `receita.linhas` (Resorts) — dump de cada série calculada,
+  // sem reconstruir a UI de edição inteira aqui (é só leitura de versão enviada).
+  if (receita.agricola) {
+    const r = computeReceitaAgricola(receita.agricola, cambios);
+    const linha = (label, arr, fmt) => <LinhaCalculadaMensal key={label} label={label} valoresMensal={arr} formatarCelula={fmt || formatarQtdLeitura} />;
+    return (
+      <div>
+        <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Produção → Vendas Mercado Interno/Externo</h4>
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <CabecalhoMensalLeitura />
+            <tbody>
+              {linha('Embalada (Kg)', r.embaladaKgMes)}
+              {linha(`Refugo (Kg) — ${parseNum(receita.agricola.refugoPct).toLocaleString('pt-BR')}%`, r.refugoKgMes)}
+              {linha('Produção Total (Kg)', r.producaoTotalKgMes)}
+              {linha('Volume Mercado Interno (Kg)', r.volumeInternoKgMes)}
+              {linha('Preço Interno (R$/Kg)', (receita.agricola.vendaInterna?.precoKg || mesesVazios()).map(parseNum), formatBRL)}
+              {linha('Receita Mercado Interno (R$)', r.receitaInternaMes, formatBRL)}
+              {linha('Volume Mercado Externo (Kg)', r.volumeExternoTotalKgMes)}
+              {['gbp', 'eur', 'usd'].map(m => linha(`Receita ${m.toUpperCase()} (R$)`, r[m].receitaMes, formatBRL))}
+              {linha('Receita Mercado Externo (R$)', r.receitaExternaMes, formatBRL)}
+            </tbody>
+          </table>
+        </div>
+        {(receita.deducoes || []).length > 0 && (
+          <>
+            <h4 style={{ fontSize: 12.5, color: COR.azul, marginTop: 12, marginBottom: 8 }}>Deduções sobre a receita</h4>
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <CabecalhoMensalLeitura />
+                <tbody>
+                  {receita.deducoes.map(d => (
+                    <LinhaCalculadaMensal key={d.id} label={d.nome} valoresMensal={(d.pcts || mesesVazios()).map(parseNum)} formatarCelula={formatarPctLeitura} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
   if (Array.isArray(receita.produtos) && receita.produtos.length > 0) {
     return (
       <div>
@@ -6811,6 +6955,201 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
           ...(mostrarReferenciaTextil ? [
             { key: 'receitaLiquida2026', label: 'Receita Líquida 2026 (referência, R$)', valoresMensal: REFERENCIA_2026_TEXTIL.receitaLiquida, totalValor: REFERENCIA_2026_TEXTIL.receitaLiquida.reduce((a, v) => a + v, 0), cor: '#8A8F96' },
           ] : []),
+        ]}
+      />
+
+      <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
+        <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
+        <CardTotal label="Deduções" valor={-dre.deducoes} cor={COR.vermelho} />
+        <CardTotal label="Receita líquida" valor={dre.receitaLiquida} cor={COR.verde} />
+      </div>
+    </div>
+  );
+}
+
+// Racional de receita da ARA Agrícola (2026-09-07) — cascata Produção ->
+// Vendas Mercado Interno/Externo, substitui o antigo modelo Volume × Preço
+// por produto (que continua existindo como AbaReceita/receita.produtos,
+// só não é mais usado pela Agrícola — ver receitaVazia/receitaBrutaPorMes).
+// Reaproveita computeReceitaAgricola (a mesma função que
+// receitaBrutaPorMes/computeDRE já chamam) — esta tela só espelha esses
+// números, nunca recalcula em paralelo.
+const AGRICOLA_VAZIA_PADRAO = {
+  embaladaKg: mesesVazios(), refugoPct: '',
+  vendaInterna: { pctTon: mesesVazios(), precoKg: mesesVazios() },
+  vendaExterna: {
+    pctTon: mesesVazios(),
+    gbp: { pct: mesesVazios(), precoMoeda: mesesVazios() },
+    eur: { pct: mesesVazios(), precoMoeda: mesesVazios() },
+    usd: { pct: mesesVazios(), precoMoeda: mesesVazios() },
+  },
+  justificativa: '',
+};
+const FMT_KG = { formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg', formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg' };
+
+function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justificativaGeral, atualizar, dre, cambios }) {
+  const ag = agricola || AGRICOLA_VAZIA_PADRAO;
+  const ve = ag.vendaExterna || AGRICOLA_VAZIA_PADRAO.vendaExterna;
+  const r = computeReceitaAgricola(ag, cambios);
+
+  function atualizarAgricola(caminho, valor) {
+    atualizar(['receita', 'agricola', ...caminho], valor);
+  }
+
+  // Soma das 3 % de moeda, mês a mês — pedido: "precisam somar 100%" — só
+  // aviso visual (destaca em laranja o(s) mês(es) fora), não trava o campo.
+  const somaPctMoedaMes = MESES.map((_, m) =>
+    parseNum(ve.gbp?.pct?.[m]) + parseNum(ve.eur?.pct?.[m]) + parseNum(ve.usd?.pct?.[m])
+  );
+  const mesesForaDe100 = MESES.filter((_, m) => somaPctMoedaMes[m] !== 0 && Math.abs(somaPctMoedaMes[m] - 100) > 0.5);
+
+  function linhasMoeda(chave, label, moedaSufixo) {
+    const obj = ve[chave] || { pct: mesesVazios(), precoMoeda: mesesVazios() };
+    const dadosCalc = r[chave];
+    const taxa = parseNum(cambios?.[chave]);
+    return {
+      linhas: [
+        { key: `${chave}_pct`, label: `% ${label} do volume Mercado Externo`, valores: obj.pct },
+        { key: `${chave}_preco`, label: `Preço (${moedaSufixo}/Kg)`, valores: obj.precoMoeda },
+      ],
+      calculadas: [
+        { key: `${chave}_vol`, label: `Volume ${label} (Kg)`, valoresMensal: dadosCalc.volumeKgMes, totalValor: somaMes(dadosCalc.volumeKgMes), cor: COR.texto, ...FMT_KG },
+        { key: `${chave}_cambio`, label: `Câmbio (R$/${moedaSufixo})`, valoresMensal: MESES.map(() => taxa), totalValor: taxa, cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) },
+        { key: `${chave}_receita`, label: `Receita ${label} (R$)`, valoresMensal: dadosCalc.receitaMes, totalValor: somaMes(dadosCalc.receitaMes), cor: COR.verde },
+      ],
+    };
+  }
+  const gbpLinhas = linhasMoeda('gbp', 'GBP', 'GBP');
+  const eurLinhas = linhasMoeda('eur', 'EUR', 'EUR');
+  const usdLinhas = linhasMoeda('usd', 'USD', 'USD');
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>2. Premissas de receita — ARA Agrícola</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Cascata Produção → Vendas: a Produção Total (Embalada + Refugo) alimenta o volume vendido nos dois mercados;
+        o Mercado Externo ainda separa o volume vendido em 3 moedas (GBP/EUR/USD), cada uma convertida pelo câmbio da Premissa Macro.
+      </p>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.1 Produção</h4>
+      <TabelaMensal
+        linhas={[
+          { key: 'embaladaKg', label: 'Safra Produção — Embalada (Kg)', valores: ag.embaladaKg },
+        ]}
+        onChangeCelula={(_, mi, v) => atualizarAgricola(['embaladaKg'], atualizarArray(ag.embaladaKg, mi, v))}
+        corTotal={COR.azul}
+        colunaExtra={{ titulo: '% Refugo', chave: 'refugoInput' }}
+        linhasCalculadas={[
+          {
+            key: 'refugoKg', label: 'Safra Produção — Refugo (Kg)', valoresMensal: r.refugoKgMes, totalValor: somaMes(r.refugoKgMes), cor: COR.laranja, ...FMT_KG,
+            refugoInput: { valor: ag.refugoPct, onChange: v => atualizarAgricola(['refugoPct'], v), placeholder: '0,0' },
+          },
+          { key: 'producaoTotal', label: 'Produção — Embalada + Refugo (Kg)', valoresMensal: r.producaoTotalKgMes, totalValor: somaMes(r.producaoTotalKgMes), cor: COR.azul, ...FMT_KG },
+        ]}
+      />
+      <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 18 }}>
+        Refugo (%) é um único percentual pro ano inteiro (não varia por mês) — aplicado sobre a Embalada de cada mês.
+      </p>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.2 Vendas — Mercado Interno</h4>
+      <TabelaMensal
+        linhas={[
+          { key: 'pctTon', label: '% de Ton. vendida (Mercado Interno)', valores: ag.vendaInterna?.pctTon || mesesVazios() },
+          { key: 'precoKg', label: 'Preço (R$/Kg)', valores: ag.vendaInterna?.precoKg || mesesVazios() },
+        ]}
+        onChangeCelula={(key, mi, v) => atualizarAgricola(['vendaInterna', key], atualizarArray(ag.vendaInterna?.[key] || mesesVazios(), mi, v))}
+        corTotal={COR.verde}
+        linhasCalculadas={[
+          { key: 'volumeInterno', label: 'Volume vendido — Mercado Interno (Kg)', valoresMensal: r.volumeInternoKgMes, totalValor: somaMes(r.volumeInternoKgMes), cor: COR.texto, ...FMT_KG },
+          { key: 'receitaInterna', label: 'Receita Total Mercado Interno (R$)', valoresMensal: r.receitaInternaMes, totalValor: somaMes(r.receitaInternaMes), cor: COR.verde },
+        ]}
+      />
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>2.3 Vendas — Mercado Externo</h4>
+      <TabelaMensal
+        linhas={[
+          { key: 'pctTon', label: '% de Ton. vendida (Mercado Externo)', valores: ve.pctTon },
+          ...gbpLinhas.linhas, ...eurLinhas.linhas, ...usdLinhas.linhas,
+        ]}
+        onChangeCelula={(key, mi, v) => {
+          if (key === 'pctTon') { atualizarAgricola(['vendaExterna', 'pctTon'], atualizarArray(ve.pctTon, mi, v)); return; }
+          const [chave, campo] = key.split('_'); // ex.: 'gbp_pct' -> ['gbp','pct'], 'gbp_preco' -> ['gbp','preco']
+          const campoReal = campo === 'preco' ? 'precoMoeda' : 'pct';
+          const atual = ve[chave]?.[campoReal] || mesesVazios();
+          atualizarAgricola(['vendaExterna', chave, campoReal], atualizarArray(atual, mi, v));
+        }}
+        corTotal={COR.verde}
+        linhasCalculadas={[
+          { key: 'volumeExterno', label: 'Volume vendido — Mercado Externo (Kg)', valoresMensal: r.volumeExternoTotalKgMes, totalValor: somaMes(r.volumeExternoTotalKgMes), cor: COR.texto, ...FMT_KG },
+          ...gbpLinhas.calculadas, ...eurLinhas.calculadas, ...usdLinhas.calculadas,
+          { key: 'receitaExterna', label: 'Receita Total Mercado Externo (R$)', valoresMensal: r.receitaExternaMes, totalValor: somaMes(r.receitaExternaMes), cor: COR.verde },
+        ]}
+      />
+      <p style={{ fontSize: 10, color: mesesForaDe100.length > 0 ? COR.laranja : '#8A8F96', marginTop: -4, marginBottom: 18, fontWeight: mesesForaDe100.length > 0 ? 700 : 400 }}>
+        {mesesForaDe100.length > 0
+          ? `Atenção: % de GBP + EUR + USD não soma 100% do volume do Mercado Externo em ${mesesForaDe100.join(', ')}.`
+          : 'As 3 % (GBP/EUR/USD) devem somar 100% do volume do Mercado Externo em cada mês.'}
+      </p>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Receita Operacional Bruta — consolidado</h4>
+      <TabelaMensal
+        linhas={[]}
+        onChangeCelula={() => {}}
+        linhasCalculadas={[
+          { key: 'receitaBruta', label: 'Receita Operacional Bruta (R$)', valoresMensal: dre.receitaBrutaMes, totalValor: dre.receitaBruta, cor: COR.verde },
+        ]}
+      />
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Justificativas sobre a projeção de receita</h4>
+      <CampoJustificativa
+        value={justificativaGeral}
+        onChange={v => atualizar(['receita', 'justificativaGeral'], v)}
+        placeholder="Justificativa geral da premissa de receita (ex.: safra, sazonalidade, mix de mercados)"
+        obrigatorio
+      />
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Deduções sobre a receita</h4>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Percentual sobre a receita bruta, mês a mês.</p>
+      <TabelaMensal
+        linhas={deducoes.map(d => {
+          const valoresMensal = MESES.map((_, m) => (dre.receitaBrutaMes?.[m] || 0) * (parseNum(d.pcts?.[m]) / 100));
+          const totalAbs = valoresMensal.reduce((a, v) => a + v, 0);
+          const pctPonderado = dre.receitaBruta > 0 ? (totalAbs / dre.receitaBruta) * 100 : 0;
+          return { key: d.id, label: d.nome, valores: d.pcts, totalValor: pctPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` };
+        })}
+        onChangeCelula={(dedId, mesIdx, valor) => {
+          const d = deducoes.find(x => x.id === dedId);
+          atualizar(['receita', 'deducoes'], deducoes.map(x => x.id === dedId ? { ...x, pcts: atualizarArray(d.pcts, mesIdx, valor) } : x));
+        }}
+        corTotal={COR.vermelho}
+        sufixo="%"
+        linhasCalculadas={[
+          ...deducoes.map(d => {
+            const valoresMensal = MESES.map((_, m) => (dre.receitaBrutaMes?.[m] || 0) * (parseNum(d.pcts?.[m]) / 100));
+            return { key: `${d.id}_abs`, label: `${d.nome} (R$)`, valoresMensal, totalValor: valoresMensal.reduce((a, v) => a + v, 0), cor: COR.vermelho };
+          }),
+          {
+            key: 'total_deducoes', label: 'Total de deduções (R$)',
+            valoresMensal: MESES.map((_, m) => (dre.receitaBrutaMes?.[m] || 0) * (deducoes.reduce((acc, d) => acc + parseNum(d.pcts?.[m]), 0) / 100)),
+            totalValor: dre.deducoes, cor: COR.azul,
+          },
+        ]}
+      />
+      <div style={{ marginTop: 8 }}>
+        <CampoJustificativa
+          value={deducoesJustificativa}
+          onChange={v => atualizar(['receita', 'deducoesJustificativa'], v)}
+          placeholder="Justificativa geral das deduções (ex.: mudança de alíquota, novo estado de destino)"
+          obrigatorio
+        />
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Receita Operacional Líquida — mensal</h4>
+      <TabelaMensal
+        linhas={[]}
+        onChangeCelula={() => {}}
+        linhasCalculadas={[
+          { key: 'receitaLiquida', label: 'Receita Operacional Líquida (R$)', valoresMensal: dre.receitaLiquidaMes, totalValor: dre.receitaLiquida, cor: COR.verde },
         ]}
       />
 

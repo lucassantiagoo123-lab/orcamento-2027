@@ -209,16 +209,24 @@ function receitaVazia(unidadeId) {
   }
   if (unidadeId === 'agricola' || unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') {
     return {
-      // Mercado Interno × Externo (2026-08-23) — espelho de
-      // frontend/src/OrcamentoARA.jsx (ver receitaVazia lá pro racional
-      // completo). "Vendas Externas" (PRODUTOS_REF_AGRICOLA) já nasce em
-      // USD/externo.
-      produtos: PRODUTOS_REF_AGRICOLA.map(p => ({
-        id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(),
-        mercado: p.nome === 'Vendas Externas' ? 'externo' : 'interno',
-        moeda: 'usd', precoMoeda: mesesVazios(),
-      })),
-      deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
+      // Produção -> Vendas Mercado Interno/Externo (2026-09-07) — espelho de
+      // frontend/src/OrcamentoARA.jsx (ver receitaVazia/computeReceitaAgricola
+      // lá pro racional completo). Substitui o modelo anterior (produtos);
+      // nenhum documento tinha sido preenchido até esta data (confirmado
+      // com o usuário).
+      agricola: {
+        embaladaKg: mesesVazios(),
+        refugoPct: '',
+        vendaInterna: { pctTon: mesesVazios(), precoKg: mesesVazios() },
+        vendaExterna: {
+          pctTon: mesesVazios(),
+          gbp: { pct: mesesVazios(), precoMoeda: mesesVazios() },
+          eur: { pct: mesesVazios(), precoMoeda: mesesVazios() },
+          usd: { pct: mesesVazios(), precoMoeda: mesesVazios() },
+        },
+        justificativa: '',
+      },
+      deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
     };
   }
   if (unidadeId === 'resorts' || unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa') {
@@ -390,7 +398,49 @@ export function folhaAnualPorCC(data, ccCodigo) {
 // ano inteiro) da premissa macro do FP&A Corporativo, usado só por produtos
 // de Mercado Externo (mercado==='externo') do modelo `produtos` (Agrícola —
 // ver receitaVazia). Espelho de frontend/src/OrcamentoARA.jsx.
+// Racional de receita da ARA Agrícola (2026-09-07) — espelho de
+// frontend/src/OrcamentoARA.jsx (ver computeReceitaAgricola lá pro racional
+// completo). Substitui o modelo anterior (produtos) por uma cascata
+// Produção -> Vendas Mercado Interno/Externo.
+function computeReceitaAgricola(agricola, cambios) {
+  const embaladaKgMes = (agricola?.embaladaKg || mesesVazios()).map(parseNum);
+  const refugoPct = parseNum(agricola?.refugoPct) / 100;
+  const refugoKgMes = embaladaKgMes.map(v => v * refugoPct);
+  const producaoTotalKgMes = embaladaKgMes.map((v, m) => v + refugoKgMes[m]);
+
+  const vi = agricola?.vendaInterna || {};
+  const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => v * parseNum(vi.pctTon?.[m]) / 100);
+  const receitaInternaMes = volumeInternoKgMes.map((v, m) => v * parseNum(vi.precoKg?.[m]));
+
+  const ve = agricola?.vendaExterna || {};
+  const volumeExternoTotalKgMes = producaoTotalKgMes.map((v, m) => v * parseNum(ve.pctTon?.[m]) / 100);
+
+  function porMoeda(moedaObj, chaveCambio) {
+    const volumeKgMes = volumeExternoTotalKgMes.map((v, m) => v * parseNum(moedaObj?.pct?.[m]) / 100);
+    const taxa = parseNum(cambios?.[chaveCambio]);
+    const receitaMes = volumeKgMes.map((v, m) => v * parseNum(moedaObj?.precoMoeda?.[m]) * taxa);
+    return { volumeKgMes, receitaMes };
+  }
+  const gbp = porMoeda(ve.gbp, 'gbp');
+  const eur = porMoeda(ve.eur, 'eur');
+  const usd = porMoeda(ve.usd, 'usd');
+  const receitaExternaMes = MESES.map((_, m) => gbp.receitaMes[m] + eur.receitaMes[m] + usd.receitaMes[m]);
+
+  const receitaBrutaMes = MESES.map((_, m) => receitaInternaMes[m] + receitaExternaMes[m]);
+
+  return {
+    embaladaKgMes, refugoKgMes, producaoTotalKgMes,
+    volumeInternoKgMes, receitaInternaMes,
+    volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
+    receitaBrutaMes,
+  };
+}
+
 function receitaBrutaPorMes(data, cambios) {
+  if (data.receita.agricola) {
+    const r = computeReceitaAgricola(data.receita.agricola, cambios);
+    return { receitaBrutaMes: r.receitaBrutaMes, linhasReceitaMes: null };
+  }
   if (data.receita.linhas) {
     const linhasMes = {};
     Object.entries(data.receita.linhas).forEach(([id, linha]) => {
@@ -430,9 +480,9 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // (Corporativo) caem em [] e o reduce dá 0 — nunca quebra, essas
   // unidades nem oferecem 'custo_por_kg' como opção (ver
   // UNIDADES_COM_CUSTO_POR_KG no frontend). Volume vem em toneladas — ×1000 pra kg.
-  const volumeTotalKgMes = MESES.map((_, m) =>
-    (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000
-  );
+  const volumeTotalKgMes = data.receita.agricola
+    ? computeReceitaAgricola(data.receita.agricola, cambios).producaoTotalKgMes
+    : MESES.map((_, m) => (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000);
 
   // Base do percentual de dedução: normalmente a receita bruta total
   // (Têxtil/Agrícola), mas uma linha pode apontar `baseLinhaIds` — soma só
@@ -945,7 +995,18 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   // Modelo por produto (Têxtil/Agrícola) ou por linha (Resorts) — ver
   // receitaBrutaPorMes() em computeDRE. Auditoria checa o que existir.
   if (temReceita) {
-    if (data.receita.linhas) {
+    if (data.receita.agricola) {
+      // ARA Agrícola (2026-09-07) — espelho de OrcamentoARA.jsx, ver
+      // computeReceitaAgricola.
+      const embaladaOk = somaMes(data.receita.agricola.embaladaKg) > 0;
+      const vendaOk = somaMes(data.receita.agricola.vendaInterna?.pctTon) > 0
+        || somaMes(data.receita.agricola.vendaExterna?.pctTon) > 0;
+      checks.push({
+        label: 'Receita: Produção (Embalada) e Vendas (Interno/Externo) com valor lançado',
+        ok: embaladaOk && vendaOk,
+        detalhe: embaladaOk && vendaOk ? 'Preenchida' : 'Pendente de preenchimento',
+      });
+    } else if (data.receita.linhas) {
       // Mesma normalização de premissaTipo de receitaBrutaPorMes — ver
       // tipoLinhaReceitaResorts (bug de 2026-08-30).
       const linhasReceitaValidas = Object.entries(data.receita.linhas)
@@ -1064,7 +1125,20 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     obrigatorio: false,
   });
 
-  const valoresNegativos = (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
+  // ARA Agrícola (2026-09-07): checa negativo em todos os arrays mensais da
+  // cascata (embaladaKg, refugoPct é um único valor — checado à parte).
+  const algumNegativo = arr => (arr || []).some(v => parseNum(v) < 0);
+  const agricolaTemNegativo = (() => {
+    const ag = data.receita.agricola;
+    if (!ag) return false;
+    const ve = ag.vendaExterna || {};
+    return algumNegativo(ag.embaladaKg) || parseNum(ag.refugoPct) < 0
+      || algumNegativo(ag.vendaInterna?.pctTon) || algumNegativo(ag.vendaInterna?.precoKg)
+      || algumNegativo(ve.pctTon)
+      || ['gbp', 'eur', 'usd'].some(m => algumNegativo(ve[m]?.pct) || algumNegativo(ve[m]?.precoMoeda));
+  })();
+  const valoresNegativos = agricolaTemNegativo
+    || (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
     || Object.values(data.custos.linhas || {}).some(linha => contaTemNegativo(linha));
   checks.push({
     label: 'Nenhum valor negativo em receita ou custos/despesas',
