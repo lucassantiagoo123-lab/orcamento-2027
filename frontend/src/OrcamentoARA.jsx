@@ -5942,7 +5942,6 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
   const [erro, setErro] = useState(null);
   const [comentarioEnvio, setComentarioEnvio] = useState('');
   const [enviando, setEnviando] = useState(false);
-  const [ifrs18, setIfrs18] = useState(false);
   // Drill-down por fazenda na DRE por conta sintética (pedido de 2026-09-07,
   // "parecido com o que está sendo apresentado no consolidado do Grupo ARA").
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
@@ -6078,25 +6077,7 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
         duas fazendas. O envio e o histórico de versões do orçamento da Agrícola acontecem aqui, não em cada fazenda.
       </p>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <button
-          onClick={() => setIfrs18(false)}
-          style={{
-            fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
-            border: `1.5px solid ${COR.azul}`, background: !ifrs18 ? COR.azul : COR.branco, color: !ifrs18 ? COR.branco : COR.azul,
-          }}
-        >DRE sem IFRS 18</button>
-        <button
-          onClick={() => setIfrs18(true)}
-          style={{
-            fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
-            border: `1.5px solid ${COR.azul}`, background: ifrs18 ? COR.azul : COR.branco, color: ifrs18 ? COR.branco : COR.azul,
-          }}
-        >DRE com IFRS 18</button>
-      </div>
-      <CascataDRE dre={dre} ifrs18={ifrs18} />
-
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '18px 0' }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 18 }}>
         <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
         <CardTotal label="EBITDA" valor={dre.ebitda} cor={COR.laranja} />
         <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
@@ -6104,7 +6085,11 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
 
       {/* Drill-down por fazenda (pedido de 2026-09-07) — mesmo componente
           do Consolidado do Grupo ARA (LinhaContaConsolidada), só que com
-          unidades=Terra do Sol/Frutos do Sol em vez do Grupo inteiro. */}
+          unidades=Terra do Sol/Frutos do Sol em vez do Grupo inteiro. A
+          CascataDRE (com o toggle IFRS 18) que ficava acima desta tabela
+          foi removida em 2026-09-07 (pedido: "já é suficiente, não precisa
+          ter a DRE acima") — essa tabela cobre a mesma informação, com
+          drill-down por unidade a mais. */}
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por Terra do Sol (TDS) e Frutos do Sol (FDS).</p>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
@@ -6246,7 +6231,6 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
   const [erro, setErro] = useState(null);
   const [comentarioEnvio, setComentarioEnvio] = useState('');
   const [enviando, setEnviando] = useState(false);
-  const [ifrs18, setIfrs18] = useState(false);
   // Drill-down por resort na DRE por conta sintética (pedido de 2026-09-07,
   // "parecido com o que está sendo apresentado no consolidado do Grupo ARA").
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
@@ -6377,25 +6361,7 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
         O envio e o histórico de versões do orçamento do Resorts acontecem aqui, não em cada resort.
       </p>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <button
-          onClick={() => setIfrs18(false)}
-          style={{
-            fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
-            border: `1.5px solid ${COR.azul}`, background: !ifrs18 ? COR.azul : COR.branco, color: !ifrs18 ? COR.branco : COR.azul,
-          }}
-        >DRE sem IFRS 18</button>
-        <button
-          onClick={() => setIfrs18(true)}
-          style={{
-            fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 16, cursor: 'pointer',
-            border: `1.5px solid ${COR.azul}`, background: ifrs18 ? COR.azul : COR.branco, color: ifrs18 ? COR.branco : COR.azul,
-          }}
-        >DRE com IFRS 18</button>
-      </div>
-      <CascataDRE dre={dre} ifrs18={ifrs18} />
-
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '18px 0' }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 18 }}>
         <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
         <CardTotal label="EBITDA" valor={dre.ebitda} cor={COR.laranja} />
         <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
@@ -6403,7 +6369,11 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
 
       {/* Drill-down por resort (pedido de 2026-09-07) — mesmo componente do
           Consolidado do Grupo ARA (LinhaContaConsolidada), só que com
-          unidades=Samoa Beach/Samoa Villa em vez do Grupo inteiro. */}
+          unidades=Samoa Beach/Samoa Villa em vez do Grupo inteiro. A
+          CascataDRE (com o toggle IFRS 18) que ficava acima desta tabela
+          foi removida em 2026-09-07 (pedido: "já é suficiente, não precisa
+          ter a DRE acima") — essa tabela cobre a mesma informação, com
+          drill-down por unidade a mais. */}
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por Samoa Beach e Samoa Villa.</p>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
@@ -9197,8 +9167,11 @@ function AbaBalancoPlanoContasTextil({ planoContas, saldosIniciais, atualizar })
 }
 
 function CascataDRE({ dre, ifrs18, extras }) {
+  // Pedido de 2026-09-07: "toda DRE começa da receita bruta".
   const linhasLegado = [
-    { label: 'Receita Operacional Líquida', valor: dre.receitaLiquida, tipo: 'base' },
+    { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'base' },
+    { label: '(-) Deduções', valor: -dre.deducoes, tipo: 'neg' },
+    { label: '(=) Receita Operacional Líquida', valor: dre.receitaLiquida, tipo: 'subtotal' },
     { label: '(-) Custos dos Produtos Vendidos', valor: -dre.cpv, tipo: 'neg' },
     { label: '(=) Lucro Bruto', valor: dre.lucroBruto, tipo: 'subtotal' },
     { label: 'Margem Bruta (%)', valor: dre.margemBruta, tipo: 'margem' },
@@ -9215,7 +9188,9 @@ function CascataDRE({ dre, ifrs18, extras }) {
 
   const lucroOperacional = dre.ebitda - dre.depreciacao;
   const linhasIfrs18 = [
-    { label: 'Receita Operacional Líquida', valor: dre.receitaLiquida, tipo: 'base', categoria: 'Operacional' },
+    { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'base', categoria: 'Operacional' },
+    { label: '(-) Deduções', valor: -dre.deducoes, tipo: 'neg', categoria: 'Operacional' },
+    { label: '(=) Receita Operacional Líquida', valor: dre.receitaLiquida, tipo: 'subtotal', categoria: 'Operacional' },
     { label: '(-) Custos dos Produtos Vendidos', valor: -dre.cpv, tipo: 'neg', categoria: 'Operacional' },
     { label: '(=) Lucro Bruto', valor: dre.lucroBruto, tipo: 'subtotal', categoria: 'Operacional' },
     { label: '(-) Despesas Operacionais', valor: -dre.despesasSemDA, tipo: 'neg', categoria: 'Operacional' },
@@ -9502,7 +9477,12 @@ function agregarDFC(dfcs) {
 }
 
 const CONTAS_SINTETICAS_DRE = [
-  { id: 'receitaLiquida', campo: 'receitaLiquida', label: 'Receita Operacional Líquida', tipo: 'base' },
+  // Pedido de 2026-09-07: "toda DRE começa da receita bruta" — Receita
+  // Bruta/Deduções entram como as 2 primeiras linhas em vez de pular direto
+  // pra Receita Líquida (que agora é subtotal "(=)", não mais o ponto de partida).
+  { id: 'receitaBruta', campo: 'receitaBruta', label: 'Receita Bruta', tipo: 'base' },
+  { id: 'deducoes', campo: 'deducoes', label: '(-) Deduções', tipo: 'neg', inverter: true },
+  { id: 'receitaLiquida', campo: 'receitaLiquida', label: '(=) Receita Operacional Líquida', tipo: 'subtotal' },
   { id: 'cpv', campo: 'cpv', label: '(-) Custos dos Produtos Vendidos', tipo: 'neg', inverter: true },
   { id: 'lucroBruto', campo: 'lucroBruto', label: '(=) Lucro Bruto', tipo: 'subtotal' },
   { id: 'margemBruta', campo: 'margemBruta', label: 'Margem Bruta (%)', tipo: 'margem' },
