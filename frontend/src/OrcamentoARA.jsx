@@ -4108,10 +4108,32 @@ export default function OrcamentoARA({ usuario }) {
     wsC['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 10 }, { wch: 26 }, { wch: 10 }, { wch: 30 }, { wch: 18 }, { wch: 8 }, { wch: 14 }, { wch: 40 }, { wch: 14 }, { wch: 20 }, { wch: 16 }];
     XLSX.utils.book_append_sheet(wb, wsC, 'Custos_Despesas');
 
+    // Volume/Preço em "(t)"/"(R$/t)" valem pro modelo por produto (Têxtil).
+    // ARA Agrícola (2026-09-07, ver computeReceitaAgricola) usa Kg, não
+    // toneladas — as mesmas colunas recebem o número em Kg/R$ por Kg
+    // mesmo assim (cabeçalho genérico o bastante pra não precisar de uma
+    // aba própria só por causa da unidade de medida).
     const linhasReceita = [['Unidade', 'Produto', 'Mercado', 'Mês', 'Volume (t)', 'Preço (R$/t)', 'Receita Bruta', 'Justificativa Geral da Receita']];
     unidadesParaExportar.forEach(u => {
       const d = mapaDados[u.id];
       if (!d || ehSnapshotConsolidado(d)) return; // ver nota acima (Custos_Despesas)
+      if (d.receita.agricola) {
+        const r = computeReceitaAgricola(d.receita.agricola, cambios);
+        const just = d.receita.justificativaGeral || '';
+        MESES.forEach((m, mi) => {
+          if (r.volumeInternoKgMes[mi] > 0) {
+            const preco = parseNum(d.receita.agricola.vendaInterna?.precoKg?.[mi]);
+            linhasReceita.push([u.nome, 'Mercado Interno', 'Interno', m, r.volumeInternoKgMes[mi], preco, r.receitaInternaMes[mi], just]);
+          }
+          ['gbp', 'eur', 'usd'].forEach(moeda => {
+            const vol = r[moeda].volumeKgMes[mi];
+            if (vol === 0) return;
+            const preco = parseNum(d.receita.agricola.vendaExterna?.[moeda]?.precoMoeda?.[mi]) * parseNum(cambios?.[moeda]);
+            linhasReceita.push([u.nome, `Mercado Externo — ${moeda.toUpperCase()}`, `Externo (${moeda.toUpperCase()})`, m, vol, preco, r[moeda].receitaMes[mi], just]);
+          });
+        });
+        return;
+      }
       (d.receita.produtos || []).forEach(p => {
         // Mercado Externo (2026-08-23, ver receitaBrutaPorMes): preço em R$
         // é derivado (Preço na moeda × câmbio), não digitado direto — exporta
@@ -4219,6 +4241,17 @@ export default function OrcamentoARA({ usuario }) {
     const d = uId ? (role === 'fpa' ? statusUnidades[uId] : dados) : null;
     if (!uId || !d) { alert('Abra uma unidade no drill-down (ou selecione uma unidade) antes de exportar o modelo completo.'); return; }
     if (ehSnapshotConsolidado(d)) { alert('O Consolidado não tem premissas próprias — abra uma das unidades que o compõem (ex.: Terra do Sol) para exportar o modelo completo.'); return; }
+    // ARA Agrícola (2026-09-07, ver computeReceitaAgricola): o racional novo
+    // de Produção -> Vendas usa Kg (a malha de fórmulas abaixo assume
+    // volumes em toneladas — ver "Volume Total (kg)" ×1000 mais adiante) e
+    // uma cascata (Refugo %, split por moeda) que essa malha genérica de
+    // "1 linha = Volume × Preço" não modela. Recusa por enquanto em vez de
+    // arriscar uma planilha com fórmula errada sem avisar — melhor um alerta
+    // claro do que um número silenciosamente errado num arquivo financeiro.
+    if (d.receita.agricola) {
+      alert('O "Excel — Cálculo" (com fórmulas) ainda não suporta o novo racional de receita da ARA Agrícola (Produção → Vendas). Use o "Excel — Dados Brutos" para essa unidade por enquanto — já traz os valores certos, só sem fórmula editável.');
+      return;
+    }
     const refU = referenciaDaUnidade(uId);
 
     const wb = XLSX.utils.book_new();
