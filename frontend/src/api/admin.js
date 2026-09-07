@@ -26,3 +26,8 @@ export const listarConcessoes = (apenasAtivas = false) =>
   apiFetch(`/api/admin/concessoes${apenasAtivas ? '?ativas=true' : ''}`);
 export const criarConcessao = (dados) => apiFetch('/api/admin/concessoes', { method: 'POST', body: dados });
 export const revogarConcessao = (id) => apiFetch(`/api/admin/concessoes/${id}/revogar`, { method: 'POST' });
+
+// Migração pontual (2026-09-07) — ver backend/src/db/migracaoContasResorts.js.
+// aplicar=false (padrão) só simula; aplicar=true grava de verdade.
+export const migrarPlanoContasResorts = (aplicar = false) =>
+  apiFetch('/api/admin/migracoes/plano-contas-resorts', { method: 'POST', body: { aplicar } });

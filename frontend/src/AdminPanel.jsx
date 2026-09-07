@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import {
   listarUsuarios, criarUsuario, atualizarUsuario, vincularUnidade, desvincularUnidade,
   vincularCc, desvincularCc, removerTodosCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
-  definirAcessoUsuario,
+  definirAcessoUsuario, migrarPlanoContasResorts,
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
@@ -88,7 +88,121 @@ export default function AdminPanel({ voltar }) {
         <>
           <SecaoUsuarios usuarios={usuarios} onMudou={carregar} />
           <SecaoConcessoes usuarios={usuarios} concessoes={concessoes} onMudou={carregar} />
+          <SecaoMigracaoContasResorts />
         </>
+      )}
+    </div>
+  );
+}
+
+// Ferramenta pontual (2026-09-07) — ver backend/src/db/migracaoContasResorts.js
+// para o racional completo. Fica aqui em vez de virar um botão qualquer no
+// meio do formulário porque é uma ação sobre dado já preenchido pelo gestor:
+// precisa do mesmo cuidado de "simular antes de aplicar" que qualquer
+// migração de banco merece — não é algo pra rodar sem olhar o relatório.
+function SecaoMigracaoContasResorts() {
+  const [relatorio, setRelatorio] = useState(null);
+  const [rodando, setRodando] = useState(false);
+  const [erro, setErro] = useState(null);
+  const [aplicado, setAplicado] = useState(false);
+
+  async function rodar(aplicar) {
+    setRodando(true);
+    setErro(null);
+    try {
+      const r = await migrarPlanoContasResorts(aplicar);
+      setRelatorio(r);
+      if (aplicar) setAplicado(true);
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : 'Falha ao rodar a migração.');
+    }
+    setRodando(false);
+  }
+
+  const podeAplicar = relatorio && !aplicado && relatorio.unidades.every(u => !u.encontrado || u.bateCerto)
+    && relatorio.unidades.some(u => u.totalMovimentos > 0);
+
+  return (
+    <div style={{ marginTop: 32, paddingTop: 20, borderTop: `2px solid ${COR.borda}` }}>
+      <h2 style={{ fontSize: 14, marginBottom: 6 }}>Ferramenta pontual — Migração do plano de contas Resorts</h2>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 12, maxWidth: 640 }}>
+        Move os valores já preenchidos em Samoa Beach/Villa das contas contaminadas
+        da Têxtil/Agrícola (código 71xxx/72xxx/34xxx) para as contas genuínas dos
+        Resorts (41xxx/51xxx) — sempre simule primeiro e confira o relatório antes de aplicar.
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <button onClick={() => rodar(false)} disabled={rodando} style={botaoSecundario}>
+          {rodando ? 'Rodando…' : 'Simular (não grava nada)'}
+        </button>
+        {podeAplicar && (
+          <button onClick={() => rodar(true)} disabled={rodando} style={{ ...botaoPrimario, background: '#C00000' }}>
+            {rodando ? 'Aplicando…' : 'Aplicar migração de verdade'}
+          </button>
+        )}
+      </div>
+
+      {erro && <div style={{ background: '#FDECEC', border: '1px solid #C00000', borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12.5 }}>{erro}</div>}
+
+      {relatorio && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {aplicado && (
+            <div style={{ background: '#E9F7EF', border: '1px solid #1E8449', borderRadius: 6, padding: 10, fontSize: 12.5, fontWeight: 700, color: '#1E8449' }}>
+              Migração aplicada e gravada (com auditoria em log_alteracoes).
+            </div>
+          )}
+          {relatorio.unidades.map(u => (
+            <div key={u.unidadeId} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <strong style={{ fontSize: 13 }}>{u.unidadeId}</strong>
+                {u.encontrado && (
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: u.bateCerto ? '#1E8449' : '#C00000' }}>
+                    {u.bateCerto ? '✓ total bate antes/depois' : '✗ total NÃO bate — não aplicar'}
+                  </span>
+                )}
+              </div>
+              {!u.encontrado ? (
+                <p style={{ fontSize: 12, color: '#7A8088' }}>Nenhum orçamento 2027 encontrado para esta unidade.</p>
+              ) : (
+                <>
+                  <p style={{ fontSize: 12, marginBottom: 8 }}>
+                    Total geral (todas as contas) antes: <strong>{u.totalGeralAntes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+                    {' — '}depois: <strong>{u.totalGeralDepois.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+                    {' — '}{u.totalMovimentos} sublinha(s) movida(s).
+                  </p>
+                  {u.movimentos.length > 0 && (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 8 }}>
+                      <thead>
+                        <tr>
+                          <th style={th}>CC</th><th style={th}>De</th><th style={th}>Para</th><th style={th}>Descrição</th><th style={th}>Valor (ano)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {u.movimentos.map((m, i) => (
+                          <tr key={i}>
+                            <td style={td}>{m.ccCodigo}</td>
+                            <td style={td}>{m.contaAntiga}</td>
+                            <td style={td}>{m.contaNova}</td>
+                            <td style={td}>{m.descricao}</td>
+                            <td style={td}>{m.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {u.naoMapeadas.length > 0 && (
+                    <div style={{ background: '#FFF6E5', border: '1px solid #FFA707', borderRadius: 6, padding: 8, fontSize: 11.5 }}>
+                      <strong>{u.naoMapeadas.length} sublinha(s) não mapeada(s)</strong> — ficaram como estavam, não migradas:
+                      <ul style={{ margin: '4px 0 0 16px' }}>
+                        {u.naoMapeadas.map((n, i) => <li key={i}>{n.ccCodigo} / {n.contaCodigo} — {n.descricao}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

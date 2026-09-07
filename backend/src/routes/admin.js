@@ -8,6 +8,7 @@ import {
   vincularUnidade, desvincularUnidade, vincularCc, desvincularCc, removerTodosCcUsuario,
   listarConcessoes, criarConcessao, revogarConcessao,
 } from '../db/admin.js';
+import { migrarPlanoContasResorts } from '../db/migracaoContasResorts.js';
 import { definirSenha, buscarUsuarioParaEnvioAcesso, definirAcessoExpiracao } from '../db/usuarios.js';
 import { validarSenha, gerarHashSenha } from '../auth/senha.js';
 import { enviarAcesso } from '../email/notificacoes.js';
@@ -203,5 +204,18 @@ adminRouter.post('/concessoes/:id/revogar', async (req, res, next) => {
     const concessao = await revogarConcessao(req.params.id);
     if (!concessao) return res.status(404).json({ erro: 'concessao_nao_encontrada_ou_ja_revogada' });
     res.json({ concessao });
+  } catch (err) { next(err); }
+});
+
+// --- Migração pontual: plano de contas Resorts (2026-09-07) ---
+// Ver backend/src/db/migracaoContasResorts.js para o racional completo.
+// `aplicar` no corpo (default false) — sempre simular antes de aplicar de
+// verdade. Idempotente: rodar de novo depois de aplicado não encontra mais
+// nada pra mover (as contas antigas não existem mais nas chaves).
+adminRouter.post('/migracoes/plano-contas-resorts', async (req, res, next) => {
+  try {
+    const aplicar = req.body?.aplicar === true;
+    const resultado = await migrarPlanoContasResorts({ aplicar, usuarioId: req.usuario.id });
+    res.json(resultado);
   } catch (err) { next(err); }
 });
