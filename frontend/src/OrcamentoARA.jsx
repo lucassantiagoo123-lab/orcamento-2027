@@ -3639,6 +3639,9 @@ export default function OrcamentoARA({ usuario }) {
   const [aguardandoLiberacaoPorUnidade, setAguardandoLiberacaoPorUnidade] = useState({});
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
+  // Excel — Dados Brutos (2026-09-07, pedido: "precisa baixar todos os dados
+  // preenchidos na plataforma, não apenas a aba aberta") — ver exportarExcel.
+  const [exportandoExcel, setExportandoExcel] = useState(false);
   const [erro, setErro] = useState(null);
   const [comentarioEnvio, setComentarioEnvio] = useState('');
   // Antes era um campo livre (sem autenticação real, qualquer nome servia).
@@ -4095,13 +4098,38 @@ export default function OrcamentoARA({ usuario }) {
     }
   }
 
-  function exportarExcel() {
+  async function exportarExcel() {
+    // Até 2026-09-07 este export só olhava pra `dados` (a única unidade
+    // carregada no cliente pro Gestor) — quem tem acesso a mais de uma
+    // unidade (ex.: Gestor da Resorts, com Samoa Beach + Samoa Villa) só
+    // conseguia exportar a que estivesse com a aba aberta no momento do
+    // clique. Pedido: "precisa baixar todos os dados preenchidos na
+    // plataforma, não apenas a aba aberta" — agora busca (fresh, via API)
+    // os dados de TODAS as unidades que o usuário tem permissão de ver
+    // (unidadesVisiveis), não só a aba atual. admin_fpa continua usando
+    // statusUnidades (já carregado inteiro por carregarFPA).
+    let mapaDados = statusUnidades;
+    if (role !== 'fpa') {
+      setExportandoExcel(true);
+      mapaDados = { [unidadeAtual]: dados };
+      try {
+        const outras = unidadesVisiveis.filter(u => u.id !== unidadeAtual);
+        const resultados = await Promise.all(outras.map(u => getOrcamento(u.id).catch(() => null)));
+        outras.forEach((u, i) => {
+          if (resultados[i]) mapaDados[u.id] = resultados[i].orcamento.dados;
+        });
+      } catch (e) {
+        alert('Não foi possível carregar os dados de todas as suas unidades — o Excel vai sair só com a unidade atual. Tente novamente em instantes.');
+      }
+      setExportandoExcel(false);
+    }
+
     const wb = XLSX.utils.book_new();
-    const unidadesParaExportar = role === 'fpa' ? UNIDADES : [unidadeObj];
+    const unidadesParaExportar = role === 'fpa' ? UNIDADES : unidadesVisiveis;
 
     const linhasCustosExport = [['Unidade', 'Centro de Custo', 'Tipo', 'Pacote', 'Conta', 'Descrição da Conta', 'Tipo de Premissa', 'Mês', 'Valor Calculado', 'Justificativa', 'Status', 'Última Atualização', 'Autor']];
     unidadesParaExportar.forEach(u => {
-      const d = role === 'fpa' ? statusUnidades[u.id] : dados;
+      const d = mapaDados[u.id];
       // Consolidado (ver CONSOLIDADOS_MULTISITE): `dados` aqui não é o
       // formato normal (é o wrapper com um site em cada chave) — os sites
       // (Terra do Sol/Frutos do Sol, Samoa Beach/Villa) já exportam as
@@ -4136,7 +4164,7 @@ export default function OrcamentoARA({ usuario }) {
 
     const linhasReceita = [['Unidade', 'Produto', 'Mercado', 'Mês', 'Volume (t)', 'Preço (R$/t)', 'Receita Bruta', 'Justificativa Geral da Receita']];
     unidadesParaExportar.forEach(u => {
-      const d = role === 'fpa' ? statusUnidades[u.id] : dados;
+      const d = mapaDados[u.id];
       if (!d || ehSnapshotConsolidado(d)) return; // ver nota acima (Custos_Despesas)
       (d.receita.produtos || []).forEach(p => {
         // Mercado Externo (2026-08-23, ver receitaBrutaPorMes): preço em R$
@@ -4159,7 +4187,7 @@ export default function OrcamentoARA({ usuario }) {
 
     const linhasBalanco = [['Unidade', 'Item', 'Valor/Mês', 'Justificativa']];
     unidadesParaExportar.forEach(u => {
-      const d = role === 'fpa' ? statusUnidades[u.id] : dados;
+      const d = mapaDados[u.id];
       if (!d || ehSnapshotConsolidado(d)) return; // ver nota acima (Custos_Despesas)
       const b = d.balanco;
       linhasBalanco.push([u.nome, 'Caixa inicial', formatBRL(parseNum(b.caixaInicial)), '']);
@@ -4176,7 +4204,7 @@ export default function OrcamentoARA({ usuario }) {
 
     const linhasFinExport = [['Unidade', 'Banco', 'Linha', 'Moeda', 'Mês', 'Captações', 'Amortizações', 'Juros Pagos', 'Variação Cambial', 'Provisão Desp. Financeira', 'Justificativa']];
     unidadesParaExportar.forEach(u => {
-      const d = role === 'fpa' ? statusUnidades[u.id] : dados;
+      const d = mapaDados[u.id];
       if (!d || ehSnapshotConsolidado(d)) return; // ver nota acima (Custos_Despesas)
       (d.fcFinanciamentos?.linhas || []).forEach(l => {
         MESES.forEach((m, mi) => {
@@ -4199,11 +4227,11 @@ export default function OrcamentoARA({ usuario }) {
 
     const linhasDRE = [['Unidade', 'Receita Bruta', 'Deduções', 'Receita Líquida', 'CPV', 'Lucro Bruto', 'Margem Bruta %', 'Despesas Op.', 'EBITDA', 'Margem EBITDA %', 'D&A', 'Result. Financeiro', 'Outras', 'IRCSL', 'Lucro Líquido', 'Margem Líquida %']];
     unidadesParaExportar.forEach(u => {
-      // 'agricola'/'resorts' somam sempre ao vivo dos sites (Excel do FP&A)
-      // — ver nota completa em dreEDfcGrupoUnidade (bug de 2026-08-30).
-      const t = role === 'fpa'
-        ? dreEDfcGrupoUnidade(statusUnidades, u.id, ipcaAnualPct, cambios).dre
-        : (dados && dreDaUnidade(dados, u.id, ipcaAnualPct, cambios));
+      // 'agricola'/'resorts' somam sempre ao vivo dos sites — ver nota
+      // completa em dreEDfcGrupoUnidade (bug de 2026-08-30). mapaDados tem a
+      // mesma forma de statusUnidades (mapa unidadeId -> dados) pros dois
+      // roles agora — ver nota em exportarExcel (2026-09-07).
+      const t = dreEDfcGrupoUnidade(mapaDados, u.id, ipcaAnualPct, cambios).dre;
       if (!t) return;
       linhasDRE.push([u.nome, t.receitaBruta, -t.deducoes, t.receitaLiquida, -t.cpv, t.lucroBruto, t.margemBruta, -t.despesasSemDA, t.ebitda, t.margemEbitda, -t.depreciacao, t.resultadoFinanceiro, t.outras, -t.ircsl, t.lucroLiquido, t.margemLiquida]);
     });
@@ -4996,7 +5024,7 @@ export default function OrcamentoARA({ usuario }) {
           comentarioEnvio={comentarioEnvio} setComentarioEnvio={setComentarioEnvio}
           enviarVersao={enviarVersao} enviando={enviando} erro={erro}
           versoes={versoes} mostrarHistorico={mostrarHistorico} setMostrarHistorico={setMostrarHistorico}
-          exportarExcel={exportarExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
+          exportarExcel={exportarExcel} exportandoExcel={exportandoExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
           abrirVersao={abrirVersao}
         />
       ) : (
@@ -5160,7 +5188,7 @@ function VisaoGerente(props) {
     updatePremissa5Y, updateCenarioSensibilidade,
     atualizar, autorNome, setAutorNome,
     comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, erro,
-    versoes, mostrarHistorico, setMostrarHistorico, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo,
+    versoes, mostrarHistorico, setMostrarHistorico, exportarExcel, exportandoExcel, exportarExcelCalculo, solicitarResumoExecutivo,
     abrirVersao,
   } = props;
 
@@ -5476,7 +5504,7 @@ function VisaoGerente(props) {
               auditoria — exportarExcel) × Apresentação (PPT pro CAD). */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Botao variante="secundario" icone={FileSpreadsheet} onClick={() => exportarExcelCalculo()}>Excel — Cálculo</Botao>
-            <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Excel — Dados Brutos</Botao>
+            <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel} disabled={exportandoExcel}>{exportandoExcel ? 'Buscando suas unidades…' : 'Excel — Dados Brutos'}</Botao>
             <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>Apresentação (PPT)</Botao>
           </div>
           <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
