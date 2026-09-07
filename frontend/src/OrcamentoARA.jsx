@@ -419,6 +419,10 @@ const PREMISSAS_MACRO_REF = [
   { id: 'selic', nome: 'Taxa Selic média', unidade: '% a.a.' },
   { id: 'pib', nome: 'Crescimento do PIB', unidade: '% a.a.' },
   { id: 'reajuste_salarial', nome: 'Reajuste salarial/dissídio', unidade: '% a.a.' },
+  // Pedido de 2026-09-07: linha de referência — mesmo padrão das demais
+  // (campo aberto, preenchido à mão pelo Admin FP&A; não alimenta nenhum
+  // cálculo automaticamente, só fica visível como referência pras unidades).
+  { id: 'salario_minimo', nome: 'Salário Mínimo', unidade: 'R$' },
 ];
 
 // ---- Centros de Custo — Consulta CTT010, nível de subárea (14 CCs) ----
