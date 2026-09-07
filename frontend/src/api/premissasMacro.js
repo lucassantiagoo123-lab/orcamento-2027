@@ -16,6 +16,17 @@ export async function atualizarPremissaMacro(id, valor, fonte) {
   return premissa;
 }
 
+// Só a etiqueta de "Fonte" (coluna Fonte/atualização), sem tocar em
+// valor/atualizado_em — pedido de 2026-09-07: "mantenha a data e hora da
+// atualização".
+export async function definirFontePremissaMacro(id, fonte) {
+  const { premissa } = await apiFetch(`/api/premissas-macro/${id}/fonte`, {
+    method: 'PATCH',
+    body: { fonte },
+  });
+  return premissa;
+}
+
 // Boletim Focus (PDF de referência, pedido de 2026-09-07) — substitui o
 // antigo botão de buscar direto na API do BCB (nunca funcionava a partir do
 // navegador neste ambiente). Só guarda o PDF pra consulta manual — nenhum

@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { exigirPerfil } from '../middleware/authorize.js';
-import { listarPremissasMacro, atualizarPremissaMacro } from '../db/premissasMacro.js';
+import { listarPremissasMacro, atualizarPremissaMacro, definirFontePremissaMacro } from '../db/premissasMacro.js';
 import { salvarBoletimFocusPdf, buscarBoletimFocusPdfMeta, buscarBoletimFocusPdfArquivo } from '../db/boletimFocusPdf.js';
 
 export const premissasMacroRouter = Router();
@@ -21,6 +21,18 @@ premissasMacroRouter.put('/:id', exigirPerfil('admin_fpa'), async (req, res, nex
   try {
     const { valor, fonte } = req.body;
     const premissa = await atualizarPremissaMacro(req.params.id, valor ?? '', fonte, req.usuario.id);
+    res.json({ premissa });
+  } catch (err) { next(err); }
+});
+
+/** Só a etiqueta de "Fonte" — pedido de 2026-09-07: "mantenha a data e hora
+ * da atualização" (não passa por atualizarPremissaMacro de propósito, que
+ * sempre mexe em atualizado_em). Ver definirFontePremissaMacro. */
+premissasMacroRouter.patch('/:id/fonte', exigirPerfil('admin_fpa'), async (req, res, next) => {
+  try {
+    const { fonte } = req.body || {};
+    if (!fonte) return res.status(400).json({ erro: 'fonte_obrigatoria' });
+    const premissa = await definirFontePremissaMacro(req.params.id, fonte);
     res.json({ premissa });
   } catch (err) { next(err); }
 });

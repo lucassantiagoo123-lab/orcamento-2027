@@ -20,3 +20,20 @@ export async function atualizarPremissaMacro(id, valor, fonte, usuarioId) {
   );
   return rows[0];
 }
+
+/** Só troca a etiqueta de "Fonte" (coluna Fonte/atualização), sem tocar em
+ * valor nem atualizado_em — pedido de 2026-09-07: "mantenha a data e hora
+ * da atualização". Usa upsert porque uma premissa nova (ex.: salario_minimo,
+ * ainda sem nenhum valor salvo) pode não ter linha na tabela ainda — nesse
+ * caso cria a linha só com a fonte, valor/atualizado_em ficam NULL até
+ * alguém preencher de verdade. */
+export async function definirFontePremissaMacro(id, fonte) {
+  const { rows } = await pool.query(
+    `INSERT INTO premissas_macro (id, fonte)
+     VALUES ($1, $2)
+     ON CONFLICT (id) DO UPDATE SET fonte = $2
+     RETURNING id, valor, fonte, atualizado_em, atualizado_por`,
+    [id, fonte]
+  );
+  return rows[0];
+}

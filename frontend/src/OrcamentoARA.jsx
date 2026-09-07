@@ -11,7 +11,7 @@ import {
   Users, Loader2, Info, Upload, FileText,
 } from 'lucide-react';
 import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi } from './api/orcamentos.js';
-import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
+import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, definirFontePremissaMacro, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
 import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
 import { logout } from './api/auth.js';
 import { ApiError } from './api/client.js';
@@ -3645,6 +3645,18 @@ export default function OrcamentoARA({ usuario }) {
     }
   }
 
+  // Só a etiqueta de "Fonte" — pedido de 2026-09-07: "mantenha a data e hora
+  // da atualização". Ao contrário de updatePremissaMacroGlobal acima, não
+  // mexe em atualizadoEm no estado local (o backend também não mexe).
+  async function definirFontePremissaMacroGlobal(id, fonte) {
+    try {
+      const p = await definirFontePremissaMacro(id, fonte);
+      setPremissasMacro(prev => prev.map(x => x.id === id ? { ...x, fonte: p.fonte } : x));
+    } catch (e) {
+      // silencioso — mesmo padrão de updatePremissaMacroGlobal
+    }
+  }
+
   // O antigo buscarBoletimFocus (fetch direto na API do BCB a partir do
   // navegador) nunca funcionava de verdade neste ambiente — substituído em
   // 2026-09-07 por upload manual do PDF, só como referência (ver
@@ -4874,6 +4886,7 @@ export default function OrcamentoARA({ usuario }) {
           versoesDrill={versoesDrill} exportarExcel={exportarExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
           etapasProcesso={etapasProcesso} atualizarEtapa={atualizarEtapa}
           premissasMacro={premissasMacro} updatePremissaMacroGlobal={updatePremissaMacroGlobal}
+          definirFontePremissaMacroGlobal={definirFontePremissaMacroGlobal}
           abrirVersao={abrirVersao}
         />
       )}
@@ -10260,9 +10273,30 @@ function PainelBoletimFocusPdf() {
 // Visão FP&A Corporativo
 // ---------------------------------------------------------------------------
 
-function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, abrirVersao }) {
+function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, definirFontePremissaMacroGlobal, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
+  const [aplicandoFontes, setAplicandoFontes] = useState(false);
+
+  // Fontes padrão das premissas macro (pedido de 2026-09-07) — mantém
+  // valor/atualizado_em como estavam, só troca a etiqueta de "Fonte" (ver
+  // definirFontePremissaMacroGlobal).
+  const FONTES_PADRAO_PREMISSAS = {
+    ipca: 'Boletim Focus', cambio: 'Boletim Focus', selic: 'Boletim Focus', pib: 'Boletim Focus',
+    cambio_eur: '1,2x USD/BRL (Paridade histórica)', cambio_gbp: '1,3x USD/BRL (Paridade histórica)',
+    reajuste_salarial: 'Estimativa Sindicato', salario_minimo: 'PLOA 2027',
+  };
+  async function aplicarFontesPadrao() {
+    setAplicandoFontes(true);
+    try {
+      for (const [id, fonte] of Object.entries(FONTES_PADRAO_PREMISSAS)) {
+        // eslint-disable-next-line no-await-in-loop
+        await definirFontePremissaMacroGlobal(id, fonte);
+      }
+    } finally {
+      setAplicandoFontes(false);
+    }
+  }
   // Mesmo racional do ipcaAnualPct no componente App — recalculado aqui
   // porque premissasMacro chega como prop, não como estado local.
   const ipcaAnualPct = premissasMacro.find(p => p.id === 'ipca')?.valor;
@@ -10311,7 +10345,15 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
 
       {subVisao === 'gestao' && (
         <>
-          <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Premissas macroeconômicas do ciclo</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+            <h3 style={{ fontSize: 14, color: COR.azul, margin: 0 }}>Premissas macroeconômicas do ciclo</h3>
+            {/* Pedido de 2026-09-07: define a coluna "Fonte / atualização" pra
+                todas as premissas de uma vez, sem mexer no valor nem na data
+                de atualização de nenhuma. */}
+            <Botao variante="secundario" icone={Info} onClick={aplicarFontesPadrao} disabled={aplicandoFontes}>
+              {aplicandoFontes ? 'Aplicando…' : 'Aplicar fontes padrão'}
+            </Botao>
+          </div>
           <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Editáveis apenas aqui — as unidades enxergam esses valores como referência, sem poder alterá-los.</p>
           <PainelBoletimFocusPdf />
           <div style={{ overflowX: 'auto', marginBottom: 26 }}>
