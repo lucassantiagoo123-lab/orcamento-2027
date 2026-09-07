@@ -49,29 +49,32 @@ const COR = {
   vermelho: '#C00000',
 };
 
+// logoAltura removido em 2026-09-07 (pedido: "logomarcas desalinhadas...
+// mesmo tamanho") — o tamanho na tela agora vem só da caixa fixa no render
+// do nav (ver VisaoGerente), não mais de um valor por unidade aqui.
 const UNIDADES = [
-  { id: 'textil', nome: 'ARA Têxtil', cor: '#0069B4', logo: '/logos/ara-textil.jpg', logoAltura: 24 },
+  { id: 'textil', nome: 'ARA Têxtil', cor: '#0069B4', logo: '/logos/ara-textil.jpg' },
   // ARA Agrícola virou 3 "unidades" em 2026-08-20 (duas fazendas + o
   // consolidado das duas) — ver FAMILIA_AGRICOLA/ConsolidadoAgricola. O
   // nav agrupa as 3 sob um único botão "ARA Agrícola"; escolher a fazenda
   // acontece na subfaixa de botões que aparece embaixo.
-  { id: 'agricola', nome: 'ARA Agrícola — Consolidado', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
-  { id: 'agricola_tds', nome: 'ARA Agrícola — Terra do Sol', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
-  { id: 'agricola_fds', nome: 'ARA Agrícola — Frutos do Sol', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
+  { id: 'agricola', nome: 'ARA Agrícola — Consolidado', cor: '#009640', logo: '/logos/ara-agricola.png' },
+  { id: 'agricola_tds', nome: 'ARA Agrícola — Terra do Sol', cor: '#009640', logo: '/logos/ara-agricola.png' },
+  { id: 'agricola_fds', nome: 'ARA Agrícola — Frutos do Sol', cor: '#009640', logo: '/logos/ara-agricola.png' },
   // Mesmo padrão da Agrícola, aplicado ao Resorts em 2026-08-20: Samoa
   // Beach e Samoa Villa são as unidades editáveis, 'resorts' é o
   // Consolidado — ver FAMILIA_RESORTS/ConsolidadoResorts.
-  { id: 'resorts', nome: 'ARA Resorts — Consolidado', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
-  { id: 'samoa_beach', nome: 'ARA Resorts — Samoa Beach', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
-  { id: 'samoa_villa', nome: 'ARA Resorts — Samoa Villa', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
-  { id: 'ei', nome: 'ARA EI', cor: '#F07D00', logo: null }, // pendente: arquivo não recebido ainda
+  { id: 'resorts', nome: 'ARA Resorts — Consolidado', cor: '#79834F', logo: '/logos/ara-resorts.jpg' },
+  { id: 'samoa_beach', nome: 'ARA Resorts — Samoa Beach', cor: '#79834F', logo: '/logos/ara-resorts.jpg' },
+  { id: 'samoa_villa', nome: 'ARA Resorts — Samoa Villa', cor: '#79834F', logo: '/logos/ara-resorts.jpg' },
+  { id: 'ei', nome: 'ARA EI', cor: '#F07D00', logo: null }, // pendente: aguardando o arquivo da logo (ver pedido de 2026-09-07)
   // Renomeado de "ARA Energia" em 2026-08-09 — id interno continua 'energia'
   // (evita mexer em schema/seed/perfis), mas essa unidade não segue a mesma
   // estrutura de abas das demais: é uma Visão de Portfólio de Investimentos
   // (UFVs, PCH, Novo Cais, MCMV) e Aporte/Distribuição no Grupo, não um DRE
   // por CC — estrutura de verdade ainda não definida, ver aviso na tela.
   { id: 'energia', nome: 'Escritório de Investimentos', cor: '#FECC00', logo: null },
-  { id: 'corporativo', nome: 'Corporativo', cor: '#0C4391', logo: '/logos/grupo-ara.jpg', logoAltura: 24 },
+  { id: 'corporativo', nome: 'Corporativo', cor: '#0C4391', logo: '/logos/grupo-ara.jpg' },
 ];
 
 // As 3 "unidades" da Agrícola (2026-08-20) — agrupadas visualmente sob um
@@ -5081,11 +5084,24 @@ function VisaoGerente(props) {
                     display: 'flex', alignItems: 'center', gap: 8,
                   }}
                 >
+                  {/* Pedido de 2026-09-07: "logomarcas desalinhadas... edite
+                      as imagens aumentando ou reduzindo de forma que todas
+                      fiquem no mesmo tamanho" — cada logo tinha uma altura
+                      própria (logoAltura, 17 a 24px) mas nenhum limite de
+                      largura, então logos com proporção diferente (quadrada
+                      vs retangular) saíam com tamanhos visualmente bem
+                      diferentes. Agora todo logo entra numa caixa de mesmo
+                      tamanho (objectFit: contain), então o tamanho final na
+                      tela é sempre igual, não importa a proporção original
+                      do arquivo — logoAltura por unidade não é mais usado. */}
                   {u.logo && (
-                    <img
-                      src={u.logo} alt=""
-                      style={{ height: u.logoAltura || 24, borderRadius: 3, background: '#fff', padding: ativo ? '2px 5px' : '1px 3px' }}
-                    />
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 30, height: 20, borderRadius: 3, background: '#fff', flexShrink: 0,
+                      padding: ativo ? '3px 6px' : '2px 4px',
+                    }}>
+                      <img src={u.logo} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+                    </span>
                   )}
                   {u.nome}
                 </button>
@@ -6873,6 +6889,22 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
                   { key: 'ocupadas', label: 'Acomodações Ocupadas (#, derivado)', valoresMensal: (linha.quantidades || mesesVazios()).map(parseNum), totalValor: somaMes(linha.quantidades) / 12, cor: COR.texto, formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) },
                 ] : []),
                 { key: 'receita', label: 'Receita (R$)', valoresMensal: receitaMensal, totalValor: totalLinha, cor: COR.verde },
+                // RevPAR (pedido de 2026-09-07) = Receita de Hospedagem ÷
+                // Total de Acomodações DISPONÍVEIS (não ocupadas) — métrica
+                // padrão de hotelaria. Total do ano pelo mesmo racional
+                // ponderado das linhas acima (soma da receita ÷ soma das
+                // acomodações disponíveis no ano, não a média simples dos 12 meses).
+                ...(ehHospedagem ? [
+                  {
+                    key: 'revpar', label: 'RevPAR (R$/acomodação disponível)',
+                    valoresMensal: receitaMensal.map((r, m) => {
+                      const disponiveis = parseNum(linha.totalAcomodacoes?.[m]);
+                      return disponiveis > 0 ? r / disponiveis : 0;
+                    }),
+                    totalValor: totalAcomodacoesAnual > 0 ? totalLinha / totalAcomodacoesAnual : 0,
+                    cor: COR.azul, formatarCelula: v => formatBRL(v), formatarTotal: v => formatBRL(v),
+                  },
+                ] : []),
               ]}
             />
             <div style={{ marginTop: 8 }}>
