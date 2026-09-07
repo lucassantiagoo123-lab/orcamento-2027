@@ -1584,6 +1584,9 @@ const TIPOS_PREMISSA = [
   { id: 'rateio', nome: 'Base × %' },
   { id: 'reajuste_inflacao', nome: 'Reajuste Inflação (IPCA)' },
   { id: 'custo_por_kg', nome: 'Custo/Despesa por kg' },
+  // Custo em Moeda (2026-09-07, pedido: "custo de matéria prima Fio da
+  // têxtil" indexado ao câmbio) — ver nota completa em LinhaSublinha.
+  { id: 'custo_moeda', nome: 'Custo em Moeda (convertido pelo Câmbio)' },
 ];
 // Unidades onde "Custo/Despesa por kg" aparece nas opções — só onde a
 // Receita tem Volume em toneladas por produto (Têxtil/Agrícola usam o
@@ -1659,6 +1662,13 @@ function novaLinhaVazia() {
     // escolhido (reajusteInflacaoMes) — antes dele, sem reajuste nenhum.
     reajusteInflacaoTipo: 'mensal',
     reajusteInflacaoMes: '',
+    // Custo em Moeda (2026-09-07, ver TIPOS_PREMISSA/LinhaSublinha): valor
+    // digitado na moeda escolhida (valoresMoeda); `valores` (acima) recebe
+    // a conversão pra R$ automaticamente, mantida em sincronia com o
+    // câmbio da premissa macro — nunca editado direto pelo gestor
+    // enquanto premissaTipo for 'custo_moeda'.
+    moeda: 'usd',
+    valoresMoeda: mesesVazios(),
   };
 }
 
@@ -5328,7 +5338,7 @@ function VisaoGerente(props) {
             funcionarios={dados.custos.funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
             premissasPessoal={dados.custos.premissasPessoal} updatePremissaPessoal={updatePremissaPessoal}
             importarFuncionariosLote={importarFuncionariosLote}
-            viagens={dados.custos.viagens} atualizar={atualizar}
+            viagens={dados.custos.viagens} atualizar={atualizar} premissasMacro={premissasMacro} cambios={cambios}
           />
         )}
         {aba === 'capex' && (
@@ -5340,7 +5350,7 @@ function VisaoGerente(props) {
           <AbaFcFinanciamentos
             fcFinanciamentos={dados.fcFinanciamentos}
             addLinhaFinanciamento={addLinhaFinanciamento} updateLinhaFinanciamento={updateLinhaFinanciamento} removeLinhaFinanciamento={removeLinhaFinanciamento}
-            updateMovimentacaoAcionista={updateMovimentacaoAcionista} atualizar={atualizar}
+            updateMovimentacaoAcionista={updateMovimentacaoAcionista} atualizar={atualizar} premissasMacro={premissasMacro}
           />
         )}
         {aba === 'balanco' && <AbaBalanco balanco={dados.balanco} atualizar={atualizar} />}
@@ -7124,8 +7134,27 @@ function LinhaCalculadaMensal({ label, valoresMensal, formatarCelula, formatarTo
 // LinhaConta, pra dar suporte a mais de uma sublinha por conta analítica
 // (ver normalizarConta/novaContaVazia) sem duplicar toda essa lógica —
 // LinhaConta (abaixo) chama isto uma vez por sublinha.
-function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTotalKgMes, receitaBrutaMes, receitaLiquidaMes }) {
+function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTotalKgMes, receitaBrutaMes, receitaLiquidaMes, cambios }) {
   const valoresMensaisCalc = MESES.map((_, m) => valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes));
+  // Custo em Moeda (pedido de 2026-09-07: "custo de matéria prima Fio da
+  // têxtil" indexado ao câmbio) — em vez de threadear `cambios` pelas ~15
+  // funções do motor de cálculo (valorSublinhaMes/valorLinhaMes/
+  // computeDRE/computeFluxoIndiretoMensal/computeFluxoCaixaDiretoMensal/
+  // computeDFC — o mesmo caminho que ipcaAnualPct já percorre), o valor em
+  // USD digitado (valoresMoeda) é convertido pra R$ (valores) aqui mesmo,
+  // toda vez que o câmbio ou o valor em USD mudar — dali em diante
+  // `sublinha.valores` já é a fonte de verdade em R$, lida normalmente por
+  // TUDO que já existe (DRE, exports, Excel, PPT), sem precisar saber que
+  // essa conta é indexada a câmbio. Câmbio mudou -> valores em R$
+  // recalculam sozinhos na próxima renderização, sem o gestor reeditar nada.
+  useEffect(() => {
+    if (sublinha.premissaTipo !== 'custo_moeda') return;
+    const taxa = parseNum(cambios?.[sublinha.moeda || 'usd']);
+    const novosValores = (sublinha.valoresMoeda || mesesVazios()).map(v => parseNum(v) * taxa);
+    const jaIguais = novosValores.every((v, i) => Math.abs(v - parseNum(sublinha.valores?.[i])) < 0.01);
+    if (!jaIguais) onUpdate('valores', novosValores);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sublinha.premissaTipo, sublinha.moeda, cambios?.usd, cambios?.eur, cambios?.gbp, JSON.stringify(sublinha.valoresMoeda)]);
   const incoerente = linhaIncoerente(sublinha);
   // "Custo/Despesa por kg" só aparece nas opções nas unidades com Volume em
   // toneladas na Receita (Têxtil/Agrícola) — ver UNIDADES_COM_CUSTO_POR_KG.
@@ -7262,6 +7291,16 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
                 <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
               </>
             )}
+            {sublinha.premissaTipo === 'custo_moeda' && (
+              <>
+                <GradeMensalLinha
+                  label={`Valor em ${(sublinha.moeda || 'usd').toUpperCase()}`}
+                  valores={sublinha.valoresMoeda}
+                  onChange={(mi, v) => onUpdate('valoresMoeda', atualizarArray(sublinha.valoresMoeda, mi, v))}
+                />
+                <LinhaCalculadaMensal label="Valor calculado (R$)" valoresMensal={valoresMensaisCalc} />
+              </>
+            )}
             {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && sublinha.pagamentoDiferente && (
               <GradeMensalLinha
                 label="Valor do pagamento — caixa (R$)"
@@ -7285,6 +7324,12 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
           Volume vem da aba Receita (soma dos produtos, toneladas × 1000). O gestor digita o R$/kg; o valor calculado é Volume (kg) × R$/kg.
         </p>
       )}
+      {sublinha.premissaTipo === 'custo_moeda' && (
+        <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
+          Câmbio vem da premissa macro do FP&A Corporativo (tela "Gestão do Orçamento"). O gestor digita o custo mensal na moeda escolhida;
+          o valor em R$ é recalculado automaticamente — se o câmbio mudar depois, o valor calculado acompanha, sem precisar reeditar.
+        </p>
+      )}
       {UNIDADES_COM_COMPETENCIA_CAIXA.includes(unidadeId) && sublinha.pagamentoDiferente && (
         <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
           A DRE continua usando o valor de competência (acima). O valor do pagamento (caixa) alimenta só o Fluxo de Caixa — aba Revisão, Análise e Envio.
@@ -7299,6 +7344,11 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
         {sublinha.premissaTipo === 'rateio' && (
           <div style={{ maxWidth: 260, flex: 1 }}>
             <Selecao value={sublinha.baseTipo} onChange={v => onUpdate('baseTipo', v)} opcoes={BASES_RATEIO} />
+          </div>
+        )}
+        {sublinha.premissaTipo === 'custo_moeda' && (
+          <div style={{ maxWidth: 120, flex: 1 }}>
+            <Selecao value={sublinha.moeda || 'usd'} onChange={v => onUpdate('moeda', v)} opcoes={MOEDAS_ME} />
           </div>
         )}
       </div>
@@ -7319,7 +7369,7 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
 // CONTA inteira (não mais uma linha só) — normalizarConta aceita os dois
 // formatos, então dado já salvo antes desta mudança continua funcionando
 // sem migração.
-function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onUpdateSublinha, onAddSublinha, onRemoveSublinha, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, unidadeId, ipcaAnualPct, volumeTotalKgMes }) {
+function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onUpdateSublinha, onAddSublinha, onRemoveSublinha, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, unidadeId, ipcaAnualPct, volumeTotalKgMes, cambios }) {
   const contaNorm = normalizarConta(linha);
   const incoerente = contaNorm.sublinhas.some(s => linhaIncoerente(s));
   const multiplas = contaNorm.sublinhas.length > 1;
@@ -7388,6 +7438,7 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onU
                 onUpdate={(campo, valor) => onUpdateSublinha(sub.id, campo, valor)}
                 unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={volumeTotalKgMes}
                 receitaBrutaMes={receitaBrutaMes} receitaLiquidaMes={receitaLiquidaMes}
+                cambios={cambios}
               />
             </div>
           ))}
@@ -7781,7 +7832,7 @@ function ImportarFuncionariosExcel({ onImportarLote }) {
 // não uma contratação nova planejada).
 function ehExistente(f) { return f.origem !== 'novo'; }
 
-function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, folha, onImportarLote }) {
+function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, folha, onImportarLote, reajusteSalarialGlobal }) {
   const existentes = funcionarios.filter(ehExistente);
   const novos = funcionarios.filter(f => !ehExistente(f));
   const folhaExistente = computeFolhaPessoalAnual(existentes, premissasPessoal);
@@ -7920,6 +7971,11 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
       <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Dissídio</h5>
       <p style={{ fontSize: 10.5, color: '#8A8F96', marginBottom: 8 }}>
         A partir do mês escolhido (inclusive), o salário de todo mundo na unidade sobe pelo % informado — INSS/FGTS/Férias/13º/Meritocracia (tudo % sobre salário) já refletem automaticamente o valor reajustado. Sem mês escolhido, nenhum reajuste é aplicado.
+        {/* Pedido de 2026-09-07: "Reajuste salarial/dissídio como premissa
+            fixa" — o % deixou de ser digitado por unidade, vem sempre da
+            Premissa Macro (ver reajusteSalarialGlobal, sincronizado em
+            AbaCustos). */}
+        {' '}O % vem fixo da Premissa Macro "Reajuste salarial/dissídio" — defina/altere na Gestão do Orçamento (FP&A).
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 }}>
         <div>
@@ -7930,8 +7986,13 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
           />
         </div>
         <div>
-          <Rotulo>Reajuste do dissídio</Rotulo>
-          <CampoNumero value={premissasPessoal.dissidioPct} onChange={v => updatePremissaPessoal('dissidioPct', v)} sufixo="%" placeholder="0,0" />
+          <Rotulo>Reajuste do dissídio (fixo — Premissa Macro)</Rotulo>
+          <div style={{
+            fontFamily: FONT, fontSize: 13, padding: '9px 10px', borderRadius: 6,
+            border: `1px solid ${COR.borda}`, background: COR.claro, color: reajusteSalarialGlobal ? COR.texto : '#B5B9BE',
+          }}>
+            {reajusteSalarialGlobal ? `${parseNum(reajusteSalarialGlobal).toLocaleString('pt-BR', { minimumFractionDigits: 1 })}%` : 'Pendente de definição pelo FP&A'}
+          </div>
         </div>
       </div>
 
@@ -8182,7 +8243,27 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
   );
 }
 
-function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote, viagens, atualizar }) {
+function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote, viagens, atualizar, premissasMacro, cambios }) {
+  // Pedido de 2026-09-07: "Reajuste salarial/dissídio como premissa fixa no
+  // novo headcount de pessoal" — o % de dissídio de cada unidade (usado por
+  // computeFolhaPessoalMes) deixa de ser digitado à mão por unidade e passa
+  // a vir sempre da Premissa Macro central (definida pelo FP&A). Em vez de
+  // reescrever computeFolhaPessoalMes/folhaAnualPorCC (usadas em ~15 lugares
+  // do motor de cálculo) pra ler a premissa global direto, sincroniza o
+  // valor local (premissasPessoal.dissidioPct, que o cálculo já lê) com o
+  // global sempre que abrir esta aba ou o global mudar — mais simples e sem
+  // risco de regressão no motor de cálculo. Efeito: o campo fica travado
+  // (só leitura, ver QuadroPessoal) e reflete o global assim que a tela
+  // carrega; se o FP&A mudar a premissa global, uma unidade só reflete o
+  // valor novo na próxima vez que alguém abrir esta aba.
+  const reajusteSalarialGlobal = premissasMacro?.find(p => p.id === 'reajuste_salarial')?.valor || '';
+  useEffect(() => {
+    if (premissasPessoal && reajusteSalarialGlobal && premissasPessoal.dissidioPct !== reajusteSalarialGlobal) {
+      updatePremissaPessoal('dissidioPct', reajusteSalarialGlobal);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reajusteSalarialGlobal]);
+
   // Gestor de CC (perfil gerente_cc_corporativo) só vê/edita os CCs que
   // lhe foram atribuídos nesta unidade (usuario.ccsPermitidos, de
   // /auth/me) — pedido de 2026-08-16 ("os CCs ainda estão aparecendo
@@ -8524,6 +8605,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                       updatePremissaPessoal={updatePremissaPessoal}
                       folha={folhaAtual}
                       onImportarLote={lista => importarFuncionariosLote(ccSel, lista)}
+                      reajusteSalarialGlobal={reajusteSalarialGlobal}
                     />
                     {/* Consultórias PJs (2026-08-23) — 2ª conta analítica do
                         pacote Pessoal, só Corporativo (ver CONTA_CONSULTORIA_PJ/
@@ -8545,6 +8627,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                           receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                           ocultarClassificacao={unidadeId === 'corporativo'}
                           unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
+                          cambios={cambios}
                         />
                       </div>
                     ))}
@@ -8575,7 +8658,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                         total={totalConta(c.codigo)}
                         receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                         ocultarClassificacao={unidadeId === 'corporativo'}
-                        unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
+                        unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
                       />
                     )
                   ))
@@ -8615,7 +8698,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                   total={totalConta(c.codigo)}
                   receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                   ocultarClassificacao={unidadeId === 'corporativo'}
-                  unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
+                  unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
                 />
               ))}
             </div>
@@ -8976,13 +9059,17 @@ function LinhaFinanciamento({ linha, aberta, onToggle, onUpdate, onRemove }) {
   );
 }
 
-function AbaFcFinanciamentos({ fcFinanciamentos, addLinhaFinanciamento, updateLinhaFinanciamento, removeLinhaFinanciamento, updateMovimentacaoAcionista, atualizar }) {
+function AbaFcFinanciamentos({ fcFinanciamentos, addLinhaFinanciamento, updateLinhaFinanciamento, removeLinhaFinanciamento, updateMovimentacaoAcionista, atualizar, premissasMacro }) {
   const [linhaAberta, setLinhaAberta] = useState(null);
 
   const totalCaptacoes = fcFinanciamentos.linhas.reduce((acc, l) => acc + somaMes(l.captacoes), 0);
   const totalAmortizacoes = fcFinanciamentos.linhas.reduce((acc, l) => acc + somaMes(l.amortizacoes), 0);
   const totalJuros = fcFinanciamentos.linhas.reduce((acc, l) => acc + somaMes(l.jurosPagos), 0);
   const totalProvisao = fcFinanciamentos.linhas.reduce((acc, l) => acc + somaMes(l.provisaoDespesaFinanceira), 0);
+  // Pedido de 2026-09-07: "Taxa Selic média para a seção de FC
+  // Financiamentos" — só referência visual (o gestor continua digitando
+  // Juros Pagos à mão por linha, sem fórmula automática de taxa × saldo).
+  const selicPremissa = premissasMacro?.find(p => p.id === 'selic');
 
   return (
     <div>
@@ -8991,6 +9078,16 @@ function AbaFcFinanciamentos({ fcFinanciamentos, addLinhaFinanciamento, updateLi
         Projeção mensal de captações, amortizações, juros pagos, variação cambial e provisão da despesa financeira, por banco e linha de financiamento.
         A provisão da despesa financeira aqui é referência para calibrar o campo "Despesa financeira" da aba 4 (Provisões) — não substitui aquele lançamento automaticamente.
       </p>
+
+      {selicPremissa?.valor && (
+        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Info size={16} color={COR.laranja} style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: COR.texto }}>
+            Taxa Selic média de referência do ciclo: <strong>{parseNum(selicPremissa.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% a.a.</strong>
+            {' '}— use como referência ao estimar Juros Pagos de linhas indexadas ao CDI/Selic (o lançamento continua manual, por linha, mês a mês).
+          </span>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
         <CardTotal label="Captações no ano" valor={totalCaptacoes} cor={COR.verde} />
