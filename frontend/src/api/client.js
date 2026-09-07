@@ -11,14 +11,20 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch(path, options = {}) {
+  // Upload de arquivo (2026-09-07, ver api/premissasMacro.js): quando o body
+  // já é um FormData (multipart), manda como está — sem JSON.stringify e
+  // sem forçar Content-Type: application/json (o browser define o
+  // Content-Type multipart/form-data com o boundary certo sozinho; setar na
+  // mão quebraria o upload).
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const res = await fetch(BASE + path, {
     ...options,
     credentials: 'include',
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(options.headers || {}),
     },
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    body: isFormData ? options.body : (options.body ? JSON.stringify(options.body) : undefined),
   });
 
   if (res.status === 204) return null;

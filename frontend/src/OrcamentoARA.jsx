@@ -8,10 +8,10 @@ import * as XLSX from 'xlsx';
 import {
   Send, History, FileSpreadsheet, FileBarChart, CheckCircle2, AlertTriangle,
   Building2, ChevronDown, ChevronRight, Plus, Trash2, Clock, ShieldCheck,
-  Users, Loader2, Info,
+  Users, Loader2, Info, Upload, FileText,
 } from 'lucide-react';
 import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi } from './api/orcamentos.js';
-import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi } from './api/premissasMacro.js';
+import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
 import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
 import { logout } from './api/auth.js';
 import { ApiError } from './api/client.js';
@@ -3531,8 +3531,6 @@ export default function OrcamentoARA({ usuario }) {
   const [statusPptx, setStatusPptx] = useState(null); // { mensagem, erro? }
   const [etapasProcesso, setEtapasProcesso] = useState(ETAPAS_PROCESSO_PADRAO);
   const [premissasMacro, setPremissasMacro] = useState(PREMISSAS_MACRO_REF.map(p => ({ id: p.id, nome: p.nome, unidade: p.unidade, valor: '', fonte: null, atualizadoEm: null })));
-  const [buscandoFocus, setBuscandoFocus] = useState(false);
-  const [erroFocus, setErroFocus] = useState(null);
 
   const unidadeObj = UNIDADES.find(u => u.id === unidadeAtual);
 
@@ -3640,47 +3638,11 @@ export default function OrcamentoARA({ usuario }) {
     }
   }
 
-  // Busca as expectativas anuais mais recentes do Boletim Focus (BCB, API Olinda/Expectativas —
-  // dados públicos). Só atualiza IPCA, Câmbio, Selic e PIB, que têm indicador direto no Focus;
-  // "Reajuste salarial/dissídio" não é coberto pelo Focus e continua manual.
-  async function buscarBoletimFocus() {
-    setBuscandoFocus(true);
-    setErroFocus(null);
-    const anoRef = new Date().getFullYear() + 1;
-    const mapaIndicadores = { ipca: 'IPCA', cambio: 'Câmbio', selic: 'Selic', pib: 'PIB Total' };
-    try {
-      const atualizadas = [...premissasMacro];
-      for (const [id, indicador] of Object.entries(mapaIndicadores)) {
-        const url = `https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoAnuais?$top=1&$filter=Indicador eq '${indicador}' and Data eq '${anoRef}' and baseCalculo eq 0&$orderby=Data desc&$format=json`;
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`Falha ao consultar ${indicador} (HTTP ${resp.status})`);
-        const json = await resp.json();
-        const registro = json?.value?.[0];
-        if (registro) {
-          const idx = atualizadas.findIndex(p => p.id === id);
-          if (idx >= 0) {
-            atualizadas[idx] = { ...atualizadas[idx], valor: String(registro.Mediana ?? registro.Media ?? ''), fonte: 'Boletim Focus (BCB)', atualizadoEm: new Date().toISOString() };
-          }
-        }
-      }
-      setPremissasMacro(atualizadas);
-      try {
-        // Só persiste as que o Focus realmente respondeu (fonte mudou pra
-        // 'Boletim Focus (BCB)') — "Reajuste salarial/dissídio", que não
-        // tem indicador no Focus, não muda e não precisa regravar.
-        await Promise.all(
-          atualizadas
-            .filter(p => p.fonte === 'Boletim Focus (BCB)')
-            .map(p => atualizarPremissaMacroApi(p.id, p.valor, p.fonte))
-        );
-      } catch (e) {
-        // silencioso
-      }
-    } catch (e) {
-      setErroFocus('Não foi possível conectar ao Boletim Focus a partir deste ambiente. Atualize os valores manualmente ou tente novamente com o arquivo aberto diretamente no navegador (fora do Claude.ai).');
-    }
-    setBuscandoFocus(false);
-  }
+  // O antigo buscarBoletimFocus (fetch direto na API do BCB a partir do
+  // navegador) nunca funcionava de verdade neste ambiente — substituído em
+  // 2026-09-07 por upload manual do PDF, só como referência (ver
+  // PainelBoletimFocusPdf, dentro de VisaoFPA). Os campos de IPCA/Câmbio/
+  // Selic/PIB continuam preenchidos à mão via updatePremissaMacroGlobal.
 
   useEffect(() => {
     if (role !== 'gerente' || carregando) return;
@@ -4905,7 +4867,6 @@ export default function OrcamentoARA({ usuario }) {
           versoesDrill={versoesDrill} exportarExcel={exportarExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
           etapasProcesso={etapasProcesso} atualizarEtapa={atualizarEtapa}
           premissasMacro={premissasMacro} updatePremissaMacroGlobal={updatePremissaMacroGlobal}
-          buscarBoletimFocus={buscarBoletimFocus} buscandoFocus={buscandoFocus} erroFocus={erroFocus}
           abrirVersao={abrirVersao}
         />
       )}
@@ -10179,11 +10140,91 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes, ipcaAnua
   );
 }
 
+// Boletim Focus (PDF de referência, pedido de 2026-09-07) — substitui o
+// antigo botão "Atualizar do Boletim Focus (BCB)" (fetch direto na API do
+// BCB a partir do navegador, que nunca funcionava neste ambiente — "Não foi
+// possível conectar ao Boletim Focus a partir deste ambiente"). Só um PDF
+// por vez (upload novo substitui o anterior, ver boletim_focus_pdf no
+// banco) — puramente documento de referência pro Admin FP&A conferir ao
+// preencher os campos de IPCA/Câmbio/Selic/PIB acima à mão; nenhum valor é
+// extraído automaticamente do PDF.
+function PainelBoletimFocusPdf() {
+  const [meta, setMeta] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState(null);
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    try {
+      setMeta(await buscarBoletimFocusPdfMeta());
+    } catch (e) {
+      // silencioso — painel só de referência, não trava a tela de premissas
+    }
+    setCarregando(false);
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  async function handleArquivo(e) {
+    const arquivo = e.target.files?.[0];
+    e.target.value = ''; // permite escolher o mesmo arquivo de novo depois, se precisar reenviar
+    if (!arquivo) return;
+    if (arquivo.type !== 'application/pdf') {
+      setErro('Envie um arquivo PDF.');
+      return;
+    }
+    setEnviando(true);
+    setErro(null);
+    try {
+      setMeta(await enviarBoletimFocusPdf(arquivo));
+    } catch (e2) {
+      setErro(e2 instanceof ApiError ? e2.message : 'Falha ao enviar o PDF. Tente novamente.');
+    }
+    setEnviando(false);
+  }
+
+  return (
+    <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <label style={{
+          fontFamily: FONT, fontSize: 12, fontWeight: 700, padding: '7px 12px', borderRadius: 7,
+          cursor: enviando ? 'default' : 'pointer', border: `1px solid ${COR.azul}`, background: COR.branco, color: COR.azul,
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+        }}>
+          <Upload size={14} />
+          {enviando ? 'Enviando…' : 'Enviar PDF do Boletim Focus'}
+          <input type="file" accept="application/pdf" onChange={handleArquivo} disabled={enviando} style={{ display: 'none' }} />
+        </label>
+        {!carregando && meta && (
+          <a href={urlBoletimFocusPdf()} target="_blank" rel="noreferrer"
+             style={{ fontSize: 11.5, color: COR.azul, fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <FileText size={13} />{meta.nome_arquivo}
+          </a>
+        )}
+      </div>
+      {!carregando && meta && (
+        <p style={{ fontSize: 10.5, color: '#8A8F96', marginTop: 6, marginBottom: 0 }}>
+          Enviado em {new Date(meta.enviado_em).toLocaleString('pt-BR')}{meta.enviado_por_nome ? ` por ${meta.enviado_por_nome}` : ''} — só para referência, os valores abaixo continuam preenchidos manualmente.
+        </p>
+      )}
+      {!carregando && !meta && (
+        <p style={{ fontSize: 10.5, color: '#8A8F96', marginTop: 6, marginBottom: 0 }}>Nenhum PDF enviado ainda — envie o Boletim Focus mais recente pra consulta da equipe.</p>
+      )}
+      {erro && (
+        <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 8, fontSize: 11.5, marginTop: 8 }}>
+          {erro}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Visão FP&A Corporativo
 // ---------------------------------------------------------------------------
 
-function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, buscarBoletimFocus, buscandoFocus, erroFocus, abrirVersao }) {
+function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   // Mesmo racional do ipcaAnualPct no componente App — recalculado aqui
@@ -10236,16 +10277,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
         <>
           <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Premissas macroeconômicas do ciclo</h3>
           <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Editáveis apenas aqui — as unidades enxergam esses valores como referência, sem poder alterá-los.</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-            <Botao variante="secundario" icone={buscandoFocus ? Loader2 : Info} onClick={buscarBoletimFocus} disabled={buscandoFocus}>
-              {buscandoFocus ? 'Consultando Boletim Focus…' : 'Atualizar do Boletim Focus (BCB)'}
-            </Botao>
-          </div>
-          {erroFocus && (
-            <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 11.5, marginBottom: 12 }}>
-              {erroFocus}
-            </div>
-          )}
+          <PainelBoletimFocusPdf />
           <div style={{ overflowX: 'auto', marginBottom: 26 }}>
             <table>
               <thead>

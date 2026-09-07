@@ -180,6 +180,17 @@ CREATE TABLE premissas_macro (
   atualizado_por UUID REFERENCES usuarios(id)
 );
 
+-- Boletim Focus (PDF de referência) — pedido de 2026-09-07, ver migração
+-- 0007_boletim_focus_pdf.sql pra contexto completo. Linha única (id fixo 1).
+CREATE TABLE boletim_focus_pdf (
+  id            INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  nome_arquivo  TEXT NOT NULL,
+  conteudo      BYTEA NOT NULL,
+  tamanho_bytes INTEGER NOT NULL,
+  enviado_por   UUID REFERENCES usuarios(id),
+  enviado_em    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Etapas do processo orçamentário (cronograma do FP&A) — pedido de
 -- 2026-08-23, ver migração 0004_etapas_processo.sql pra contexto completo.
 -- inicio/fim em TEXT (formato 'AAAA-MM-DD'), não DATE — ver nota na migração.
