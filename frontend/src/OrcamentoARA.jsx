@@ -5263,11 +5263,12 @@ function VisaoGerente(props) {
             Bridge/Sensibilidades mostradas ali são as do Corporativo
             inteiro (não dá pra recortar por CC — Receita/IR são da
             unidade toda), mesma tela que Admin FP&A vê. Terra do Sol/
-            Frutos do Sol (2026-08-20) não têm aba de Revisão própria — o
-            envio/histórico da Agrícola/Resorts é só no Consolidado (ver
+            Frutos do Sol/Samoa Beach/Samoa Villa (pedido de 2026-09-07)
+            ganharam a aba de Revisão própria também — só de análise, sem
+            envio (ver podeEnviar em AbaRevisao); o envio/histórico da
+            Agrícola/Resorts continua só no Consolidado (ver
             ConsolidadoAgricola/ConsolidadoResorts). */}
         {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos' || a.id === 'revisao')
-          : IDS_MULTISITE_FILHOS.includes(unidadeAtual) ? ABAS.filter(a => a.id !== 'revisao')
           : ABAS).map(a => (
           <button
             key={a.id} onClick={() => setAba(a.id)}
@@ -5346,7 +5347,7 @@ function VisaoGerente(props) {
         )}
         {aba === 'balanco' && <AbaBalanco balanco={dados.balanco} atualizar={atualizar} />}
         {aba === 'plano5y' && <AbaPlano5Y dre={dre} plano5y={dados.plano5y} updatePremissa5Y={updatePremissa5Y} atualizar={atualizar} />}
-        {aba === 'revisao' && !IDS_MULTISITE_FILHOS.includes(unidadeAtual) && (
+        {aba === 'revisao' && (
           <AbaRevisao
             refUnidade={referenciaDaUnidade(unidadeAtual)}
             unidadeId={unidadeAtual} versoes={versoes}
@@ -5355,6 +5356,10 @@ function VisaoGerente(props) {
             enviarVersao={enviarVersao} enviando={enviando} tudoOk={tudoOk} erro={erro}
             aguardandoLiberacao={aguardandoLiberacao}
             sensibilidades={dados.sensibilidades} updateCenarioSensibilidade={updateCenarioSensibilidade}
+            // Pedido de 2026-09-07: sites individuais de Agrícola/Resorts só
+            // analisam, quem envia é o Consolidado (evita duas versões
+            // divergentes da mesma família disputando o backlog do FP&A).
+            podeEnviar={!IDS_MULTISITE_FILHOS.includes(unidadeAtual)}
           />
         )}
       </div>
@@ -5920,6 +5925,10 @@ function ModalVersao({ unidadeId, versaoId, onClose, ipcaAnualPct, cambios }) {
 // CC são os mesmos nas duas, mesclar arriscaria colisão de chave
 // CC|Conta). É aqui que vive o envio/histórico de versões da Agrícola —
 // TDS/FDS não têm aba de Revisão própria (ver ABAS/FAMILIA_AGRICOLA).
+// Terra do Sol/Frutos do Sol, na ordem/cor já usadas em UNIDADES — pro
+// drill-down por unidade da DRE consolidada (ver LinhaContaConsolidada).
+const UNIDADES_FAMILIA_AGRICOLA = UNIDADES.filter(u => u.id === 'agricola_tds' || u.id === 'agricola_fds');
+
 function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cambios }) {
   const [dadosTds, setDadosTds] = useState(null);
   const [dadosFds, setDadosFds] = useState(null);
@@ -5930,6 +5939,9 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
   const [comentarioEnvio, setComentarioEnvio] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [ifrs18, setIfrs18] = useState(false);
+  // Drill-down por fazenda na DRE por conta sintética (pedido de 2026-09-07,
+  // "parecido com o que está sendo apresentado no consolidado do Grupo ARA").
+  const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -6051,6 +6063,9 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
     );
   }
 
+  const porUnidadeDreAgricola = { agricola_tds: dreTds, agricola_fds: dreFds };
+  function toggleDreAgricola(id) { setLinhasAbertasDRE(prev => ({ ...prev, [id]: !prev[id] })); }
+
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>ARA Agrícola — Consolidado</h3>
@@ -6081,6 +6096,21 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
         <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
         <CardTotal label="EBITDA" valor={dre.ebitda} cor={COR.laranja} />
         <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
+      </div>
+
+      {/* Drill-down por fazenda (pedido de 2026-09-07) — mesmo componente
+          do Consolidado do Grupo ARA (LinhaContaConsolidada), só que com
+          unidades=Terra do Sol/Frutos do Sol em vez do Grupo inteiro. */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por Terra do Sol (TDS) e Frutos do Sol (FDS).</p>
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
+        {CONTAS_SINTETICAS_DRE.map(conta => (
+          <LinhaContaConsolidada
+            key={conta.id} conta={conta} grupoObjeto={dre} porUnidade={porUnidadeDreAgricola}
+            aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => toggleDreAgricola(conta.id)}
+            unidades={UNIDADES_FAMILIA_AGRICOLA}
+          />
+        ))}
       </div>
 
       {/* 4 gráficos de Bridge (pedido de 2026-08-30) — ver nota completa em
@@ -6197,6 +6227,10 @@ const botaoSecundarioLocal = {
 // Villa — ver CCS_RESORTS), então cada lado usa a própria referência
 // (referenciaDaUnidade('samoa_beach')/('samoa_villa')), nunca uma única
 // referência compartilhada como a Agrícola faz.
+// Samoa Beach/Samoa Villa, na ordem/cor já usadas em UNIDADES — pro
+// drill-down por unidade da DRE consolidada (ver LinhaContaConsolidada).
+const UNIDADES_FAMILIA_RESORTS = UNIDADES.filter(u => u.id === 'samoa_beach' || u.id === 'samoa_villa');
+
 function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cambios }) {
   const [dadosBeach, setDadosBeach] = useState(null);
   const [dadosVilla, setDadosVilla] = useState(null);
@@ -6207,6 +6241,9 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
   const [comentarioEnvio, setComentarioEnvio] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [ifrs18, setIfrs18] = useState(false);
+  // Drill-down por resort na DRE por conta sintética (pedido de 2026-09-07,
+  // "parecido com o que está sendo apresentado no consolidado do Grupo ARA").
+  const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -6323,6 +6360,9 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
     );
   }
 
+  const porUnidadeDreResorts = { samoa_beach: dreBeach, samoa_villa: dreVilla };
+  function toggleDreResorts(id) { setLinhasAbertasDRE(prev => ({ ...prev, [id]: !prev[id] })); }
+
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>ARA Resorts — Consolidado</h3>
@@ -6353,6 +6393,21 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
         <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
         <CardTotal label="EBITDA" valor={dre.ebitda} cor={COR.laranja} />
         <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
+      </div>
+
+      {/* Drill-down por resort (pedido de 2026-09-07) — mesmo componente do
+          Consolidado do Grupo ARA (LinhaContaConsolidada), só que com
+          unidades=Samoa Beach/Samoa Villa em vez do Grupo inteiro. */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por Samoa Beach e Samoa Villa.</p>
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
+        {CONTAS_SINTETICAS_DRE.map(conta => (
+          <LinhaContaConsolidada
+            key={conta.id} conta={conta} grupoObjeto={dre} porUnidade={porUnidadeDreResorts}
+            aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => toggleDreResorts(conta.id)}
+            unidades={UNIDADES_FAMILIA_RESORTS}
+          />
+        ))}
       </div>
 
       {/* 4 gráficos de Bridge (pedido de 2026-08-30) — ver nota completa em
@@ -9133,7 +9188,7 @@ function AbaBalancoPlanoContasTextil({ planoContas, saldosIniciais, atualizar })
   );
 }
 
-function CascataDRE({ dre, ifrs18 }) {
+function CascataDRE({ dre, ifrs18, extras }) {
   const linhasLegado = [
     { label: 'Receita Operacional Líquida', valor: dre.receitaLiquida, tipo: 'base' },
     { label: '(-) Custos dos Produtos Vendidos', valor: -dre.cpv, tipo: 'neg' },
@@ -9166,7 +9221,14 @@ function CascataDRE({ dre, ifrs18 }) {
     { label: '(=) Lucro Líquido', valor: dre.lucroLiquido, tipo: 'total', categoria: '—' },
   ];
 
-  const linhas = ifrs18 ? linhasIfrs18 : linhasLegado;
+  // extras (pedido de 2026-09-07): linhas de referência rápida acrescentadas
+  // depois do Lucro Líquido/Margem Líquida — opcional, só quem passa a prop
+  // (hoje só AbaRevisao) ganha essas linhas; os outros usos de CascataDRE
+  // (ConsolidadoAgricola/Resorts, dashboard) continuam exatamente iguais.
+  const linhas = [
+    ...(ifrs18 ? linhasIfrs18 : linhasLegado),
+    ...((extras || []).map(e => ({ ...e, tipo: 'flex' }))),
+  ];
 
   return (
     <div>
@@ -9471,9 +9533,14 @@ function valorConta(conta, objeto) {
   return conta.inverter ? -bruto : bruto;
 }
 
-// Uma linha de conta sintética consolidada do Grupo, com drill-down por unidade
-// ao expandir (padrão "Conta | Unidade" da referência do usuário).
-function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggle }) {
+// Uma linha de conta sintética consolidada, com drill-down por unidade ao
+// expandir (padrão "Conta | Unidade" da referência do usuário) — usado tanto
+// no Consolidado do Grupo (unidades = UNIDADES_PARA_TOTAL_GRUPO, padrão)
+// quanto no Consolidado de uma família multi-site (Agrícola/Resorts, pedido
+// de 2026-09-07: "deve aparecer os valores por unidade abaixo de cada conta
+// sintética, parecido com o que está sendo apresentado no consolidado do
+// Grupo ARA" — ali passa `unidades` com só os 2 sites da família).
+function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggle, unidades = UNIDADES_PARA_TOTAL_GRUPO }) {
   const isMargem = conta.tipo === 'margem';
   const isPendencia = conta.tipo === 'pendencia';
   const isForte = conta.tipo === 'subtotal' || conta.tipo === 'total';
@@ -9506,7 +9573,7 @@ function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggl
       </button>
       {aberto && (
         <div style={{ background: COR.claro }}>
-          {UNIDADES_PARA_TOTAL_GRUPO.map(u => {
+          {unidades.map(u => {
             const v = valorConta(conta, porUnidade[u.id]);
             return (
               <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px 6px 30px', fontSize: 11.5, borderBottom: `1px solid ${COR.borda}` }}>
@@ -9705,7 +9772,7 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
   );
 }
 
-function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, cambios, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade }) {
+function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, cambios, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade, podeEnviar = true }) {
   const [ifrs18, setIfrs18] = useState(false);
   const fd = computeFluxoIndiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
@@ -9755,8 +9822,13 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
 
   return (
     <div>
-      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>Revisão, Análise e Envio — DRE consolidada</h3>
-      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 10 }}>Cascata no formato de referência do Grupo ARA. O envio grava a versão no histórico e no backlog do FP&amp;A.</p>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>Revisão, Análise{podeEnviar ? ' e Envio' : ''} — DRE {podeEnviar ? 'consolidada' : 'da unidade'}</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 10 }}>
+        Cascata no formato de referência do Grupo ARA.{' '}
+        {podeEnviar
+          ? 'O envio grava a versão no histórico e no backlog do FP&A.'
+          : 'Painel só de análise — o envio da versão consolidada acontece na tela do Consolidado desta unidade.'}
+      </p>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         <button
@@ -9776,31 +9848,44 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
       </div>
 
       {/* Ordem de 2026-08-09: DRE+gráficos -> DRE mensal -> FC Indireto mensal
-          -> FC Direto mensal -> Análise de Sensibilidades -> envio. */}
-      <div style={{ marginBottom: 20 }}>
-        <CascataDRE dre={dre} ifrs18={ifrs18} />
-      </div>
-
-      {/* 4 gráficos de Bridge (pedido de 2026-08-30): os dois de sempre
-          (Orçamento — Receita→EBITDA e EBITDA→FCO) lado a lado com os dois
-          novos (2027 vs 2026 — EBITDA e FCO, ver nota em bridgeEbitda2027vs2026
-          sobre a fonte de dado de 2026 ainda pendente). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 20 }}>
-        <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
-          <GraficoBridge etapas={bridgeReceitaEbitda} />
+          -> FC Direto mensal -> Análise de Sensibilidades -> envio.
+          Layout de 2026-09-07 (pedido: "gráficos ao lado da tabela de DRE e
+          não abaixo"): CascataDRE numa coluna, os 4 Bridges (grid 2x2) na
+          coluna ao lado — empilha em telas estreitas (flex-wrap). */}
+      <div style={{ display: 'flex', gap: 20, marginBottom: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 380px', minWidth: 320 }}>
+          <CascataDRE
+            dre={dre} ifrs18={ifrs18}
+            // Pedido de 2026-09-07: depois do Lucro Líquido, mais duas
+            // linhas de referência rápida pra reconciliar com o FCO
+            // (Lucro Líquido + D&A +/- Variação de NCG ≈ FC Operacional).
+            extras={[
+              { label: '(+) Depreciação e Amortização', valor: dre.depreciacao },
+              { label: '(+/-) Variação de NCG', valor: totalGiroAno },
+            ]}
+          />
         </div>
-        <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — EBITDA</div>
-          <GraficoBridge etapas={bridgeEbitda2027vs2026} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
-          <GraficoBridge etapas={bridgeEbitdaFco} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — FCO</div>
-          <GraficoBridge etapas={bridgeFco2027vs2026} />
+        {/* 4 gráficos de Bridge (pedido de 2026-08-30): os dois de sempre
+            (Orçamento — Receita→EBITDA e EBITDA→FCO) ao lado dos dois novos
+            (2027 vs 2026 — EBITDA e FCO, ver nota em bridgeEbitda2027vs2026
+            sobre a fonte de dado de 2026 ainda pendente). */}
+        <div style={{ flex: '1 1 480px', minWidth: 320, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
+            <GraficoBridge etapas={bridgeReceitaEbitda} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — EBITDA</div>
+            <GraficoBridge etapas={bridgeEbitda2027vs2026} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
+            <GraficoBridge etapas={bridgeEbitdaFco} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — FCO</div>
+            <GraficoBridge etapas={bridgeFco2027vs2026} />
+          </div>
         </div>
       </div>
 
@@ -9871,37 +9956,55 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
 
       <AnaliseSensibilidades dados={dados} dre={dre} sensibilidades={sensibilidades} updateCenarioSensibilidade={updateCenarioSensibilidade} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-        <div>
-          <Rotulo>Seu nome (autor da versão)</Rotulo>
-          <CampoTexto value={autorNome} onChange={setAutorNome} placeholder="Nome do gerente" />
-        </div>
-        <div>
-          <Rotulo>Comentário da versão (opcional)</Rotulo>
-          <CampoTexto value={comentarioEnvio} onChange={setComentarioEnvio} placeholder="Ex.: revisão de premissas de CAPEX" />
-        </div>
-      </div>
+      {/* Pedido de 2026-09-07: "dentro de cada unidade [...] nos Resorts e
+          nas Agrícolas, [a Revisão] sem a opção de envio [...] para os
+          números de cada unidade poderem ser analisados" — Terra do
+          Sol/Frutos do Sol/Samoa Beach/Samoa Villa ganharam esta aba (antes
+          só existia no Consolidado de cada família), mas sem envio: quem
+          consolida e manda a versão pro FP&A continua sendo só o
+          Consolidado (ConsolidadoAgricola/ConsolidadoResorts), pra não ter
+          duas versões divergentes da mesma família. podeEnviar=true nas
+          demais unidades (Têxtil, Corporativo, Consolidados) — nada muda
+          pra elas. */}
+      {podeEnviar ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+            <div>
+              <Rotulo>Seu nome (autor da versão)</Rotulo>
+              <CampoTexto value={autorNome} onChange={setAutorNome} placeholder="Nome do gerente" />
+            </div>
+            <div>
+              <Rotulo>Comentário da versão (opcional)</Rotulo>
+              <CampoTexto value={comentarioEnvio} onChange={setComentarioEnvio} placeholder="Ex.: revisão de premissas de CAPEX" />
+            </div>
+          </div>
 
-      {erro && (
-        <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
-          {erro}
-        </div>
-      )}
-      {!tudoOk && (
-        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, color: COR.texto, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
-          Existem checagens de Auditoria pendentes. Corrija-as antes de enviar (painel à direita).
-        </div>
-      )}
-      {/* Pedido de 2026-08-16: trava reenvio até o FP&A liberar. */}
-      {aguardandoLiberacao && (
-        <div style={{ background: '#E9F0FB', border: `1px solid ${COR.azul}`, color: COR.azul, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
-          Este orçamento já foi enviado e está aguardando liberação do FP&A para permitir um novo envio.
-        </div>
-      )}
+          {erro && (
+            <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+              {erro}
+            </div>
+          )}
+          {!tudoOk && (
+            <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, color: COR.texto, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+              Existem checagens de Auditoria pendentes. Corrija-as antes de enviar (painel à direita).
+            </div>
+          )}
+          {/* Pedido de 2026-08-16: trava reenvio até o FP&A liberar. */}
+          {aguardandoLiberacao && (
+            <div style={{ background: '#E9F0FB', border: `1px solid ${COR.azul}`, color: COR.azul, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+              Este orçamento já foi enviado e está aguardando liberação do FP&A para permitir um novo envio.
+            </div>
+          )}
 
-      <Botao variante="laranja" icone={Send} onClick={enviarVersao} disabled={!tudoOk || enviando || aguardandoLiberacao}>
-        {enviando ? 'Enviando…' : aguardandoLiberacao ? 'Aguardando liberação do FP&A' : 'Enviar versão'}
-      </Botao>
+          <Botao variante="laranja" icone={Send} onClick={enviarVersao} disabled={!tudoOk || enviando || aguardandoLiberacao}>
+            {enviando ? 'Enviando…' : aguardandoLiberacao ? 'Aguardando liberação do FP&A' : 'Enviar versão'}
+          </Botao>
+        </>
+      ) : (
+        <div style={{ background: COR.claro, border: `1px solid ${COR.borda}`, borderRadius: 6, padding: 10, fontSize: 11.5, color: '#7A8088' }}>
+          Esta tela é só de análise — o envio da versão desta unidade acontece no Consolidado (soma desta com a(s) outra(s) da família).
+        </div>
+      )}
 
       {/* Pedido de 2026-08-19: "ao final da seção... análise de variações
           entre versões... macro e micro contas (analíticas)". Só quem
