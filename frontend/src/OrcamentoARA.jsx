@@ -1953,9 +1953,20 @@ function formatData(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
+// Bug corrigido em 2026-09-08: "128.835,3" (formato BR — "." separador de
+// milhar, "," decimal) virava NaN→0, porque o replace(',', '.') sozinho
+// gerava "128.835.3" (dois pontos). Reproduzido na Produção da Receita
+// Agrícola: totalizador de "Safra Produção — Embalada" somando 0 com
+// valores mensais claramente não-zero na tela. Agora, se tem vírgula,
+// primeiro remove todo "." (assume milhar) antes de trocar a vírgula por
+// ponto; sem vírgula, comportamento igual a antes (aceita "128835.3" com
+// ponto decimal, ou inteiro puro).
 function parseNum(v) {
   if (v === '' || v === null || v === undefined) return 0;
-  const n = Number(String(v).replace(',', '.'));
+  if (typeof v === 'number') return isNaN(v) ? 0 : v;
+  let s = String(v).trim();
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const n = Number(s);
   return isNaN(n) ? 0 : n;
 }
 
@@ -2210,8 +2221,16 @@ function computeReceitaAgricola(agricola, cambios) {
   const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => v * parseNum(vi.pctTon?.[m]) / 100);
   const receitaInternaMes = volumeInternoKgMes.map((v, m) => v * parseNum(vi.precoKg?.[m]));
 
+  // % Ton. Mercado Externo (2026-09-08, pedido: "precisa ser calculada
+  // automaticamente considerando a diferença para 100% da linha % de Ton.
+  // vendida (Mercado Interno)") — deixa de ser digitado (vendaExterna.pctTon
+  // fica sem uso, não apagado do documento por compatibilidade com dados já
+  // salvos) e vira sempre 100% − % Mercado Interno do mesmo mês. Impedido de
+  // ficar negativo (Interno > 100% seria dado inconsistente, mas não deveria
+  // virar um volume externo negativo).
   const ve = agricola?.vendaExterna || {};
-  const volumeExternoTotalKgMes = producaoTotalKgMes.map((v, m) => v * parseNum(ve.pctTon?.[m]) / 100);
+  const pctExternoMes = MESES.map((_, m) => Math.max(0, 100 - parseNum(vi.pctTon?.[m])));
+  const volumeExternoTotalKgMes = producaoTotalKgMes.map((v, m) => v * pctExternoMes[m] / 100);
 
   function porMoeda(moedaObj, chaveCambio) {
     const volumeKgMes = volumeExternoTotalKgMes.map((v, m) => v * parseNum(moedaObj?.pct?.[m]) / 100);
@@ -2229,7 +2248,7 @@ function computeReceitaAgricola(agricola, cambios) {
   return {
     embaladaKgMes, refugoKgMes, producaoTotalKgMes,
     volumeInternoKgMes, receitaInternaMes,
-    volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
+    pctExternoMes, volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
     receitaBrutaMes,
   };
 }
@@ -3084,8 +3103,11 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
       // algum mês — cobre tanto quem começou pela Produção quanto quem já
       // tem só uma venda registrada.
       const embaladaOk = somaMes(data.receita.agricola.embaladaKg) > 0;
-      const vendaOk = somaMes(data.receita.agricola.vendaInterna?.pctTon) > 0
-        || somaMes(data.receita.agricola.vendaExterna?.pctTon) > 0;
+      // % Mercado Externo (2026-09-08) virou sempre 100% − % Interno (ver
+      // computeReceitaAgricola) — não é mais digitado, então checar só o
+      // Interno já cobre os dois lados (Interno=0 sem nada preenchido não é
+      // "100% Externo deliberado", é só ninguém ter mexido ainda).
+      const vendaOk = somaMes(data.receita.agricola.vendaInterna?.pctTon) > 0;
       checks.push({
         label: 'Receita: Produção (Embalada) e Vendas (Interno/Externo) com valor lançado',
         ok: embaladaOk && vendaOk,
@@ -7266,13 +7288,12 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
       />
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>2.3 Vendas — Mercado Externo</h4>
+      {/* % de Ton. Mercado Externo (2026-09-08) — deixou de ser editável,
+          vira linhasCalculadas: sempre 100% − % Mercado Interno do mesmo
+          mês (ver pctExternoMes em computeReceitaAgricola). */}
       <TabelaMensal
-        linhas={[
-          { key: 'pctTon', label: '% de Ton. vendida (Mercado Externo)', valores: ve.pctTon },
-          ...gbpLinhas.linhas, ...eurLinhas.linhas, ...usdLinhas.linhas,
-        ]}
+        linhas={[...gbpLinhas.linhas, ...eurLinhas.linhas, ...usdLinhas.linhas]}
         onChangeCelula={(key, mi, v) => {
-          if (key === 'pctTon') { atualizarAgricola(['vendaExterna', 'pctTon'], atualizarArray(ve.pctTon, mi, v)); return; }
           const [chave, campo] = key.split('_'); // ex.: 'gbp_pct' -> ['gbp','pct'], 'gbp_preco' -> ['gbp','preco']
           const campoReal = campo === 'preco' ? 'precoMoeda' : 'pct';
           const atual = ve[chave]?.[campoReal] || mesesVazios();
@@ -7280,6 +7301,12 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
         }}
         corTotal={COR.verde}
         linhasCalculadas={[
+          {
+            key: 'pctTon', label: '% de Ton. vendida (Mercado Externo)', valoresMensal: r.pctExternoMes,
+            totalValor: r.pctExternoMes.reduce((a, v) => a + v, 0) / 12, cor: COR.texto,
+            formatarCelula: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`,
+            formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% méd.`,
+          },
           { key: 'volumeExterno', label: 'Volume vendido — Mercado Externo (Kg)', valoresMensal: r.volumeExternoTotalKgMes, totalValor: somaMes(r.volumeExternoTotalKgMes), cor: COR.texto, ...FMT_KG },
           ...gbpLinhas.calculadas, ...eurLinhas.calculadas, ...usdLinhas.calculadas,
           { key: 'receitaExterna', label: 'Receita Total Mercado Externo (R$)', valoresMensal: r.receitaExternaMes, totalValor: somaMes(r.receitaExternaMes), cor: COR.verde },

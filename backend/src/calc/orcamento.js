@@ -18,9 +18,15 @@ export function uid() {
   return Math.random().toString(36).slice(2, 9);
 }
 
+// Bug corrigido em 2026-09-08 — ver nota completa no espelho frontend
+// (frontend/src/OrcamentoARA.jsx): "128.835,3" (formato BR) virava NaN→0
+// porque o replace(',', '.') sozinho gerava "128.835.3" (dois pontos).
 export function parseNum(v) {
   if (v === '' || v === null || v === undefined) return 0;
-  const n = Number(String(v).replace(',', '.'));
+  if (typeof v === 'number') return isNaN(v) ? 0 : v;
+  let s = String(v).trim();
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const n = Number(s);
   return isNaN(n) ? 0 : n;
 }
 
@@ -416,8 +422,11 @@ function computeReceitaAgricola(agricola, cambios) {
   const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => v * parseNum(vi.pctTon?.[m]) / 100);
   const receitaInternaMes = volumeInternoKgMes.map((v, m) => v * parseNum(vi.precoKg?.[m]));
 
+  // % Ton. Mercado Externo (2026-09-08) — ver nota completa no espelho
+  // frontend: sempre 100% − % Mercado Interno do mesmo mês.
   const ve = agricola?.vendaExterna || {};
-  const volumeExternoTotalKgMes = producaoTotalKgMes.map((v, m) => v * parseNum(ve.pctTon?.[m]) / 100);
+  const pctExternoMes = MESES.map((_, m) => Math.max(0, 100 - parseNum(vi.pctTon?.[m])));
+  const volumeExternoTotalKgMes = producaoTotalKgMes.map((v, m) => v * pctExternoMes[m] / 100);
 
   function porMoeda(moedaObj, chaveCambio) {
     const volumeKgMes = volumeExternoTotalKgMes.map((v, m) => v * parseNum(moedaObj?.pct?.[m]) / 100);
@@ -435,7 +444,7 @@ function computeReceitaAgricola(agricola, cambios) {
   return {
     embaladaKgMes, refugoKgMes, producaoTotalKgMes,
     volumeInternoKgMes, receitaInternaMes,
-    volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
+    pctExternoMes, volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
     receitaBrutaMes,
   };
 }

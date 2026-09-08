@@ -10,9 +10,13 @@ import { MESES, mesesVazios } from './constantesTextil.js';
 
 // Duplicado (não importado de orcamento.js) de propósito — evita import
 // circular, já que orcamento.js importa funções deste arquivo.
+// Bug corrigido em 2026-09-08 — ver nota completa no espelho frontend.
 function parseNum(v) {
   if (v === '' || v === null || v === undefined) return 0;
-  const n = Number(String(v).replace(',', '.'));
+  if (typeof v === 'number') return isNaN(v) ? 0 : v;
+  let s = String(v).trim();
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const n = Number(s);
   return isNaN(n) ? 0 : n;
 }
 
