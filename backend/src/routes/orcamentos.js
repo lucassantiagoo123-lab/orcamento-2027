@@ -83,27 +83,54 @@ const ANO_ATUAL = 2027;
  * Pendência conhecida, não escondida: isto valida só custos.linhas/
  * detalhes/funcionarios (a única parte do formulário organizada por CC) —
  * Receita, CAPEX, Kgiro etc. continuam de unidade inteira, sem filtro por
- * CC, porque não têm essa granularidade no modelo de dados hoje. */
-function validarEscritaCcCustos(usuario, unidadeId, dadosNovos) {
+ * CC, porque não têm essa granularidade no modelo de dados hoje.
+ *
+ * Correção de 2026-09-08 (bug real: "Sem acesso ao CC 0000102
+ * (custos.linhas)" pro gestor de um CC diferente, sem ele ter tocado
+ * naquele CC) — o PUT sempre manda o documento INTEIRO da unidade (não um
+ * patch), e o GET devolve `dados` completo (todos os CCs, não só os dela —
+ * ver comentário de podeAcessarUnidade). Então até um gestor que só edita
+ * o próprio CC reenvia, sem querer, o custos.linhas de todo mundo — e a
+ * validação antiga rejeitava isso, porque olhava só `dadosNovos`, sem
+ * comparar com o que já estava salvo. Agora recebe `dadosAntes` (o
+ * orçamento antes deste PUT) e só bloqueia o que de fato MUDOU de valor —
+ * dado alheio que só está "passando" no payload, sem alteração, passa. */
+function validarEscritaCcCustos(usuario, unidadeId, dadosAntes, dadosNovos) {
   if (usuario.perfil !== 'gerente_cc_corporativo') return null;
   const ccsPermitidos = new Set(
     (usuario.ccsPermitidos || []).filter((c) => c.unidadeId === unidadeId).map((c) => c.codigo)
   );
-  const custos = dadosNovos?.custos || {};
+  const custosAntes = dadosAntes?.custos || {};
+  const custosNovo = dadosNovos?.custos || {};
+  const mudou = (a, b) => JSON.stringify(a ?? null) !== JSON.stringify(b ?? null);
 
-  for (const chave of Object.keys(custos.linhas || {})) {
+  const linhasAntes = custosAntes.linhas || {};
+  const linhasNovas = custosNovo.linhas || {};
+  for (const chave of new Set([...Object.keys(linhasAntes), ...Object.keys(linhasNovas)])) {
+    if (!mudou(linhasAntes[chave], linhasNovas[chave])) continue;
     const ccCodigo = chave.split('|')[0];
-    if (!ccsPermitidos.has(ccCodigo)) {
-      return `Sem acesso ao CC ${ccCodigo} (custos.linhas).`;
+    if (!ccsPermitidos.has(ccCodigo)) return `Sem acesso ao CC ${ccCodigo} (custos.linhas).`;
+  }
+
+  // detalhes/funcionarios são arrays (não um objeto chaveado por CC) —
+  // compara item a item pelo id, dos dois lados (criado/alterado E
+  // removido), pra pegar tanto uma mudança de verdade quanto reenvio
+  // inalterado de um item de outro CC.
+  function validarLista(listaAntes, listaNova, campoCc, rotulo) {
+    const antesPorId = new Map((listaAntes || []).map((x) => [x.id, x]));
+    const novoPorId = new Map((listaNova || []).map((x) => [x.id, x]));
+    for (const [id, item] of novoPorId) {
+      if (!mudou(antesPorId.get(id), item)) continue;
+      if (item[campoCc] && !ccsPermitidos.has(item[campoCc])) return `Sem acesso ao CC ${item[campoCc]} (${rotulo}).`;
     }
+    for (const [id, item] of antesPorId) {
+      if (novoPorId.has(id)) continue; // removido — já coberto acima se ainda presente
+      if (item[campoCc] && !ccsPermitidos.has(item[campoCc])) return `Sem acesso ao CC ${item[campoCc]} (${rotulo} removido).`;
+    }
+    return null;
   }
-  for (const d of custos.detalhes || []) {
-    if (d.cc && !ccsPermitidos.has(d.cc)) return `Sem acesso ao CC ${d.cc} (detalhamento de pacote).`;
-  }
-  for (const f of custos.funcionarios || []) {
-    if (f.ccCodigo && !ccsPermitidos.has(f.ccCodigo)) return `Sem acesso ao CC ${f.ccCodigo} (funcionário).`;
-  }
-  return null;
+  return validarLista(custosAntes.detalhes, custosNovo.detalhes, 'cc', 'detalhamento de pacote')
+    || validarLista(custosAntes.funcionarios, custosNovo.funcionarios, 'ccCodigo', 'funcionário');
 }
 
 /** Gestor de CC (pedido de 2026-08-16: "acesso apenas à seção Custos e
@@ -183,7 +210,7 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoE
 
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
 
-    const erroEscopoCc = validarEscritaCcCustos(req.usuario, req.params.unidadeId, dados);
+    const erroEscopoCc = validarEscritaCcCustos(req.usuario, req.params.unidadeId, atual.dados, dados);
     if (erroEscopoCc) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroEscopoCc });
     const erroSecao = validarSoCustosAlterado(req.usuario, atual.dados, dados);
     if (erroSecao) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroSecao });
