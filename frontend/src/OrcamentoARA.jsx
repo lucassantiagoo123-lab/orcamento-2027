@@ -429,6 +429,13 @@ const DEDUCOES_REF = [
 // ---- Premissas macroeconômicas de referência para o ciclo 2027 (campo aberto, sem valor pré-definido) ----
 const PREMISSAS_MACRO_REF = [
   { id: 'ipca', nome: 'Inflação — IPCA', unidade: '% a.a.' },
+  // igpm/incc (2026-09-08, pedido: incluir abaixo do IPCA) — mesmo padrão de
+  // campo aberto preenchido pelo Admin FP&A; nenhum cálculo lê essas duas
+  // ainda (diferente do IPCA, que alimenta reajuste_inflacao em Custos e
+  // Despesas — ver ipcaAnualPct) — ficam só como referência visível pras
+  // unidades, por enquanto.
+  { id: 'igpm', nome: 'Inflação — IGP-M', unidade: '% a.a.' },
+  { id: 'incc', nome: 'Inflação — INCC (construção)', unidade: '% a.a.' },
   { id: 'cambio', nome: 'Câmbio — USD/BRL médio', unidade: 'R$' },
   // cambio_eur/cambio_gbp (2026-08-23, pedido: "adicione o câmbio de forma
   // estática mensal previsto no FP&A Corporativo, incluindo como parte do
@@ -440,7 +447,13 @@ const PREMISSAS_MACRO_REF = [
   { id: 'cambio_gbp', nome: 'Câmbio — GBP/BRL médio', unidade: 'R$' },
   { id: 'selic', nome: 'Taxa Selic média', unidade: '% a.a.' },
   { id: 'pib', nome: 'Crescimento do PIB', unidade: '% a.a.' },
-  { id: 'reajuste_salarial', nome: 'Reajuste salarial/dissídio', unidade: '% a.a.' },
+  // reajuste_salarial (2026-09-07 a 2026-09-08): saiu daqui a pedido —
+  // "desconsidere por enquanto, será considerado à parte com base na
+  // planilha de pessoal de suporte" (ainda não existe). A linha antiga
+  // pode ter ficado na tabela `premissas_macro` do banco (não foi apagada,
+  // só parou de aparecer aqui) — reaproveitar o id 'reajuste_salarial' se
+  // essa integração um dia voltar a alimentar o dissídio (ver nota em
+  // QuadroPessoal/AbaCustos, seção Dissídio).
   // Pedido de 2026-09-07: linha de referência — mesmo padrão das demais
   // (campo aberto, preenchido à mão pelo Admin FP&A; não alimenta nenhum
   // cálculo automaticamente, só fica visível como referência pras unidades).
@@ -8262,7 +8275,7 @@ function ImportarFuncionariosExcel({ onImportarLote }) {
 // não uma contratação nova planejada).
 function ehExistente(f) { return f.origem !== 'novo'; }
 
-function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, folha, onImportarLote, reajusteSalarialGlobal }) {
+function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, folha, onImportarLote }) {
   const existentes = funcionarios.filter(ehExistente);
   const novos = funcionarios.filter(f => !ehExistente(f));
   const folhaExistente = computeFolhaPessoalAnual(existentes, premissasPessoal);
@@ -8399,30 +8412,17 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
       </p>
 
       <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Dissídio</h5>
-      <p style={{ fontSize: 10.5, color: '#8A8F96', marginBottom: 8 }}>
-        A partir do mês escolhido (inclusive), o salário de todo mundo na unidade sobe pelo % informado — INSS/FGTS/Férias/13º/Meritocracia (tudo % sobre salário) já refletem automaticamente o valor reajustado. Sem mês escolhido, nenhum reajuste é aplicado.
-        {/* Pedido de 2026-09-07: "Reajuste salarial/dissídio como premissa
-            fixa" — o % deixou de ser digitado por unidade, vem sempre da
-            Premissa Macro (ver reajusteSalarialGlobal, sincronizado em
-            AbaCustos). */}
-        {' '}O % vem fixo da Premissa Macro "Reajuste salarial/dissídio" — defina/altere na Gestão do Orçamento (FP&A).
-      </p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 }}>
-        <div>
-          <Rotulo>Mês do dissídio</Rotulo>
-          <Selecao
-            value={premissasPessoal.dissidioMes} onChange={v => updatePremissaPessoal('dissidioMes', v)}
-            opcoes={[{ id: '', nome: 'Sem dissídio' }, ...MESES.map(m => ({ id: m, nome: m }))]}
-          />
-        </div>
-        <div>
-          <Rotulo>Reajuste do dissídio (fixo — Premissa Macro)</Rotulo>
-          <div style={{
-            fontFamily: FONT, fontSize: 13, padding: '9px 10px', borderRadius: 6,
-            border: `1px solid ${COR.borda}`, background: COR.claro, color: reajusteSalarialGlobal ? COR.texto : '#B5B9BE',
-          }}>
-            {reajusteSalarialGlobal ? `${parseNum(reajusteSalarialGlobal).toLocaleString('pt-BR', { minimumFractionDigits: 1 })}%` : 'Pendente de definição pelo FP&A'}
-          </div>
+      {/* Pedido de 2026-09-08: "desconsidere Reajuste salarial/dissídio por
+          enquanto, será considerado à parte com base na planilha de pessoal
+          de suporte" — retira o campo (mês + %) desta tela; volta a ser
+          calculado quando essa integração existir. Até lá, dissidioPct fica
+          congelado no último valor que cada unidade tinha (não é mais
+          sincronizado com a Premissa Macro "Reajuste salarial/dissídio",
+          removida — ver PREMISSAS_MACRO_REF). */}
+      <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, marginBottom: 12, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+        <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 11, color: COR.texto }}>
+          O reajuste salarial (dissídio) será considerado à parte, com base na planilha de pessoal de suporte — pendente de integração.
         </div>
       </div>
 
@@ -8681,25 +8681,9 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
 }
 
 function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote, viagens, atualizar, premissasMacro, cambios }) {
-  // Pedido de 2026-09-07: "Reajuste salarial/dissídio como premissa fixa no
-  // novo headcount de pessoal" — o % de dissídio de cada unidade (usado por
-  // computeFolhaPessoalMes) deixa de ser digitado à mão por unidade e passa
-  // a vir sempre da Premissa Macro central (definida pelo FP&A). Em vez de
-  // reescrever computeFolhaPessoalMes/folhaAnualPorCC (usadas em ~15 lugares
-  // do motor de cálculo) pra ler a premissa global direto, sincroniza o
-  // valor local (premissasPessoal.dissidioPct, que o cálculo já lê) com o
-  // global sempre que abrir esta aba ou o global mudar — mais simples e sem
-  // risco de regressão no motor de cálculo. Efeito: o campo fica travado
-  // (só leitura, ver QuadroPessoal) e reflete o global assim que a tela
-  // carrega; se o FP&A mudar a premissa global, uma unidade só reflete o
-  // valor novo na próxima vez que alguém abrir esta aba.
-  const reajusteSalarialGlobal = premissasMacro?.find(p => p.id === 'reajuste_salarial')?.valor || '';
-  useEffect(() => {
-    if (premissasPessoal && reajusteSalarialGlobal && premissasPessoal.dissidioPct !== reajusteSalarialGlobal) {
-      updatePremissaPessoal('dissidioPct', reajusteSalarialGlobal);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reajusteSalarialGlobal]);
+  // Sincronização de dissídio com a Premissa Macro "Reajuste salarial/
+  // dissídio" (2026-09-07) removida em 2026-09-08 — ver nota em QuadroPessoal
+  // (Dissídio). A premissa em si também saiu de PREMISSAS_MACRO_REF.
 
   // Gestor de CC (perfil gerente_cc_corporativo) só vê/edita os CCs que
   // lhe foram atribuídos nesta unidade (usuario.ccsPermitidos, de
@@ -9041,7 +9025,6 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                       updatePremissaPessoal={updatePremissaPessoal}
                       folha={folhaAtual}
                       onImportarLote={lista => importarFuncionariosLote(ccSel, lista)}
-                      reajusteSalarialGlobal={reajusteSalarialGlobal}
                     />
                     {/* Consultórias PJs (2026-08-23) — 2ª conta analítica do
                         pacote Pessoal, só Corporativo (ver CONTA_CONSULTORIA_PJ/
