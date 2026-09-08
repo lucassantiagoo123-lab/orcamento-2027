@@ -1,4 +1,4 @@
-// =====================================================================================
+﻿// =====================================================================================
 // Grupo ARA — OrcamentoARA.jsx — Protótipo do formulário de Orçamento OBZ (Caminho A)
 // Fonte de verdade. Editar aqui; OrcamentoARA.html é gerado a partir deste arquivo
 // (ver "Como editar o protótipo" em Referencia_Projeto_Orcamento_2027.md).
@@ -1098,10 +1098,10 @@ const PLANO_CONTAS_RESORTS = {
     { codigo: '410202030', nome: "CESTA BASICA", origem: 'Custo' },
     { codigo: '410203010', nome: "CLIMA ORGANIZACIONAL (RH)", origem: 'Custo' },
     { codigo: '410301110', nome: "EPI", origem: 'Custo' },
-    { codigo: '410307080', nome: "LANCHES E REFEICOES", origem: 'Custo' },
-    { codigo: '410307090', nome: "MEDICAMENTOS", origem: 'Custo' },
-    { codigo: '410307190', nome: "CURSOS/SEMINARIOS", origem: 'Custo' },
-    { codigo: '410307250', nome: "UNIFORMES", origem: 'Custo' },
+    { codigo: '410307080', nome: "LANCHES E REFEICOES", origem: 'Despesa' },
+    { codigo: '410307090', nome: "MEDICAMENTOS", origem: 'Despesa' },
+    { codigo: '410307190', nome: "CURSOS/SEMINARIOS", origem: 'Despesa' },
+    { codigo: '410307250', nome: "UNIFORMES", origem: 'Despesa' },
   ],
   administrativo_utilidades: [
     { codigo: '410301010', nome: "MATERIAL DE ESCRITORIO", origem: 'Custo' },
@@ -1117,30 +1117,30 @@ const PLANO_CONTAS_RESORTS = {
     { codigo: '410303020', nome: "ENERGIA ELETRICA", origem: 'Custo' },
     { codigo: '410303030', nome: "GAS", origem: 'Custo' },
     { codigo: '410303040', nome: "TELEFONIA", origem: 'Custo' },
-    { codigo: '410304060', nome: "SEGUROS DE VEICULOS", origem: 'Custo' },
-    { codigo: '410307040', nome: "CORREIOS E MALOTES", origem: 'Custo' },
-    { codigo: '410307110', nome: "INTERNET", origem: 'Custo' },
-    { codigo: '410307210', nome: "SEGURO", origem: 'Custo' },
-    { codigo: '410307270', nome: "CAIXA FUNDO FIXO", origem: 'Custo' },
-    { codigo: '410307280', nome: "DIVERSOS", origem: 'Custo' },
-    { codigo: '410307300', nome: "DESPESAS ADMINISTRATIVAS RATEADA", origem: 'Custo' },
-    { codigo: '410307310', nome: "BENS DE PEQUENO VALOR", origem: 'Custo' },
-    { codigo: '410307320', nome: "REEMBOLSO DIVERSOS", origem: 'Custo' },
+    { codigo: '410304060', nome: "SEGUROS DE VEICULOS", origem: 'Despesa' },
+    { codigo: '410307040', nome: "CORREIOS E MALOTES", origem: 'Despesa' },
+    { codigo: '410307110', nome: "INTERNET", origem: 'Despesa' },
+    { codigo: '410307210', nome: "SEGURO", origem: 'Despesa' },
+    { codigo: '410307270', nome: "CAIXA FUNDO FIXO", origem: 'Despesa' },
+    { codigo: '410307280', nome: "DIVERSOS", origem: 'Despesa' },
+    { codigo: '410307300', nome: "DESPESAS ADMINISTRATIVAS RATEADA", origem: 'Despesa' },
+    { codigo: '410307310', nome: "BENS DE PEQUENO VALOR", origem: 'Despesa' },
+    { codigo: '410307320', nome: "REEMBOLSO DIVERSOS", origem: 'Despesa' },
     // Plano de Contas Resorts.xlsb (2026-09-07) — ver nota em pessoal acima.
     { codigo: '410309010', nome: "PERDA", origem: 'Custo' },
     { codigo: '410309011', nome: "PERDA OPERACIONAL FINANCEIRA", origem: 'Custo' },
   ],
   tecnologia: [
     { codigo: '410301020', nome: "MATERIAL DE INFORMATICA", origem: 'Custo' },
-    { codigo: '410307130', nome: "MANUTENCAO DE SOFTWARE", origem: 'Custo' },
+    { codigo: '410307130', nome: "MANUTENCAO DE SOFTWARE", origem: 'Despesa' },
   ],
   comercial: [
     { codigo: '410301040', nome: "MATERIAL DE PROMOCAO E PUBLICIDADE", origem: 'Custo' },
-    { codigo: '410305050', nome: "PROPAGANDA E PUBLICIDADE", origem: 'Custo' },
-    { codigo: '410306010', nome: "COMISSAO DE CARTAO DE CREDITO", origem: 'Custo' },
-    { codigo: '410306020', nome: "COMISSAO DE AGENTES", origem: 'Custo' },
-    { codigo: '410307140', nome: "BRINDES E PROMOCOES", origem: 'Custo' },
-    { codigo: '410307150', nome: "DECORACAO", origem: 'Custo' },
+    { codigo: '410305050', nome: "PROPAGANDA E PUBLICIDADE", origem: 'Despesa' },
+    { codigo: '410306010', nome: "COMISSAO DE CARTAO DE CREDITO", origem: 'Despesa' },
+    { codigo: '410306020', nome: "COMISSAO DE AGENTES", origem: 'Despesa' },
+    { codigo: '410307140', nome: "BRINDES E PROMOCOES", origem: 'Despesa' },
+    { codigo: '410307150', nome: "DECORACAO", origem: 'Despesa' },
     // Plano de Contas Resorts.xlsb (2026-09-07) — variante SCP das mesmas
     // comissões acima (410306010/020) — ver nota em pessoal acima.
     { codigo: '510491010', nome: "COMISSOES DE CARTAO DE CREDITO SCP", origem: 'Custo' },
@@ -1158,50 +1158,50 @@ const PLANO_CONTAS_RESORTS = {
     { codigo: '410301190', nome: "MANUTENCAO LAVANDERIA", origem: 'Custo' },
     { codigo: '410301200', nome: "MANUTENCAO EQUIPAMENTOS", origem: 'Custo' },
     { codigo: '410301210', nome: "MANUTENCAO PINTURA", origem: 'Custo' },
-    { codigo: '410304010', nome: "MANUTENCAO DE VEICULOS", origem: 'Custo' },
-    { codigo: '410307160', nome: "DEDETIZACAO", origem: 'Custo' },
-    { codigo: '410307200', nome: "JARDINAGEM", origem: 'Custo' },
-    { codigo: '410307230', nome: "ASSIST. TECNICA/REPAROS", origem: 'Custo' },
+    { codigo: '410304010', nome: "MANUTENCAO DE VEICULOS", origem: 'Despesa' },
+    { codigo: '410307160', nome: "DEDETIZACAO", origem: 'Despesa' },
+    { codigo: '410307200', nome: "JARDINAGEM", origem: 'Despesa' },
+    { codigo: '410307230', nome: "ASSIST. TECNICA/REPAROS", origem: 'Despesa' },
   ],
   fretes: [
     { codigo: '410301230', nome: "COMBUSTIVEIS E LUBRIFICANTES", origem: 'Custo' },
-    { codigo: '410304020', nome: "DESPESAS COM COMBUSTIVEL", origem: 'Custo' },
-    { codigo: '410304040', nome: "MULTAS DE TRANSITO", origem: 'Custo' },
-    { codigo: '410304050', nome: "ESTACIONAMENTO E PEDAGIO", origem: 'Custo' },
-    { codigo: '410307060', nome: "FRETES E CARRETOS", origem: 'Custo' },
-    { codigo: '410307070', nome: "TRANSPORTE LOCAL", origem: 'Custo' },
+    { codigo: '410304020', nome: "DESPESAS COM COMBUSTIVEL", origem: 'Despesa' },
+    { codigo: '410304040', nome: "MULTAS DE TRANSITO", origem: 'Despesa' },
+    { codigo: '410304050', nome: "ESTACIONAMENTO E PEDAGIO", origem: 'Despesa' },
+    { codigo: '410307060', nome: "FRETES E CARRETOS", origem: 'Despesa' },
+    { codigo: '410307070', nome: "TRANSPORTE LOCAL", origem: 'Despesa' },
   ],
   servicos: [
     { codigo: '410302010', nome: "SERVICOS PRESTADOS PJ", origem: 'Custo' },
     { codigo: '410302020', nome: "SERVICOS PRESTADOS PF", origem: 'Custo' },
     { codigo: '410302030', nome: "SERVICO CONSULTORIA E ASSESSORIA", origem: 'Custo' },
-    { codigo: '410305030', nome: "REPRESENTANTE COMERCIAL", origem: 'Custo' },
-    { codigo: '410307010', nome: "ASSINATURAS", origem: 'Custo' },
-    { codigo: '410307020', nome: "ANUNCIOS E EDITAIS", origem: 'Custo' },
-    { codigo: '410307030', nome: "XEROX E ENCADERNACOES", origem: 'Custo' },
-    { codigo: '410307050', nome: "CARTORIOS", origem: 'Custo' },
-    { codigo: '410307120', nome: "SEGURANCA", origem: 'Custo' },
-    { codigo: '410307240', nome: "ENTRETENIMENTO/LAZER", origem: 'Custo' },
+    { codigo: '410305030', nome: "REPRESENTANTE COMERCIAL", origem: 'Despesa' },
+    { codigo: '410307010', nome: "ASSINATURAS", origem: 'Despesa' },
+    { codigo: '410307020', nome: "ANUNCIOS E EDITAIS", origem: 'Despesa' },
+    { codigo: '410307030', nome: "XEROX E ENCADERNACOES", origem: 'Despesa' },
+    { codigo: '410307050', nome: "CARTORIOS", origem: 'Despesa' },
+    { codigo: '410307120', nome: "SEGURANCA", origem: 'Despesa' },
+    { codigo: '410307240', nome: "ENTRETENIMENTO/LAZER", origem: 'Despesa' },
   ],
   locacao: [
     { codigo: '410303050', nome: "TAXA DE CONDOMINIO", origem: 'Custo' },
-    { codigo: '410304070', nome: "LEASING DE VEICULOS", origem: 'Custo' },
-    { codigo: '410304080', nome: "ALUGUEL DE VEICULOS", origem: 'Custo' },
-    { codigo: '410307100', nome: "LOCACOES", origem: 'Custo' },
-    { codigo: '410307220', nome: "LEASING", origem: 'Custo' },
-    { codigo: '410307350', nome: "DESP.COM CONDOMINIO", origem: 'Custo' },
+    { codigo: '410304070', nome: "LEASING DE VEICULOS", origem: 'Despesa' },
+    { codigo: '410304080', nome: "ALUGUEL DE VEICULOS", origem: 'Despesa' },
+    { codigo: '410307100', nome: "LOCACOES", origem: 'Despesa' },
+    { codigo: '410307220', nome: "LEASING", origem: 'Despesa' },
+    { codigo: '410307350', nome: "DESP.COM CONDOMINIO", origem: 'Despesa' },
   ],
   impostos: [
-    { codigo: '410304030', nome: "IPVA E LICENCIAMENTO", origem: 'Custo' },
-    { codigo: '410307170', nome: "ASSOCIACAO DE CLASSE", origem: 'Custo' },
-    { codigo: '410307180', nome: "CONTRIBUICAO INSTITUCIONAL", origem: 'Custo' },
-    { codigo: '410307260', nome: "IMPOSTOS E TAXAS", origem: 'Custo' },
-    { codigo: '410307330', nome: "IPTU", origem: 'Custo' },
+    { codigo: '410304030', nome: "IPVA E LICENCIAMENTO", origem: 'Despesa' },
+    { codigo: '410307170', nome: "ASSOCIACAO DE CLASSE", origem: 'Despesa' },
+    { codigo: '410307180', nome: "CONTRIBUICAO INSTITUCIONAL", origem: 'Despesa' },
+    { codigo: '410307260', nome: "IMPOSTOS E TAXAS", origem: 'Despesa' },
+    { codigo: '410307330', nome: "IPTU", origem: 'Despesa' },
   ],
   viagens: [
-    { codigo: '410305010', nome: "HOSPEDAGEM EM VIAGEM", origem: 'Custo' },
-    { codigo: '410305020', nome: "DESPESA COM PASSAGEM", origem: 'Custo' },
-    { codigo: '410305040', nome: "DESPESAS C/OVEBCOK", origem: 'Custo' },
+    { codigo: '410305010', nome: "HOSPEDAGEM EM VIAGEM", origem: 'Despesa' },
+    { codigo: '410305020', nome: "DESPESA COM PASSAGEM", origem: 'Despesa' },
+    { codigo: '410305040', nome: "DESPESAS C/OVEBCOK", origem: 'Despesa' },
   ],
   depreciacao: [
     { codigo: '410307290', nome: "ENCARGOS COM DEPRECIACAO", origem: 'Custo' },
@@ -7007,22 +7007,35 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
 // Reaproveita computeReceitaAgricola (a mesma função que
 // receitaBrutaPorMes/computeDRE já chamam) — esta tela só espelha esses
 // números, nunca recalcula em paralelo.
-const AGRICOLA_VAZIA_PADRAO = {
-  embaladaKg: mesesVazios(), refugoPct: '',
-  vendaInterna: { pctTon: mesesVazios(), precoKg: mesesVazios() },
-  vendaExterna: {
-    pctTon: mesesVazios(),
-    gbp: { pct: mesesVazios(), precoMoeda: mesesVazios() },
-    eur: { pct: mesesVazios(), precoMoeda: mesesVazios() },
-    usd: { pct: mesesVazios(), precoMoeda: mesesVazios() },
-  },
-  justificativa: '',
-};
 const FMT_KG = { formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg', formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg' };
 
+// `atualizar(caminho, valor)` é um setter genérico por caminho: ao editar UM
+// campo isolado (ex.: refugoPct), ele reescreve `receita.agricola` inteiro só
+// com aquele campo, perdendo os irmãos (embaladaKg etc.) que nunca chegaram a
+// ser persistidos (só existiam como default client-side). Por isso NUNCA usar
+// o objeto `agricola` bruto direto — sempre mesclar com os defaults campo a
+// campo (não um fallback tudo-ou-nada), senão `ag.embaladaKg` vira `undefined`
+// no primeiro edit de qualquer outro campo e quebra a TabelaMensal (tela branca).
+function agricolaComPadroes(agricola) {
+  const a = agricola || {};
+  const vi = a.vendaInterna || {};
+  const ve = a.vendaExterna || {};
+  function moeda(m) { return { pct: m?.pct || mesesVazios(), precoMoeda: m?.precoMoeda || mesesVazios() }; }
+  return {
+    embaladaKg: a.embaladaKg || mesesVazios(),
+    refugoPct: a.refugoPct ?? '',
+    vendaInterna: { pctTon: vi.pctTon || mesesVazios(), precoKg: vi.precoKg || mesesVazios() },
+    vendaExterna: {
+      pctTon: ve.pctTon || mesesVazios(),
+      gbp: moeda(ve.gbp), eur: moeda(ve.eur), usd: moeda(ve.usd),
+    },
+    justificativa: a.justificativa || '',
+  };
+}
+
 function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justificativaGeral, atualizar, dre, cambios }) {
-  const ag = agricola || AGRICOLA_VAZIA_PADRAO;
-  const ve = ag.vendaExterna || AGRICOLA_VAZIA_PADRAO.vendaExterna;
+  const ag = agricolaComPadroes(agricola);
+  const ve = ag.vendaExterna;
   const r = computeReceitaAgricola(ag, cambios);
 
   function atualizarAgricola(caminho, valor) {
