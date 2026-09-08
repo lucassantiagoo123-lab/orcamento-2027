@@ -11,7 +11,7 @@ import {
   Users, Loader2, Info, Upload, FileText,
 } from 'lucide-react';
 import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi } from './api/orcamentos.js';
-import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
+import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, definirFontePremissaMacro as definirFontePremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
 import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
 import { logout } from './api/auth.js';
 import { ApiError } from './api/client.js';
@@ -3786,12 +3786,20 @@ export default function OrcamentoARA({ usuario }) {
     }
   }
 
-  // definirFontePremissaMacro (PATCH /:id/fonte, troca só a etiqueta de
-  // "Fonte" sem tocar em atualizado_em) foi usado uma vez em 2026-09-07 pra
-  // aplicar as fontes padrão pedidas — a UI daquele botão foi removida logo
-  // depois ("não precisa desse botão"), mas a função/rota no backend
-  // continuam existindo (ver api/premissasMacro.js) pra um eventual ajuste
-  // pontual futuro, só não tem mais um atalho na tela.
+  // Coluna "Fonte" editável (2026-09-08) — usa o mesmo PATCH /:id/fonte já
+  // existente desde 2026-09-07 (então usado só uma vez, pra aplicar as
+  // fontes padrão pedidas; a UI daquele botão foi removida logo depois,
+  // "não precisa desse botão"), que troca só a etiqueta sem tocar em
+  // atualizado_em — a coluna "Atualização" continua refletindo só quando o
+  // Valor foi editado (ver updatePremissaMacroGlobal acima), nunca a Fonte.
+  async function updateFontePremissaMacroGlobal(id, fonte) {
+    try {
+      const p = await definirFontePremissaMacroApi(id, fonte);
+      setPremissasMacro(prev => prev.map(x => x.id === id ? { ...x, fonte: p.fonte } : x));
+    } catch (e) {
+      // silencioso — mesmo padrão de updatePremissaMacroGlobal
+    }
+  }
 
   // O antigo buscarBoletimFocus (fetch direto na API do BCB a partir do
   // navegador) nunca funcionava de verdade neste ambiente — substituído em
@@ -5054,7 +5062,7 @@ export default function OrcamentoARA({ usuario }) {
           backlog={backlog} unidadeDrill={unidadeDrill} abrirDrill={abrirDrill}
           versoesDrill={versoesDrill} exportarExcel={exportarExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
           etapasProcesso={etapasProcesso} atualizarEtapa={atualizarEtapa}
-          premissasMacro={premissasMacro} updatePremissaMacroGlobal={updatePremissaMacroGlobal}
+          premissasMacro={premissasMacro} updatePremissaMacroGlobal={updatePremissaMacroGlobal} updateFontePremissaMacroGlobal={updateFontePremissaMacroGlobal}
           abrirVersao={abrirVersao}
         />
       )}
@@ -10798,7 +10806,23 @@ function PainelBoletimFocusPdf() {
 // Visão FP&A Corporativo
 // ---------------------------------------------------------------------------
 
-function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, abrirVersao }) {
+// Campo de texto da coluna "Fonte" (2026-09-08) — estado local pra não
+// disparar um PATCH a cada tecla; salva só no blur, e só se o texto mudou
+// (evita PATCH sem necessidade ao só clicar e sair do campo).
+function CampoFontePremissa({ value, onSalvar }) {
+  const [texto, setTexto] = useState(value || '');
+  useEffect(() => { setTexto(value || ''); }, [value]);
+  return (
+    <input
+      type="text" value={texto} placeholder="Pendente de definição"
+      onChange={e => setTexto(e.target.value)}
+      onBlur={() => { if (texto !== (value || '')) onSalvar(texto); }}
+      style={{ width: '100%', border: `1px solid ${COR.borda}`, borderRadius: 4, padding: '5px 7px', fontFamily: FONT, fontSize: 10.5, color: COR.texto, boxSizing: 'border-box' }}
+    />
+  );
+}
+
+function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, updateFontePremissaMacroGlobal, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   // Mesmo racional do ipcaAnualPct no componente App — recalculado aqui
@@ -10871,7 +10895,9 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                       <CampoNumero value={p.valor} onChange={v => updatePremissaMacroGlobal(p.id, v)} placeholder="0,00" />
                     </td>
                     <td style={{ fontSize: 11, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.unidade}</td>
-                    <td style={{ fontSize: 10.5, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.fonte || 'Pendente de definição'}</td>
+                    <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
+                      <CampoFontePremissa value={p.fonte} onSalvar={fonte => updateFontePremissaMacroGlobal(p.id, fonte)} />
+                    </td>
                     <td style={{ fontSize: 10.5, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.atualizadoEm ? formatData(p.atualizadoEm) : '—'}</td>
                   </tr>
                 ))}
