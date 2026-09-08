@@ -3773,17 +3773,21 @@ export default function OrcamentoARA({ usuario }) {
     }
     setStatusUnidades(mapa);
     setAguardandoLiberacaoPorUnidade(mapaAguardando);
-    // Backlog (2026-08-23): agora derivado direto de orcamento_versoes no
-    // backend (ver listarVersoesRecentesTodasUnidades) — sem escrita
-    // própria, sempre reflete o que foi realmente enviado. `totais` é o
-    // mesmo subconjunto que o backend já grava no envio (ver
-    // registrarEnvio), não o objeto DRE completo.
+    // Backlog (2026-08-23, ampliado em 2026-09-08): combina envios de versão
+    // (orcamento_versoes, como já era) com sessões de edição agrupadas
+    // (log_alteracoes, ver listarSessoesEdicaoTodasUnidades no backend —
+    // pedido: "precisa registrar todas edições realizadas por usuário", não
+    // só quem enviou versão final). `tipo` diferencia os dois na renderização.
     try {
       const linhas = await listarBacklogApi();
-      setBacklog(linhas.map(l => ({
-        id: l.id, unidadeId: l.unidade_id, timestamp: l.enviado_em,
-        autor: l.autor_nome, comentario: l.comentario, totalGeral: l.totais?.lucroLiquido,
-      })));
+      setBacklog(linhas.map(l => l.tipo === 'envio' ? {
+        tipo: 'envio', id: `envio-${l.item.id}`, unidadeId: l.item.unidade_id, timestamp: l.item.enviado_em,
+        autor: l.item.autor_nome, comentario: l.item.comentario, totalGeral: l.item.totais?.lucroLiquido,
+      } : {
+        tipo: 'edicao', id: `edicao-${l.item.usuarioId}-${l.item.unidadeId}-${l.item.campo}-${l.item.fim}`,
+        unidadeId: l.item.unidadeId, timestamp: l.item.fim, inicio: l.item.inicio,
+        autor: l.item.usuarioNome, campo: l.item.campo, edicoes: l.item.edicoes,
+      }));
     } catch (e) {
       setBacklog([]);
     }
@@ -10788,6 +10792,16 @@ function CampoFontePremissa({ value, onSalvar }) {
   );
 }
 
+// Nomes exibidos das sessões de edição do Backlog (2026-09-08) — mesmas
+// seções de topo do documento que o backend audita em log_alteracoes (ver
+// SECOES_TOP_LEVEL em backend/src/db/logAlteracoes.js).
+const CAMPO_LOG_LABEL = {
+  estrategicas: 'Premissas Estratégicas', receita: 'Receita', custos: 'Custos e Despesas', capex: 'CAPEX',
+  capitalGiro: 'Capital de Giro', provisoes: 'Provisões', resultado: 'Resultado (Não Operacional)',
+  fcFinanciamentos: 'FC Financiamentos', balanco: 'Balanço Patrimonial', plano5y: 'Plano 5Y (2028-2031)',
+  sensibilidades: 'Sensibilidades',
+};
+
 function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, updateFontePremissaMacroGlobal, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
@@ -10962,6 +10976,9 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
           </div>
 
           <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 10 }}>Backlog de alterações</h3>
+          <p style={{ fontSize: 11, color: '#8A8F96', marginTop: -6, marginBottom: 10 }}>
+            Envios de versão e sessões de edição (últimos 30 dias — várias edições seguidas do mesmo usuário na mesma seção viram uma linha só).
+          </p>
           <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, maxHeight: 360, overflowY: 'auto' }}>
             {backlog.length === 0 && <div style={{ padding: 14, fontSize: 12, color: '#8A8F96' }}>Nenhuma alteração registrada ainda.</div>}
             {backlog.map((b, i) => {
@@ -10971,8 +10988,21 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: u?.cor || COR.borda, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, fontWeight: 700, color: COR.texto, minWidth: 110 }}>{u?.nome || b.unidadeId}</span>
                   <span style={{ fontSize: 11.5, color: '#7A8088', minWidth: 140 }}>{formatData(b.timestamp)}</span>
-                  <span style={{ fontSize: 11.5, color: COR.texto, flex: 1 }}>{b.autor}{b.comentario ? ` — ${b.comentario}` : ''}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(b.totalGeral)}</span>
+                  {b.tipo === 'envio' ? (
+                    <>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: COR.branco, background: COR.azul, borderRadius: 10, padding: '2px 8px', flexShrink: 0 }}>Enviou versão</span>
+                      <span style={{ fontSize: 11.5, color: COR.texto, flex: 1 }}>{b.autor}{b.comentario ? ` — ${b.comentario}` : ''}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(b.totalGeral)}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: COR.texto, background: COR.claro, border: `1px solid ${COR.borda}`, borderRadius: 10, padding: '2px 8px', flexShrink: 0 }}>Editou</span>
+                      <span style={{ fontSize: 11.5, color: COR.texto, flex: 1 }}>
+                        {b.autor} — {CAMPO_LOG_LABEL[b.campo] || b.campo}
+                        {b.edicoes > 1 && <span style={{ color: '#8A8F96' }}> ({b.edicoes} salvamentos{b.inicio !== b.timestamp ? `, ${formatData(b.inicio)} a ${formatData(b.timestamp)}` : ''})</span>}
+                      </span>
+                    </>
+                  )}
                 </div>
               );
             })}

@@ -69,3 +69,52 @@ export async function listarLog(unidadeId, { limit = 200 } = {}) {
   );
   return rows;
 }
+
+// Sessão de edição (2026-09-08, pedido: "o backlog de alterações precisa
+// registrar todas edições realizadas por usuário") — log_alteracoes já grava
+// uma linha por seção alterada A CADA salvamento (inclusive autosave, a cada
+// poucos segundos durante edição ativa — ver PUT /:unidadeId), então listar
+// linha a linha inundaria o Backlog do FP&A com dezenas/centenas de entradas
+// por sessão de trabalho. Em vez disso, agrupa: linhas consecutivas do MESMO
+// usuário + unidade + seção, com intervalo menor que GAP_MINUTOS entre uma e
+// a próxima, viram UMA sessão ("Editou Custos e Despesas — 14:02 a 14:15,
+// 23 salvamentos"). Trocar de seção ou de unidade sempre fecha a sessão
+// atual, mesmo sem gap de tempo.
+const GAP_MINUTOS = 15;
+
+/** Busca as linhas cruas dos últimos `diasHistorico` dias (todas as
+ * unidades) e agrupa em sessões — puro em JS, sem GROUP BY no Postgres,
+ * porque "gaps and islands" por 3 colunas é mais simples de ler/testar
+ * assim, e o volume (uso interno, algumas dezenas de pessoas) não pede
+ * otimização de banco. */
+export async function listarSessoesEdicaoTodasUnidades({ diasHistorico = 30, limite = 200 } = {}) {
+  const { rows } = await pool.query(
+    `SELECT l.usuario_id, u.nome AS usuario_nome, l.unidade_id, l.campo, l.criado_em
+     FROM log_alteracoes l JOIN usuarios u ON u.id = l.usuario_id
+     WHERE l.criado_em > now() - ($1 || ' days')::interval
+     ORDER BY l.usuario_id, l.unidade_id, l.campo, l.criado_em ASC`,
+    [diasHistorico]
+  );
+
+  const sessoes = [];
+  let atual = null;
+  for (const r of rows) {
+    const abreNova = !atual
+      || atual.usuarioId !== r.usuario_id
+      || atual.unidadeId !== r.unidade_id
+      || atual.campo !== r.campo
+      || (new Date(r.criado_em) - new Date(atual.fim)) > GAP_MINUTOS * 60 * 1000;
+    if (abreNova) {
+      atual = {
+        usuarioId: r.usuario_id, usuarioNome: r.usuario_nome, unidadeId: r.unidade_id, campo: r.campo,
+        inicio: r.criado_em, fim: r.criado_em, edicoes: 1,
+      };
+      sessoes.push(atual);
+    } else {
+      atual.fim = r.criado_em;
+      atual.edicoes += 1;
+    }
+  }
+
+  return sessoes.sort((a, b) => new Date(b.fim) - new Date(a.fim)).slice(0, limite);
+}
