@@ -3324,7 +3324,14 @@ function CampoJustificativa({ value, onChange, placeholder, obrigatorio }) {
 // item de `linhas` pode opcionalmente trazer `totalValor` (usa esse valor
 // em vez de somar `valores`) e `formatarTotal` (formatação só dessa linha,
 // tem prioridade sobre o `formatarTotal` da tabela inteira).
-function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal, linhasCalculadas, colunaExtra }) {
+// linhasCalculadasAntes (2026-09-08, pedido: "% de Ton. vendida (Mercado
+// Externo) precisa ser na primeira linha da tabela") — TabelaMensal sempre
+// desenhava `linhas` (editáveis) primeiro e `linhasCalculadas` depois,
+// sem jeito de intercalar. Esse prop é simétrico a `linhasCalculadas`, só
+// que desenha ANTES de `linhas` — pra uma linha calculada (não editável)
+// que precisa aparecer no topo da tabela, como o % Externo derivado do %
+// Interno (ver AbaReceitaAgricola, 2.3 Vendas — Mercado Externo).
+function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal, linhasCalculadas, linhasCalculadasAntes, colunaExtra }) {
   function celulaExtra(linha, i) {
     const dado = colunaExtra && linha[colunaExtra.chave];
     return (
@@ -3339,6 +3346,22 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
           <div style={{ textAlign: 'right', padding: '5px 4px', color: '#C7CBD1', fontSize: 11 }}>—</div>
         )}
       </td>
+    );
+  }
+  function linhaCalculadaRow(linha) {
+    return (
+      <tr key={linha.key} style={{ background: COR.branco }}>
+        <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco, color: linha.cor || COR.azul }}>{linha.label}</td>
+        {colunaExtra && celulaExtra(linha, 0)}
+        {linha.valoresMensal.map((v, mi) => (
+          <td key={mi} style={{ padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right', color: linha.cor || COR.texto, fontWeight: 700 }}>
+            {(linha.formatarCelula || formatBRL)(v)}
+          </td>
+        ))}
+        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontWeight: 700, fontSize: 11, color: linha.cor || COR.azul, textAlign: 'right' }}>
+          {(linha.formatarTotal || formatBRL)(linha.totalValor)}
+        </td>
+      </tr>
     );
   }
   return (
@@ -3364,6 +3387,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
               mesmo padrão (todas as unidades usam esta mesma
               TabelaMensal). Linha de subtotal/total continua com fundo
               próprio (COR.total), só a alternância cinza que saiu. */}
+          {(linhasCalculadasAntes || []).map(linhaCalculadaRow)}
           {linhas.map((linha, i) => {
             const total = linha.totalValor !== undefined ? linha.totalValor : somaMes(linha.valores);
             const formatarTotalLinha = linha.formatarTotal || formatarTotal;
@@ -3387,20 +3411,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
               </tr>
             );
           })}
-          {(linhasCalculadas || []).map(linha => (
-            <tr key={linha.key} style={{ background: COR.branco }}>
-              <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco, color: linha.cor || COR.azul }}>{linha.label}</td>
-              {colunaExtra && celulaExtra(linha, 0)}
-              {linha.valoresMensal.map((v, mi) => (
-                <td key={mi} style={{ padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right', color: linha.cor || COR.texto, fontWeight: 700 }}>
-                  {(linha.formatarCelula || formatBRL)(v)}
-                </td>
-              ))}
-              <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontWeight: 700, fontSize: 11, color: linha.cor || COR.azul, textAlign: 'right' }}>
-                {(linha.formatarTotal || formatBRL)(linha.totalValor)}
-              </td>
-            </tr>
-          ))}
+          {(linhasCalculadas || []).map(linhaCalculadaRow)}
         </tbody>
       </table>
     </div>
@@ -7318,8 +7329,11 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>2.3 Vendas — Mercado Externo</h4>
       {/* % de Ton. Mercado Externo (2026-09-08) — deixou de ser editável,
-          vira linhasCalculadas: sempre 100% − % Mercado Interno do mesmo
-          mês (ver pctExternoMes em computeReceitaAgricola). */}
+          vira linhasCalculadasAntes: sempre 100% − % Mercado Interno do
+          mesmo mês (ver pctExternoMes em computeReceitaAgricola). Pedido:
+          "precisa ser na primeira linha da tabela" — linhasCalculadasAntes
+          desenha antes de `linhas` (ver TabelaMensal), diferente de
+          linhasCalculadas normal (sempre depois). */}
       <TabelaMensal
         linhas={[...gbpLinhas.linhas, ...eurLinhas.linhas, ...usdLinhas.linhas]}
         onChangeCelula={(key, mi, v) => {
@@ -7329,13 +7343,15 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
           atualizarAgricola(['vendaExterna', chave, campoReal], atualizarArray(atual, mi, v));
         }}
         corTotal={COR.verde}
-        linhasCalculadas={[
+        linhasCalculadasAntes={[
           {
             key: 'pctTon', label: '% de Ton. vendida (Mercado Externo)', valoresMensal: r.pctExternoMes,
             totalValor: r.pctExternoMes.reduce((a, v) => a + v, 0) / 12, cor: COR.texto,
             formatarCelula: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`,
             formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% méd.`,
           },
+        ]}
+        linhasCalculadas={[
           { key: 'volumeExterno', label: 'Volume vendido — Mercado Externo (Kg)', valoresMensal: r.volumeExternoTotalKgMes, totalValor: somaMes(r.volumeExternoTotalKgMes), cor: COR.texto, ...FMT_KG },
           ...gbpLinhas.calculadas, ...eurLinhas.calculadas, ...usdLinhas.calculadas,
           { key: 'receitaExterna', label: 'Receita Total Mercado Externo (R$)', valoresMensal: r.receitaExternaMes, totalValor: somaMes(r.receitaExternaMes), cor: COR.verde },
