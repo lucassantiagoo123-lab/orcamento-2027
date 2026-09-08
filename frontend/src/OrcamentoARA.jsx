@@ -3,7 +3,7 @@
 // Fonte de verdade. Editar aqui; OrcamentoARA.html é gerado a partir deste arquivo
 // (ver "Como editar o protótipo" em Referencia_Projeto_Orcamento_2027.md).
 // =====================================================================================
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Send, History, FileSpreadsheet, FileBarChart, CheckCircle2, AlertTriangle,
@@ -3856,6 +3856,25 @@ export default function OrcamentoARA({ usuario }) {
   // PainelBoletimFocusPdf, dentro de VisaoFPA). Os campos de IPCA/Câmbio/
   // Selic/PIB continuam preenchidos à mão via updatePremissaMacroGlobal.
 
+  // dadosRef/unidadeAtualRef (2026-09-08): espelham o estado mais recente pra
+  // o timer de teto (maxWaitTimerRef, abaixo) ler o valor atual mesmo quando
+  // dispara de um closure armado num render anterior — sem isso, uma edição
+  // contínua por >2s salvaria uma versão desatualizada (perderia as últimas
+  // teclas digitadas entre o render que armou o timer e o disparo dele).
+  const dadosRef = useRef(dados);
+  dadosRef.current = dados;
+  const unidadeAtualRef = useRef(unidadeAtual);
+  unidadeAtualRef.current = unidadeAtual;
+  const debounceTimerRef = useRef(null);
+  // Pedido de 2026-09-08: "preciso que o autosave rode rápido a cada 2
+  // segundos" — o debounce de 900ms só dispara depois de uma PAUSA na
+  // digitação; numa edição contínua (várias células seguidas, sem pausa de
+  // 900ms) ele nunca disparava, então nada era salvo até o usuário parar.
+  // maxWaitTimerRef é um teto: arma uma vez por rajada de mudanças (só
+  // quando null) e força um save em no máximo 2s, mesmo que as mudanças
+  // continuem — o debounce continua cuidando do caso comum (pausa curta).
+  const maxWaitTimerRef = useRef(null);
+
   useEffect(() => {
     if (role !== 'gerente' || carregando) return;
     // Agrícola/Resorts/Corporativo: painel de referência, sem escrita — o
@@ -3867,10 +3886,17 @@ export default function OrcamentoARA({ usuario }) {
     // desatualizada, o snapshot que o Consolidado acabou de gravar no envio
     // (race condition).
     if (unidadeAtual === 'agricola' || unidadeAtual === 'resorts') return;
-    const t = setTimeout(async () => {
+
+    async function salvar() {
+      clearTimeout(debounceTimerRef.current);
+      clearTimeout(maxWaitTimerRef.current);
+      debounceTimerRef.current = null;
+      maxWaitTimerRef.current = null;
+      const dadosAtuais = dadosRef.current;
+      const unidade = unidadeAtualRef.current;
       try {
-        const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
-        await putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } });
+        const status = dadosAtuais.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
+        await putOrcamento(unidade, { ...dadosAtuais, meta: { ...dadosAtuais.meta, status, atualizadoEm: new Date().toISOString() } });
         setUltimoSalvoEm(new Date());
         setErro(null); // limpa um erro anterior assim que um salvamento subsequente dá certo
         setPedindoMotivo(false);
@@ -3887,13 +3913,20 @@ export default function OrcamentoARA({ usuario }) {
           setErro('Não foi possível salvar o rascunho automaticamente. Verifique a conexão.');
         }
       }
-    }, 900);
-    return () => clearTimeout(t);
+    }
+
+    clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(salvar, 900);
+    if (!maxWaitTimerRef.current) {
+      maxWaitTimerRef.current = setTimeout(salvar, 2000);
+    }
+    return () => clearTimeout(debounceTimerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dados, unidadeAtual, role, carregando]);
 
   // Botão explícito de "Salvar rascunho" — o autosave acima já salva sozinho
-  // (debounced, 900ms depois da última mudança), mas alguns usuários querem
+  // (debounced, 900ms depois da última pausa — ou no máximo 2s durante uma
+  // edição contínua, ver maxWaitTimerRef), mas alguns usuários querem
   // a confirmação visual de "salvei agora" em vez de confiar no automático.
   const [salvandoRascunho, setSalvandoRascunho] = useState(false);
   const [ultimoSalvoEm, setUltimoSalvoEm] = useState(null);
