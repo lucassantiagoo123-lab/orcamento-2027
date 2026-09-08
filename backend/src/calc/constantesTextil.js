@@ -71,6 +71,10 @@ export const PACOTES_TEXTIL = [
 // db/seed_referencia.sql para o mesmo conteúdo carregado na tabela `contas`.
 export const PLANO_CONTAS = {
   pessoal: [
+    // HC_EXISTENTE_C/D (2026-09-08) — espelho de frontend/src/OrcamentoARA.jsx
+    // (ver nota completa lá). Código sintético, não vem da Matriz_Governanca.
+    { codigo: 'HC_EXISTENTE_C', nome: 'Headcount Existente', origem: 'Custo' },
+    { codigo: 'HC_EXISTENTE_D', nome: 'Headcount Existente', origem: 'Despesa' },
     { codigo: '71101001', nome: 'SALARIOS E ORDENADOS', origem: 'Custo' },
     { codigo: '71101002', nome: 'PREMIOS E GRATIFICACOES', origem: 'Custo' },
     { codigo: '71101003', nome: 'HORAS EXTRAS', origem: 'Custo' },

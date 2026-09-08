@@ -384,8 +384,12 @@ export function computeFolhaPessoalAnual(funcionariosCC, premissas) {
     totalMes: mensal.map(m => m.total),
   };
 }
+// 'existente' (2026-09-08) — espelho de frontend/src/OrcamentoARA.jsx (ver
+// nota completa lá): sai do cálculo por funcionário, vira a conta analítica
+// "Headcount Existente" do pacote Pessoal, somada como qualquer conta em
+// custos.linhas (ver cpv/despesasSemDA abaixo). Só 'novo' passa por aqui.
 export function folhaAnualPorCC(data, ccCodigo) {
-  const funcs = (data.custos.funcionarios || []).filter(f => f.ccCodigo === ccCodigo);
+  const funcs = (data.custos.funcionarios || []).filter(f => f.ccCodigo === ccCodigo && f.origem === 'novo');
   return computeFolhaPessoalAnual(funcs, data.custos.premissasPessoal);
 }
 

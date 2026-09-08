@@ -524,6 +524,17 @@ const PACOTES_TEXTIL = [
 // De-para oficial conta contábil -> Pacote (Matriz_Governanca_OBZ_2027_4)
 const PLANO_CONTAS = {
   pessoal: [
+    // HC_EXISTENTE_C/D (2026-09-08, pedido: "headcount existente ... deixe
+    // o racional conforme as demais contas analíticas ... extrair valor
+    // total do CC na planilha de pessoal do Departamento Pessoal") — não
+    // vem da Matriz_Governanca (código sintético, não oficial), 2 versões
+    // pra aparecer tanto em CC de produção quanto de despesa, igual
+    // qualquer conta normal. Ver CONTA_HEADCOUNT_EXISTENTE/QuadroPessoal —
+    // sai do cálculo por funcionário (computeFolhaPessoalMes só soma
+    // origem 'novo' agora, ver folhaAnualPorCC) e vira lançamento manual
+    // mês a mês, como qualquer LinhaConta.
+    { codigo: 'HC_EXISTENTE_C', nome: "Headcount Existente", origem: 'Custo' },
+    { codigo: 'HC_EXISTENTE_D', nome: "Headcount Existente", origem: 'Despesa' },
     { codigo: '71101001', nome: "SALARIOS E ORDENADOS", origem: 'Custo' },
     { codigo: '71101002', nome: "PREMIOS E GRATIFICACOES", origem: 'Custo' },
     { codigo: '71101003', nome: "HORAS EXTRAS", origem: 'Custo' },
@@ -739,6 +750,9 @@ const PACOTES_AGRICOLA = [
 
 const PLANO_CONTAS_AGRICOLA = {
   pessoal: [
+    // Ver nota completa em PLANO_CONTAS (Têxtil) — mesmo racional.
+    { codigo: 'HC_EXISTENTE_C', nome: "Headcount Existente", origem: 'Custo' },
+    { codigo: 'HC_EXISTENTE_D', nome: "Headcount Existente", origem: 'Despesa' },
     { codigo: '71101001', nome: "SALARIOS", origem: 'Custo' },
     { codigo: '71101002', nome: "PREMIOS E GRATIFICACOES", origem: 'Custo' },
     { codigo: '71101003', nome: "HORAS EXTRAS", origem: 'Custo' },
@@ -1107,6 +1121,11 @@ const PLANO_CONTAS_RESORTS = {
     { codigo: '410101020', nome: "BEBIDAS", origem: 'Custo' },
   ],
   pessoal: [
+    // HC_EXISTENTE (2026-09-08) — ver nota completa em PLANO_CONTAS (Têxtil).
+    // Só uma versão aqui (não precisa de par Custo/Despesa): desde
+    // 2026-09-08 todo CC da Resorts enxerga o plano inteiro (ver
+    // contasDoPacoteNoCc), então origem não filtra mais nada nesta unidade.
+    { codigo: 'HC_EXISTENTE', nome: "Headcount Existente", origem: 'Custo' },
     { codigo: '410201010', nome: "SALARIOS", origem: 'Custo' },
     { codigo: '410201020', nome: "PRO-LABORE", origem: 'Custo' },
     { codigo: '410201030', nome: "HORAS EXTRAS", origem: 'Custo' },
@@ -1329,12 +1348,18 @@ export const PLANO_CONTAS_CORPORATIVO = {
   // Pessoal como uma nova linha analítica adicional a linha de CLT")
   // — CORP03 sai de 'servicos' e vira a 2ª conta analítica editável de
   // Pessoal, só no Corporativo (ver AbaCustos/CustosLeituraVersao, gate
-  // por UNIDADES_COM_PJ_PESSOAL/CONTA_CONSULTORIA_PJ). CORP01/CORP13
-  // continuam aqui só como referência do plano de contas — nunca viram
-  // LinhaConta editável (a folha CLT é sempre calculada via
-  // QuadroPessoal/funcionários, nunca lançada direto numa conta).
+  // por UNIDADES_COM_PJ_PESSOAL/CONTA_CONSULTORIA_PJ). CORP13 continua aqui
+  // só como referência do plano de contas — nunca vira LinhaConta editável.
+  //
+  // CORP01 (2026-09-08, pedido "headcount existente... deixe o racional
+  // conforme as demais contas analíticas") — era só referência ("Salários
+  // /Despesas com o pessoal", nunca editável, a folha sempre veio de
+  // QuadroPessoal/funcionários); renomeada pra "Headcount Existente" e virou
+  // a 3ª conta editável do pacote Pessoal, mesmo tratamento de CORP03 — ver
+  // CONTA_HEADCOUNT_EXISTENTE/QuadroPessoal. computeFolhaPessoalMes só soma
+  // funcionário com origem 'novo' agora (ver folhaAnualPorCC).
   pessoal: [
-    { codigo: 'CORP01', nome: "Salários /Despesas com o pessoal", origem: 'Despesa' },
+    { codigo: 'CORP01', nome: "Headcount Existente", origem: 'Despesa' },
     { codigo: 'CORP13', nome: "Cursos e treinamentos", origem: 'Despesa' },
     { codigo: 'CORP03', nome: "Consultórias PJs", origem: 'Despesa' },
   ],
@@ -2138,8 +2163,15 @@ function computeFolhaPessoalAnual(funcionariosCC, premissas) {
     totalMes: mensal.map(m => m.total),
   };
 }
+// 'existente' (2026-09-08, pedido: "headcount existente... deixe o racional
+// conforme as demais contas analíticas... extrair valor total do CC na
+// planilha de pessoal e incluir os valores mensais") — sai do cálculo por
+// funcionário, vira a conta analítica manual "Headcount Existente" do
+// pacote Pessoal (somada como qualquer conta em custos.linhas, ver
+// computeDRE). Só 'novo' (contratações planejadas, entrada manual
+// funcionário a funcionário) continua passando por aqui.
 function folhaAnualPorCC(data, ccCodigo) {
-  const funcs = (data.custos.funcionarios || []).filter(f => f.ccCodigo === ccCodigo);
+  const funcs = (data.custos.funcionarios || []).filter(f => f.ccCodigo === ccCodigo && f.origem === 'novo');
   return computeFolhaPessoalAnual(funcs, data.custos.premissasPessoal);
 }
 
@@ -3999,12 +4031,6 @@ export default function OrcamentoARA({ usuario }) {
   function updatePremissaPessoal(campo, valor) {
     atualizar(['custos', 'premissasPessoal'], { ...dados.custos.premissasPessoal, [campo]: valor });
   }
-  // origem: 'existente' — pedido de 2026-08-17, "Headcount Existente
-  // [...] calculado com base no template importado".
-  function importarFuncionariosLote(ccCodigo, lista) {
-    const novos = lista.map(f => ({ id: uid(), nome: f.nome, cargo: f.cargo || '', salario: f.salario, ccCodigo, mesAdmissao: f.mesAdmissao || '', origem: 'existente' }));
-    atualizar(['custos', 'funcionarios'], [...dados.custos.funcionarios, ...novos]);
-  }
   function addLinhaFinanciamento() {
     atualizar(['fcFinanciamentos', 'linhas'], [...dados.fcFinanciamentos.linhas, novaLinhaFinanciamento()]);
   }
@@ -4537,7 +4563,10 @@ export default function OrcamentoARA({ usuario }) {
     const headerFunc = ['Nome', 'CC', 'Cargo', 'Salário', 'Mês Admissão', ...MESES.map(m => `Salário Efetivo ${m}`), ...MESES.map(m => `Ativo ${m}`)];
     headerFunc.forEach((h, c) => putS(wsPremPes, rp, c, h));
     rp++;
-    const funcionarios = d.custos.funcionarios || [];
+    // Só 'novo' (2026-09-08, ver folhaAnualPorCC) — Headcount Existente virou
+    // conta analítica manual, ainda não modelada nesta malha de fórmulas
+    // (mesma pendência do racional novo da Agrícola, ver alerta abaixo).
+    const funcionarios = (d.custos.funcionarios || []).filter(f => f.origem === 'novo');
     const rowsFuncByRow = [];
     funcionarios.forEach(f => {
       const idxAdm = f.mesAdmissao ? MESES.indexOf(f.mesAdmissao) : -1;
@@ -5055,7 +5084,6 @@ export default function OrcamentoARA({ usuario }) {
           updateConta={updateConta} updateSublinha={updateSublinha} addSublinha={addSublinha} removeSublinha={removeSublinha}
           addDetalhe={addDetalhe} updateDetalhe={updateDetalhe} removeDetalhe={removeDetalhe}
           addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
-          importarFuncionariosLote={importarFuncionariosLote}
           updatePremissaPessoal={updatePremissaPessoal}
           addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto}
           addLinhaFinanciamento={addLinhaFinanciamento} updateLinhaFinanciamento={updateLinhaFinanciamento}
@@ -5223,7 +5251,7 @@ function VisaoGerente(props) {
     updateProduto, updateDeducao, premissasMacro,
     addObjetivo, updateObjetivo, removeObjetivo, addIniciativa, updateIniciativa, removeIniciativa,
     updateConta, updateSublinha, addSublinha, removeSublinha, addDetalhe, updateDetalhe, removeDetalhe,
-    addFuncionario, updateFuncionario, removeFuncionario, updatePremissaPessoal, importarFuncionariosLote,
+    addFuncionario, updateFuncionario, removeFuncionario, updatePremissaPessoal,
     addProjeto, updateProjeto, removeProjeto,
     addLinhaFinanciamento, updateLinhaFinanciamento, removeLinhaFinanciamento, updateMovimentacaoAcionista,
     updatePremissa5Y, updateCenarioSensibilidade,
@@ -5527,7 +5555,6 @@ function VisaoGerente(props) {
             detalhes={dados.custos.detalhes} addDetalhe={addDetalhe} updateDetalhe={updateDetalhe} removeDetalhe={removeDetalhe}
             funcionarios={dados.custos.funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
             premissasPessoal={dados.custos.premissasPessoal} updatePremissaPessoal={updatePremissaPessoal}
-            importarFuncionariosLote={importarFuncionariosLote}
             viagens={dados.custos.viagens} atualizar={atualizar} premissasMacro={premissasMacro} cambios={cambios}
           />
         )}
@@ -5637,13 +5664,12 @@ const formatarQtdLeitura = (v) => Number(v).toLocaleString('pt-BR', { maximumFra
 
 // Folha de pessoal, versão leitura — lista de funcionários (nome, salário,
 // admissão) + a folha calculada mês a mês (mesma fórmula do editor).
-// Espelho leitura de QuadroPessoal (pedido de 2026-08-17) — separa Headcount
-// Existente (Data-base 31/08/2026, importado) e Novo Headcount (manual),
-// cada um com nome/cargo/salário e a folha calculada mês a mês.
+// Espelho leitura de QuadroPessoal, só Novo Headcount (2026-09-08: Headcount
+// Existente saiu daqui, virou a conta analítica "Headcount Existente" — ver
+// CustosLeituraVersao). Registros antigos com origem 'existente' (versões
+// enviadas antes desta mudança) ficam de fora — congelados, não somam mais.
 function FolhaPessoalLeitura({ funcionarios, premissasPessoal }) {
-  const existentes = funcionarios.filter(ehExistente);
   const novos = funcionarios.filter(f => !ehExistente(f));
-  const folhaExistente = computeFolhaPessoalAnual(existentes, premissasPessoal);
   const folhaNovo = computeFolhaPessoalAnual(novos, premissasPessoal);
 
   function ListaLeitura(lista, mostrarAdmissao) {
@@ -5662,15 +5688,12 @@ function FolhaPessoalLeitura({ funcionarios, premissasPessoal }) {
 
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>Headcount Existente (Data-base 31/08/2026)</div>
-      {ListaLeitura(existentes, false)}
-      <div style={{ fontSize: 11, fontWeight: 700, color: COR.azul, marginTop: 10, marginBottom: 4 }}>Novo Headcount</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>Novo Headcount</div>
       {ListaLeitura(novos, true)}
       <div style={{ overflowX: 'auto', marginTop: 6 }}>
         <table>
           <CabecalhoMensalLeitura />
           <tbody>
-            <LinhaCalculadaMensal label="Folha — Headcount Existente" valoresMensal={folhaExistente.mensal.map(m => m.total)} />
             <LinhaCalculadaMensal label="Folha — Novo Headcount" valoresMensal={folhaNovo.mensal.map(m => m.total)} />
           </tbody>
         </table>
@@ -5738,9 +5761,11 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
     .map(p => ({ ...p, contas: contasDoPacoteNoCc(refUnidade.planoContas, p.id, ccAtual, unidadeId) }))
     .filter(g => g.contas.length > 0);
   const funcionariosCC = funcionarios.filter(f => f.ccCodigo === ccSel);
-  const folhaAtual = computeFolhaPessoalAnual(funcionariosCC, premissasPessoal);
-  // Pessoal (2026-08-23): soma folha (CLT) + eventuais contas do pacote
-  // (Consultórias PJs, só Corporativo) — não exclui mais 'pessoal' da soma.
+  // Só 'novo' (ver folhaAnualPorCC/QuadroPessoal) — Headcount Existente é a
+  // conta analítica, já somada junto com as demais contas do pacote abaixo.
+  const folhaAtual = computeFolhaPessoalAnual(funcionariosCC.filter(f => f.origem === 'novo'), premissasPessoal);
+  // Pessoal (2026-08-23): soma folha (CLT, só Novo Headcount) + contas do
+  // pacote (Headcount Existente + Consultórias PJs no Corporativo).
   const totalCC = gruposPacote.reduce((acc, g) => acc + g.contas.reduce((a, c) => a + totalConta(c.codigo), 0), 0) + folhaAtual.totalAnual;
 
   return (
@@ -5769,7 +5794,7 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, color: COR.azul }}>
                 {pacoteAberto ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                {g.nome} <span style={{ fontWeight: 400, color: '#8A8F96' }}>{g.id === 'pessoal' ? `(${funcionariosCC.length} funcionários)` : `(${g.contas.length} contas)`}</span>
+                {g.nome} <span style={{ fontWeight: 400, color: '#8A8F96' }}>{g.id === 'pessoal' ? `(${funcionariosCC.filter(f => f.origem === 'novo').length} funcionários)` : `(${g.contas.length} contas)`}</span>
               </span>
               <span style={{ fontSize: 12, fontWeight: 700, color: totalPacote > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(totalPacote)}</span>
             </button>
@@ -5777,6 +5802,21 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
               <div style={{ padding: 8 }}>
                 {g.id === 'pessoal' ? (
                   <>
+                    {g.contas.filter(c => c.nome === 'Headcount Existente').map(c => (
+                      <div key={c.codigo} style={{ marginBottom: 14 }}>
+                        <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Headcount Existente — conta analítica</h5>
+                        <LinhaContaLeitura
+                          conta={c}
+                          linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
+                          aberta={contaAberta === chaveLinha(c.codigo)}
+                          onToggle={() => setContaAberta(prev => prev === chaveLinha(c.codigo) ? null : chaveLinha(c.codigo))}
+                          total={totalConta(c.codigo)}
+                          receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                          ocultarClassificacao={unidadeId === 'corporativo'}
+                          ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
+                        />
+                      </div>
+                    ))}
                     <FolhaPessoalLeitura funcionarios={funcionariosCC} premissasPessoal={premissasPessoal} />
                     {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
                       <div key={c.codigo} style={{ marginTop: 14 }}>
@@ -8152,133 +8192,23 @@ function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBruta
   );
 }
 
-// Pedido de 2026-08-17: template passa a alimentar só o Headcount Existente
-// (Data-base 31/08/2026) — sem Data de Admissão, porque quem já está na
-// base é ativo o ano inteiro de 2027 por definição (não "admite" de novo).
-// Ganhou a coluna Cargo.
-function baixarTemplateFuncionarios() {
-  const dadosTemplate = [
-    ['Nome', 'Cargo', 'Salário'],
-    ['João da Silva (exemplo)', 'Analista Financeiro', 3500],
-    ['Maria Souza (exemplo)', 'Coordenadora de RH', 4200],
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(dadosTemplate);
-  ws['!cols'] = [{ wch: 32 }, { wch: 24 }, { wch: 14 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Funcionarios');
-  XLSX.writeFile(wb, 'template_importacao_funcionarios.xlsx');
-}
-
-function ImportarFuncionariosExcel({ onImportarLote }) {
-  const [erros, setErros] = useState([]);
-  const [preview, setPreview] = useState(null);
-  const [nomeArquivo, setNomeArquivo] = useState('');
-
-  function handleArquivo(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setNomeArquivo(file.name);
-    setPreview(null);
-    setErros([]);
-    const reader = new FileReader();
-    reader.onload = evt => {
-      try {
-        const wb = XLSX.read(evt.target.result, { type: 'binary', cellDates: true });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const linhasBrutas = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        const novosErros = [];
-        const validos = [];
-        linhasBrutas.forEach((linha, idx) => {
-          const numLinha = idx + 2; // linha 1 é o cabeçalho
-          const nome = String(linha['Nome'] || '').trim();
-          const cargo = String(linha['Cargo'] || '').trim();
-          const salario = parseNum(linha['Salário']);
-
-          if (!nome) novosErros.push({ linha: numLinha, campo: 'Nome', erro: 'Vazio' });
-          if (!salario || salario <= 0) novosErros.push({ linha: numLinha, campo: 'Salário', erro: 'Vazio, zero ou inválido' });
-
-          // Pedido de 2026-08-17: importação alimenta o Headcount Existente
-          // (Data-base 31/08/2026) — ativo o ano inteiro de 2027 por
-          // definição, sem coluna de Data de Admissão no template.
-          if (nome && salario > 0) {
-            validos.push({ nome, cargo, salario: String(salario), mesAdmissao: '' });
-          }
-        });
-        setErros(novosErros);
-        setPreview({ totalLinhas: linhasBrutas.length, funcionarios: validos });
-      } catch (err) {
-        setErros([{ linha: '—', campo: 'Arquivo', erro: 'Não foi possível ler o arquivo. Confirme que é um .xlsx válido, no formato do template.' }]);
-        setPreview(null);
-      }
-    };
-    reader.readAsBinaryString(file);
-  }
-
-  function confirmar() {
-    if (!preview || preview.funcionarios.length === 0) return;
-    onImportarLote(preview.funcionarios);
-    setPreview(null);
-    setErros([]);
-    setNomeArquivo('');
-  }
-
-  return (
-    <div style={{ border: `1px dashed ${COR.borda}`, borderRadius: 8, padding: 10, marginBottom: 12, background: COR.claro }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>Importar funcionários via Excel</div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
-        <Botao variante="fantasma" icone={FileSpreadsheet} onClick={baixarTemplateFuncionarios}>Baixar template</Botao>
-        <label style={{
-          fontFamily: FONT, fontSize: 12, fontWeight: 700, padding: '7px 12px', borderRadius: 7, cursor: 'pointer',
-          border: `1px solid ${COR.azul}`, color: COR.azul, background: COR.branco, display: 'inline-flex', alignItems: 'center', gap: 6,
-        }}>
-          Selecionar arquivo .xlsx
-          <input type="file" accept=".xlsx,.xls" onChange={handleArquivo} style={{ display: 'none' }} />
-        </label>
-        {nomeArquivo && <span style={{ fontSize: 10.5, color: '#7A8088' }}>{nomeArquivo}</span>}
-      </div>
-
-      {erros.length > 0 && (
-        <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, borderRadius: 6, padding: 8, marginBottom: 6 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, color: COR.vermelho, marginBottom: 4 }}>{erros.length} inconsistência(s) encontrada(s) — corrija no arquivo e importe novamente</div>
-          {erros.slice(0, 12).map((e, i) => (
-            <div key={i} style={{ fontSize: 10, color: COR.texto }}>Linha {e.linha} — {e.campo}: {e.erro}</div>
-          ))}
-          {erros.length > 12 && <div style={{ fontSize: 10, color: '#8A8F96' }}>+ {erros.length - 12} outra(s)…</div>}
-        </div>
-      )}
-
-      {preview && (
-        <div style={{ background: preview.funcionarios.length > 0 ? '#E8F5E9' : '#FBE9E9', border: `1px solid ${preview.funcionarios.length > 0 ? COR.verde : COR.vermelho}`, borderRadius: 6, padding: 8 }}>
-          <div style={{ fontSize: 10.5, color: COR.texto, marginBottom: 6 }}>
-            {preview.funcionarios.length} de {preview.totalLinhas} linha(s) válida(s) para importação.
-          </div>
-          {preview.funcionarios.length > 0 && (
-            <Botao variante="laranja" icone={CheckCircle2} onClick={confirmar}>Confirmar importação de {preview.funcionarios.length} funcionário(s)</Botao>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Pedido de 2026-08-17: "separe Headcount Existente (Data-base 31/08/2026)
-// calculado com base no template importado e Novo Headcount a ser inserido
-// manualmente [...] Os percentuais de encargos e benefícios incidirão sob
-// os dois grupos". A separação é só de composição/origem do headcount — as
-// premissas de encargos/benefícios continuam um conjunto só (abaixo),
-// aplicadas por igual aos dois grupos (computeFolhaPessoalMes já soma todos
-// os funcionários do CC antes de aplicar % — nenhuma mudança de cálculo
-// necessária, só de agrupamento/exibição).
-// origem: 'existente' (importado via template) | 'novo' (Adicionar
-// funcionário manual). Registros de antes desta mudança não têm o campo —
-// tratados como 'existente' por padrão (a composição herdada da base atual,
-// não uma contratação nova planejada).
+// Headcount Existente (2026-08-17 a 2026-09-08): nasceu como uma tabela de
+// funcionário por funcionário, importada de template Excel (Data-base
+// 31/08/2026), calculada igual ao Novo Headcount abaixo. Pedido de
+// 2026-09-08: "deixe o racional conforme as demais contas analíticas...
+// extrair valor total do CC na planilha de pessoal do Departamento Pessoal
+// e incluir os valores mensais" — sai daqui, vira a conta analítica manual
+// "Headcount Existente" do pacote Pessoal (ver AbaCustos, mesmo tratamento
+// de Consultórias PJs/CONTA_CONSULTORIA_PJ). Só sobra o Novo Headcount
+// (contratações planejadas) como tabela de funcionário por funcionário.
+// origem: 'existente' (era o valor herdado do template, hoje sem uso — os
+// registros antigos que ainda tiverem esse valor, ou nenhum campo, ficam
+// congelados: não entram mais em nenhum cálculo, ver folhaAnualPorCC/
+// folhaCC) | 'novo' (Adicionar funcionário manual, único grupo calculado).
 function ehExistente(f) { return f.origem !== 'novo'; }
 
-function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, folha, onImportarLote }) {
-  const existentes = funcionarios.filter(ehExistente);
+function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, folha }) {
   const novos = funcionarios.filter(f => !ehExistente(f));
-  const folhaExistente = computeFolhaPessoalAnual(existentes, premissasPessoal);
   const folhaNovo = computeFolhaPessoalAnual(novos, premissasPessoal);
 
   function LinhaFuncionario(f, i, mostrarAdmissao) {
@@ -8307,29 +8237,11 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
 
   return (
     <div>
-      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 4 }}>Headcount Existente (Data-base 31/08/2026)</h5>
-      <div style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
-        Composição atual do quadro, importada via template — ativos o ano inteiro de 2027 (sem mês de admissão; quem já está na base não "admite" de novo).
-        Nome/cargo/salário continuam editáveis aqui depois da importação, se precisar corrigir algo.
-      </div>
-      <table style={{ width: '100%', marginBottom: 8 }}>
-        <thead>
-          <tr>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left' }}>Funcionário</th>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Cargo</th>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Salário atual</th>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 30 }}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {existentes.length === 0 ? (
-            <tr><td colSpan={4} style={{ padding: '8px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#8A8F96' }}>Nenhum funcionário importado ainda.</td></tr>
-          ) : existentes.map((f, i) => LinhaFuncionario(f, i, false))}
-        </tbody>
-      </table>
-      <ImportarFuncionariosExcel onImportarLote={onImportarLote} />
-
-      <h5 style={{ fontSize: 11.5, color: COR.azul, marginTop: 18, marginBottom: 4 }}>Novo Headcount</h5>
+      {/* Headcount Existente (2026-09-08) — virou a conta analítica "Headcount
+          Existente" do pacote Pessoal, renderizada pelo AbaCustos logo ACIMA
+          deste quadro (mesmo tratamento de Consultórias PJs) — o disclaimer
+          pedido fica junto dela, não aqui. */}
+      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 4 }}>Novo Headcount</h5>
       <div style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
         Contratações planejadas para 2027, lançadas manualmente — com mês de admissão (define os meses em que entram na folha).
       </div>
@@ -8358,7 +8270,6 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
           linhas={[]}
           onChangeCelula={() => {}}
           linhasCalculadas={[
-            { key: 'existente', label: 'Folha — Headcount Existente', valoresMensal: folhaExistente.mensal.map(m => m.total), totalValor: folhaExistente.totalAnual, cor: COR.texto },
             { key: 'novo', label: 'Folha — Novo Headcount', valoresMensal: folhaNovo.mensal.map(m => m.total), totalValor: folhaNovo.totalAnual, cor: COR.texto },
           ]}
         />
@@ -8366,8 +8277,8 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
 
       <h5 style={{ fontSize: 11.5, color: COR.azul, marginTop: 18, marginBottom: 8 }}>Premissas de encargos e benefícios — padronizadas para a unidade</h5>
       <p style={{ fontSize: 10.5, color: '#8A8F96', marginBottom: 8 }}>
-        Valem para todos os CCs desta unidade, e incidem sobre os dois grupos acima (Headcount Existente e Novo Headcount) — não há premissa
-        separada por grupo. Sem valor pré-definido — preencher conforme definição de RH/Controladoria.
+        Valem para todos os CCs desta unidade, e incidem só sobre o Novo Headcount acima (2026-09-08: Headcount Existente saiu deste cálculo, ver
+        disclaimer no topo) — sem valor pré-definido, preencher conforme definição de RH/Controladoria.
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
         <div>
@@ -8426,7 +8337,7 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
         </div>
       </div>
 
-      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>CLT — Folha calculada — {ccCodigo}, mês a mês (Existente + Novo Headcount)</h5>
+      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>CLT — Folha calculada — {ccCodigo}, mês a mês (Novo Headcount)</h5>
       <TabelaMensal
         linhas={[]}
         onChangeCelula={() => {}}
@@ -8680,7 +8591,7 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
   );
 }
 
-function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, importarFuncionariosLote, viagens, atualizar, premissasMacro, cambios }) {
+function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, viagens, atualizar, premissasMacro, cambios }) {
   // Sincronização de dissídio com a Premissa Macro "Reajuste salarial/
   // dissídio" (2026-09-07) removida em 2026-09-08 — ver nota em QuadroPessoal
   // (Dissídio). A premissa em si também saiu de PREMISSAS_MACRO_REF.
@@ -8722,7 +8633,10 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
 
   function chaveLinha(contaCodigo) { return `${ccSel}|${contaCodigo}`; }
   function folhaCC(ccCodigo) {
-    const funcs = (funcionarios || []).filter(f => f.ccCodigo === ccCodigo);
+    // Só 'novo' (ver nota em folhaAnualPorCC/QuadroPessoal) — Headcount
+    // Existente agora é a conta analítica, somada junto com as demais em
+    // totalCcAnual/totalCcMes (contasDoCc já cobre o pacote Pessoal).
+    const funcs = (funcionarios || []).filter(f => f.ccCodigo === ccCodigo && f.origem === 'novo');
     return computeFolhaPessoalAnual(funcs, premissasPessoal);
   }
   // Versões parametrizadas por CC (não só o ccSel selecionado) — usadas na
@@ -9006,7 +8920,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, color: COR.azul }}>
                 {pacoteAberto ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                {g.nome} <span style={{ fontWeight: 400, color: '#8A8F96' }}>{g.id === 'pessoal' ? `(${(funcionarios || []).filter(f => f.ccCodigo === ccSel).length} funcionários)` : `(${g.contas.length} contas)`}</span>
+                {g.nome} <span style={{ fontWeight: 400, color: '#8A8F96' }}>{g.id === 'pessoal' ? `(${(funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo').length} funcionários)` : `(${g.contas.length} contas)`}</span>
               </span>
               <span style={{ fontSize: 12, fontWeight: 700, color: totalPacote > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(totalPacote)}</span>
             </button>
@@ -9014,6 +8928,39 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
               <div style={{ padding: 8 }}>
                 {g.id === 'pessoal' ? (
                   <>
+                    {/* Headcount Existente (2026-09-08, pedido: "deixe o
+                        racional conforme as demais contas analíticas...
+                        extrair valor total do CC na planilha de pessoal do
+                        Departamento Pessoal e incluir os valores mensais
+                        abaixo") — conta analítica normal (não calculadora),
+                        identificada pelo nome porque o código muda por
+                        unidade (HC_EXISTENTE_C/D na Têxtil/Agrícola,
+                        HC_EXISTENTE na Resorts, CORP01 no Corporativo). */}
+                    {g.contas.filter(c => c.nome === 'Headcount Existente').map(c => (
+                      <div key={c.codigo} style={{ marginBottom: 18 }}>
+                        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, marginBottom: 10, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                          <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+                          <div style={{ fontSize: 11, color: COR.texto }}>
+                            Para a primeira versão do Orçamento, por gentileza, extrair o valor total do CC na planilha de pessoal do Departamento Pessoal e incluir os valores mensais abaixo:
+                          </div>
+                        </div>
+                        <LinhaConta
+                          conta={c}
+                          linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                          aberta={contaAberta === chaveLinha(c.codigo)}
+                          onToggle={() => toggleConta(c.codigo)}
+                          onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                          onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                          onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                          onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                          total={totalConta(c.codigo)}
+                          receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                          ocultarClassificacao={unidadeId === 'corporativo'}
+                          unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
+                          cambios={cambios}
+                        />
+                      </div>
+                    ))}
                     <QuadroPessoal
                       ccCodigo={ccSel}
                       unidadeId={unidadeId}
@@ -9024,7 +8971,6 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                       premissasPessoal={premissasPessoal}
                       updatePremissaPessoal={updatePremissaPessoal}
                       folha={folhaAtual}
-                      onImportarLote={lista => importarFuncionariosLote(ccSel, lista)}
                     />
                     {/* Consultórias PJs (2026-08-23) — 2ª conta analítica do
                         pacote Pessoal, só Corporativo (ver CONTA_CONSULTORIA_PJ/

@@ -115,6 +115,9 @@ export const CCS_AGRICOLA = [
 
 export const PLANO_CONTAS_AGRICOLA = {
   pessoal: [
+    // Ver nota completa em PLANO_CONTAS (Têxtil, constantesTextil.js).
+    { codigo: 'HC_EXISTENTE_C', nome: "Headcount Existente", origem: 'Custo' },
+    { codigo: 'HC_EXISTENTE_D', nome: "Headcount Existente", origem: 'Despesa' },
     { codigo: '71101001', nome: "SALARIOS", origem: 'Custo' },
     { codigo: '71101002', nome: "PREMIOS E GRATIFICACOES", origem: 'Custo' },
     { codigo: '71101003', nome: "HORAS EXTRAS", origem: 'Custo' },
@@ -406,6 +409,9 @@ export const PLANO_CONTAS_RESORTS = {
     { codigo: '410101020', nome: "BEBIDAS", origem: 'Custo' },
   ],
   pessoal: [
+    // HC_EXISTENTE (2026-09-08) — ver nota completa no frontend. Só uma
+    // versão (todo CC da Resorts vê o plano inteiro, ver contasDoPacoteNoCc).
+    { codigo: 'HC_EXISTENTE', nome: "Headcount Existente", origem: 'Custo' },
     { codigo: '410201010', nome: "SALARIOS", origem: 'Custo' },
     { codigo: '410201020', nome: "PRO-LABORE", origem: 'Custo' },
     { codigo: '410201030', nome: "HORAS EXTRAS", origem: 'Custo' },
@@ -605,7 +611,8 @@ export const PLANO_CONTAS_CORPORATIVO = {
   // (ver nota completa lá): CORP03 sai de 'servicos' e vira a 2ª conta
   // analítica editável de Pessoal, só no Corporativo.
   pessoal: [
-    { codigo: 'CORP01', nome: "Salários /Despesas com o pessoal", origem: 'Despesa' },
+    // CORP01 renomeada em 2026-09-08 — ver nota completa no frontend.
+    { codigo: 'CORP01', nome: "Headcount Existente", origem: 'Despesa' },
     { codigo: 'CORP13', nome: "Cursos e treinamentos", origem: 'Despesa' },
     { codigo: 'CORP03', nome: "Consultórias PJs", origem: 'Despesa' },
   ],
