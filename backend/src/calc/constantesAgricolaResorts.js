@@ -618,7 +618,7 @@ export const PLANO_CONTAS_CORPORATIVO = {
   pessoal: [
     // CORP01 renomeada em 2026-09-08 — ver nota completa no frontend.
     { codigo: 'CORP01', nome: "Headcount Existente", origem: 'Despesa' },
-    { codigo: 'CORP13', nome: "Cursos e treinamentos", origem: 'Despesa' },
+    { codigo: 'CORP13', nome: "Cursos e treinamentos", origem: 'Despesa', individual: true },
     { codigo: 'CORP03', nome: "Consultórias PJs", origem: 'Despesa' },
   ],
   servicos: [

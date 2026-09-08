@@ -1363,8 +1363,7 @@ export const PLANO_CONTAS_CORPORATIVO = {
   // Pessoal como uma nova linha analítica adicional a linha de CLT")
   // — CORP03 sai de 'servicos' e vira a 2ª conta analítica editável de
   // Pessoal, só no Corporativo (ver AbaCustos/CustosLeituraVersao, gate
-  // por UNIDADES_COM_PJ_PESSOAL/CONTA_CONSULTORIA_PJ). CORP13 continua aqui
-  // só como referência do plano de contas — nunca vira LinhaConta editável.
+  // por UNIDADES_COM_PJ_PESSOAL/CONTA_CONSULTORIA_PJ).
   //
   // CORP01 (2026-09-08, pedido "headcount existente... deixe o racional
   // conforme as demais contas analíticas") — era só referência ("Salários
@@ -1373,9 +1372,14 @@ export const PLANO_CONTAS_CORPORATIVO = {
   // a 3ª conta editável do pacote Pessoal, mesmo tratamento de CORP03 — ver
   // CONTA_HEADCOUNT_EXISTENTE/QuadroPessoal. computeFolhaPessoalMes só soma
   // funcionário com origem 'novo' agora (ver folhaAnualPorCC).
+  //
+  // CORP13 (2026-09-08) — mesma situação de Cursos/Seminários na Resorts:
+  // era só referência, não é componente de folha (não vem calculado por
+  // Headcount Existente/Novo Headcount), então ganha individual: true —
+  // ver PLANO_CONTAS (Têxtil) pra nota completa dessa flag.
   pessoal: [
     { codigo: 'CORP01', nome: "Headcount Existente", origem: 'Despesa' },
-    { codigo: 'CORP13', nome: "Cursos e treinamentos", origem: 'Despesa' },
+    { codigo: 'CORP13', nome: "Cursos e treinamentos", origem: 'Despesa', individual: true },
     { codigo: 'CORP03', nome: "Consultórias PJs", origem: 'Despesa' },
   ],
   servicos: [
