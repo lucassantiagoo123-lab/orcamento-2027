@@ -1180,6 +1180,10 @@ const PLANO_CONTAS_RESORTS = {
     { codigo: '410307300', nome: "DESPESAS ADMINISTRATIVAS RATEADA", origem: 'Despesa' },
     { codigo: '410307310', nome: "BENS DE PEQUENO VALOR", origem: 'Despesa' },
     { codigo: '410307320', nome: "REEMBOLSO DIVERSOS", origem: 'Despesa' },
+    // De/Para com o plano de contas real do Samoa Villa (Book3.xlsx,
+    // 2026-09-08) — só esta conta faltava (UNIFORMES/CURSOS-SEMINARIOS já
+    // tinham entrado na limpeza de 2026-09-07).
+    { codigo: '410307340', nome: "EXPERIENCIA VILLA MURO ALTO", origem: 'Despesa' },
     // Plano de Contas Resorts.xlsb (2026-09-07) — ver nota em pessoal acima.
     { codigo: '410309010', nome: "PERDA", origem: 'Custo' },
     { codigo: '410309011', nome: "PERDA OPERACIONAL FINANCEIRA", origem: 'Custo' },
