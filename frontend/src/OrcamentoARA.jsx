@@ -4059,9 +4059,12 @@ export default function OrcamentoARA({ usuario }) {
     atualizar(['custos', 'linhas'], { ...dados.custos.linhas, [chave]: { ...atual, sublinhas: sublinhas.length > 0 ? sublinhas : [novaLinhaVazia()] } });
   }
   // origem: 'novo' — pedido de 2026-08-17, "Novo Headcount a ser inserido
-  // manualmente" (ver QuadroPessoal/ehExistente).
+  // manualmente" (ver QuadroPessoal/ehExistente). `nome` fica no registro só
+  // por compatibilidade com dados antigos (nunca mais preenchido — pedido de
+  // 2026-09-08: "não precisa do nome do funcionário", ganhou `justificativa`
+  // no lugar).
   function addFuncionario(ccCodigo) {
-    atualizar(['custos', 'funcionarios'], [...dados.custos.funcionarios, { id: uid(), nome: '', cargo: '', salario: '', ccCodigo, mesAdmissao: '', origem: 'novo' }]);
+    atualizar(['custos', 'funcionarios'], [...dados.custos.funcionarios, { id: uid(), nome: '', cargo: '', salario: '', ccCodigo, mesAdmissao: '', justificativa: '', origem: 'novo' }]);
   }
   function updateFuncionario(id, campo, valor) {
     atualizar(['custos', 'funcionarios'], dados.custos.funcionarios.map(f => f.id === id ? { ...f, [campo]: valor } : f));
@@ -4601,7 +4604,10 @@ export default function OrcamentoARA({ usuario }) {
     const rowDissidioPct = rp;
     putS(wsPremPes, rp, 0, 'Dissídio — % reajuste'); putN(wsPremPes, rp, 1, pp.dissidioPct); rp++;
     rp += 2; // 2 linhas em branco antes da tabela de funcionários
-    const headerFunc = ['Nome', 'CC', 'Cargo', 'Salário', 'Mês Admissão', ...MESES.map(m => `Salário Efetivo ${m}`), ...MESES.map(m => `Ativo ${m}`)];
+    // Justificativa no lugar de Nome (2026-09-08, ver nota completa em
+    // QuadroPessoal/addFuncionario) — mesma posição de coluna (0), não muda
+    // as referências $D$/$E$ etc. usadas nas fórmulas abaixo.
+    const headerFunc = ['Justificativa', 'CC', 'Cargo', 'Salário', 'Mês Admissão', ...MESES.map(m => `Salário Efetivo ${m}`), ...MESES.map(m => `Ativo ${m}`)];
     headerFunc.forEach((h, c) => putS(wsPremPes, rp, c, h));
     rp++;
     // Só 'novo' (2026-09-08, ver folhaAnualPorCC) — Headcount Existente virou
@@ -4611,7 +4617,7 @@ export default function OrcamentoARA({ usuario }) {
     const rowsFuncByRow = [];
     funcionarios.forEach(f => {
       const idxAdm = f.mesAdmissao ? MESES.indexOf(f.mesAdmissao) : -1;
-      putS(wsPremPes, rp, 0, f.nome); putS(wsPremPes, rp, 1, f.ccCodigo); putS(wsPremPes, rp, 2, f.cargo || '');
+      putS(wsPremPes, rp, 0, f.justificativa || ''); putS(wsPremPes, rp, 1, f.ccCodigo); putS(wsPremPes, rp, 2, f.cargo || '');
       putN(wsPremPes, rp, 3, f.salario); putS(wsPremPes, rp, 4, f.mesAdmissao || '');
       const excelRow = rp + 1;
       for (let m = 0; m < 12; m++) {
@@ -5713,14 +5719,19 @@ function FolhaPessoalLeitura({ funcionarios, premissasPessoal }) {
   const novos = funcionarios.filter(f => !ehExistente(f));
   const folhaNovo = computeFolhaPessoalAnual(novos, premissasPessoal);
 
-  function ListaLeitura(lista, mostrarAdmissao) {
+  // Sem nome (2026-09-08, ver nota completa em QuadroPessoal/addFuncionario)
+  // — mostra cargo, mês de admissão e justificativa.
+  function ListaLeitura(lista) {
     if (lista.length === 0) return <div style={{ fontSize: 11, color: '#8A8F96', marginBottom: 8 }}>Nenhum registro.</div>;
     return (
       <div style={{ marginBottom: 10 }}>
         {lista.map(f => (
-          <div key={f.id} style={{ fontSize: 11, padding: '4px 2px', borderBottom: `1px solid ${COR.borda}`, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-            <span>{f.nome || '(sem nome)'}{f.cargo ? ` — ${f.cargo}` : ''}{mostrarAdmissao && f.mesAdmissao ? ` — admissão ${f.mesAdmissao}` : ''}</span>
-            <span style={{ fontWeight: 700, color: COR.azul, flexShrink: 0 }}>{formatBRL(parseNum(f.salario))}/mês</span>
+          <div key={f.id} style={{ fontSize: 11, padding: '4px 2px', borderBottom: `1px solid ${COR.borda}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span>{f.cargo || '(sem cargo)'}{f.mesAdmissao ? ` — admissão ${f.mesAdmissao}` : ''}</span>
+              <span style={{ fontWeight: 700, color: COR.azul, flexShrink: 0 }}>{formatBRL(parseNum(f.salario))}/mês</span>
+            </div>
+            {f.justificativa && <div style={{ color: '#8A8F96', marginTop: 2 }}>{f.justificativa}</div>}
           </div>
         ))}
       </div>
@@ -5729,8 +5740,8 @@ function FolhaPessoalLeitura({ funcionarios, premissasPessoal }) {
 
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>Novo Headcount</div>
-      {ListaLeitura(novos, true)}
+      <div style={{ fontSize: 11, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>1.2 Novo Headcount</div>
+      {ListaLeitura(novos)}
       <div style={{ overflowX: 'auto', marginTop: 6 }}>
         <table>
           <CabecalhoMensalLeitura />
@@ -5845,7 +5856,7 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
                   <>
                     {g.contas.filter(c => c.nome === 'Headcount Existente').map(c => (
                       <div key={c.codigo} style={{ marginBottom: 14 }}>
-                        <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Headcount Existente — conta analítica</h5>
+                        <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>1.1 Headcount Existente</h5>
                         <LinhaContaLeitura
                           conta={c}
                           linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
@@ -7893,7 +7904,7 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
 // CONTA inteira (não mais uma linha só) — normalizarConta aceita os dois
 // formatos, então dado já salvo antes desta mudança continua funcionando
 // sem migração.
-function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onUpdateSublinha, onAddSublinha, onRemoveSublinha, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, unidadeId, ipcaAnualPct, volumeTotalKgMes, cambios }) {
+function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onUpdateSublinha, onAddSublinha, onRemoveSublinha, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, ocultarAddSublinha, unidadeId, ipcaAnualPct, volumeTotalKgMes, cambios }) {
   const contaNorm = normalizarConta(linha);
   const incoerente = contaNorm.sublinhas.some(s => linhaIncoerente(s));
   const multiplas = contaNorm.sublinhas.length > 1;
@@ -7969,8 +7980,14 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onU
           {/* Múltiplas linhas por conta (2026-08-23): "se o gestor quiser
               incluir mais de uma linha dentro de cada despesa, ex.: por
               fornecedor". Cada sublinha tem sua própria premissa/grade
-              mensal independente; o total da conta soma todas. */}
-          <Botao variante="fantasma" icone={Plus} onClick={onAddSublinha}>+ Adicionar linha (ex.: outro fornecedor)</Botao>
+              mensal independente; o total da conta soma todas.
+              ocultarAddSublinha (2026-09-08, pedido: "retirar opção de
+              adicionar fornecedor" do Headcount Existente) — essa conta é
+              sempre 1 valor único mensal, vindo direto da planilha do
+              Departamento Pessoal, não faz sentido oferecer múltiplas linhas. */}
+          {!ocultarAddSublinha && (
+            <Botao variante="fantasma" icone={Plus} onClick={onAddSublinha}>+ Adicionar linha (ex.: outro fornecedor)</Botao>
+          )}
         </div>
       )}
     </div>
@@ -8248,27 +8265,28 @@ function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBruta
 // folhaCC) | 'novo' (Adicionar funcionário manual, único grupo calculado).
 function ehExistente(f) { return f.origem !== 'novo'; }
 
-function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, folha }) {
+function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, folha }) {
   const novos = funcionarios.filter(f => !ehExistente(f));
   const folhaNovo = computeFolhaPessoalAnual(novos, premissasPessoal);
 
-  function LinhaFuncionario(f, i, mostrarAdmissao) {
+  // Pedido de 2026-09-08: "cargo, salário, mês de admissão e justificativa
+  // do novo headcount (não precisa do nome do funcionário)" — sem nome
+  // (contratação ainda não tem candidato definido nesta fase de orçamento).
+  function LinhaFuncionario(f) {
     return (
       <tr key={f.id} style={{ background: COR.branco }}>
-        <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-          <CampoTexto value={f.nome} onChange={v => updateFuncionario(f.id, 'nome', v)} placeholder="Nome do funcionário" />
-        </td>
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
           <CampoTexto value={f.cargo || ''} onChange={v => updateFuncionario(f.id, 'cargo', v)} placeholder="Cargo" />
         </td>
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
           <CampoNumero value={f.salario} onChange={v => updateFuncionario(f.id, 'salario', v)} prefixo="R$" placeholder="0,00" />
         </td>
-        {mostrarAdmissao && (
-          <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-            <Selecao value={f.mesAdmissao} onChange={v => updateFuncionario(f.id, 'mesAdmissao', v)} opcoes={MESES.map(m => ({ id: m, nome: m }))} />
-          </td>
-        )}
+        <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
+          <Selecao value={f.mesAdmissao} onChange={v => updateFuncionario(f.id, 'mesAdmissao', v)} opcoes={MESES.map(m => ({ id: m, nome: m }))} />
+        </td>
+        <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
+          <CampoTexto value={f.justificativa || ''} onChange={v => updateFuncionario(f.id, 'justificativa', v)} placeholder="Justificativa do novo headcount" />
+        </td>
         <td style={{ padding: 3, border: `1px solid ${COR.borda}`, textAlign: 'center' }}>
           <button onClick={() => removeFuncionario(f.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={13} /></button>
         </td>
@@ -8282,28 +8300,28 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
           Existente" do pacote Pessoal, renderizada pelo AbaCustos logo ACIMA
           deste quadro (mesmo tratamento de Consultórias PJs) — o disclaimer
           pedido fica junto dela, não aqui. */}
-      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 4 }}>Novo Headcount</h5>
+      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 4 }}>1.2 Novo Headcount</h5>
       <div style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
-        Contratações planejadas para 2027, lançadas manualmente — com mês de admissão (define os meses em que entram na folha).
+        Contratações planejadas para 2027, lançadas manualmente — com mês de admissão (define os meses em que entram na folha) e justificativa da necessidade.
       </div>
       <table style={{ width: '100%', marginBottom: 10 }}>
         <thead>
           <tr>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left' }}>Funcionário</th>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Cargo</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', minWidth: 110 }}>Cargo</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Salário previsto</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Mês de admissão</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', minWidth: 160 }}>Justificativa</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 30 }}></th>
           </tr>
         </thead>
         <tbody>
           {novos.length === 0 ? (
             <tr><td colSpan={5} style={{ padding: '8px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#8A8F96' }}>Nenhuma contratação planejada ainda.</td></tr>
-          ) : novos.map((f, i) => LinhaFuncionario(f, i, true))}
+          ) : novos.map(f => LinhaFuncionario(f))}
         </tbody>
       </table>
       <div style={{ display: 'flex', gap: 8 }}>
-        <Botao variante="fantasma" icone={Plus} onClick={() => addFuncionario(ccCodigo)}>Adicionar funcionário (Novo Headcount)</Botao>
+        <Botao variante="fantasma" icone={Plus} onClick={() => addFuncionario(ccCodigo)}>Adicionar Novo Headcount</Botao>
       </div>
 
       <div style={{ marginTop: 16 }}>
@@ -8316,52 +8334,15 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
         />
       </div>
 
-      <h5 style={{ fontSize: 11.5, color: COR.azul, marginTop: 18, marginBottom: 8 }}>Premissas de encargos e benefícios — padronizadas para a unidade</h5>
-      <p style={{ fontSize: 10.5, color: '#8A8F96', marginBottom: 8 }}>
-        Valem para todos os CCs desta unidade, e incidem só sobre o Novo Headcount acima (2026-09-08: Headcount Existente saiu deste cálculo, ver
-        disclaimer no topo) — sem valor pré-definido, preencher conforme definição de RH/Controladoria.
-      </p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
-        <div>
-          <Rotulo>INSS</Rotulo>
-          <CampoNumero value={premissasPessoal.inssPct} onChange={v => updatePremissaPessoal('inssPct', v)} sufixo="%" placeholder="0,0" />
-        </div>
-        <div>
-          <Rotulo>FGTS</Rotulo>
-          <CampoNumero value={premissasPessoal.fgtsPct} onChange={v => updatePremissaPessoal('fgtsPct', v)} sufixo="%" placeholder="0,0" />
-        </div>
-        <div>
-          <Rotulo>Férias + 1/3</Rotulo>
-          <CampoNumero value={premissasPessoal.feriasPct} onChange={v => updatePremissaPessoal('feriasPct', v)} sufixo="%" placeholder="0,0" />
-        </div>
-        <div>
-          <Rotulo>13º salário</Rotulo>
-          <CampoNumero value={premissasPessoal.decimoTerceiroPct} onChange={v => updatePremissaPessoal('decimoTerceiroPct', v)} sufixo="%" placeholder="0,0" />
-        </div>
-        <div>
-          <Rotulo>Vale eletrônico (por func.)</Rotulo>
-          <CampoNumero value={premissasPessoal.valeTransporteValor} onChange={v => updatePremissaPessoal('valeTransporteValor', v)} prefixo="R$" placeholder="0,00" />
-        </div>
-        <div>
-          <Rotulo>Cesta básica (por func.)</Rotulo>
-          <CampoNumero value={premissasPessoal.cestaBasicaValor} onChange={v => updatePremissaPessoal('cestaBasicaValor', v)} prefixo="R$" placeholder="0,00" />
-        </div>
-        <div>
-          <Rotulo>Assistência médica (por func.)</Rotulo>
-          <CampoNumero value={premissasPessoal.planoSaudeValor} onChange={v => updatePremissaPessoal('planoSaudeValor', v)} prefixo="R$" placeholder="0,00" />
-        </div>
-        <div>
-          <Rotulo>Outros benefícios (por func.)</Rotulo>
-          <CampoNumero value={premissasPessoal.outrosBeneficiosValor} onChange={v => updatePremissaPessoal('outrosBeneficiosValor', v)} prefixo="R$" placeholder="0,00" />
-        </div>
-        <div>
-          <Rotulo>Meritocracia (% sobre salários)</Rotulo>
-          <CampoNumero value={premissasPessoal.meritocraciaPct} onChange={v => updatePremissaPessoal('meritocraciaPct', v)} sufixo="%" placeholder="0,0" />
-        </div>
-      </div>
-      <p style={{ fontSize: 10.5, color: '#8A8F96', marginBottom: 12 }}>
-        13º salário é provisionado mês a mês por competência (1/12 do salário, acima). No fluxo de caixa (aba Revisão, Análise e Envio), o pagamento é reconhecido metade em novembro e metade em dezembro.
-      </p>
+      {/* Premissas de encargos e benefícios (2026-09-08, pedido: "pode
+          desconsiderar todos os campos de encargos e benefícios, irei
+          implantar essas premissas apenas na segunda fase do orçamento") —
+          os campos saem da tela; premissasPessoal.inssPct/fgtsPct/etc.
+          continuam existindo na estrutura de dados (só sem UI pra editar),
+          então parseNum('') = 0 e o cálculo (computeFolhaPessoalMes) passa a
+          dar só o Salário — sem precisar mexer no motor de cálculo agora
+          nem perder o que já estiver preenchido de antes. Reativar na fase 2
+          é só devolver este bloco de campos. */}
 
       <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Dissídio</h5>
       {/* Pedido de 2026-09-08: "desconsidere Reajuste salarial/dissídio por
@@ -8379,15 +8360,16 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
       </div>
 
       <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>CLT — Folha calculada — {ccCodigo}, mês a mês (Novo Headcount)</h5>
+      {/* Encargos/13º/Meritocracia/Benefícios saem da tabela (2026-09-08,
+          fase 2) — sempre R$0 agora que os campos de premissa não são mais
+          editáveis, então só Salários e Total têm valor (e são iguais).
+          computeFolhaPessoalMes continua calculando as duas coisas por
+          baixo — reativar a fase 2 devolve essas linhas com valor de novo. */}
       <TabelaMensal
         linhas={[]}
         onChangeCelula={() => {}}
         linhasCalculadas={[
           { key: 'salarios', label: 'Salários (CLT, já com dissídio se houver)', valoresMensal: folha.mensal.map(m => m.salarios), totalValor: folha.mensal.reduce((a, m) => a + m.salarios, 0), cor: COR.texto },
-          { key: 'encargos', label: 'Encargos (INSS+FGTS+Férias)', valoresMensal: folha.mensal.map(m => m.encargos), totalValor: folha.mensal.reduce((a, m) => a + m.encargos, 0), cor: COR.texto },
-          { key: 'decimo', label: '13º salário (provisão mensal)', valoresMensal: folha.mensal.map(m => m.decimoTerceiro), totalValor: folha.decimoTerceiroAnual, cor: COR.texto },
-          { key: 'meritocracia', label: 'Meritocracia', valoresMensal: folha.mensal.map(m => m.meritocracia), totalValor: folha.mensal.reduce((a, m) => a + m.meritocracia, 0), cor: COR.texto },
-          { key: 'beneficios', label: 'Benefícios', valoresMensal: folha.mensal.map(m => m.beneficios), totalValor: folha.mensal.reduce((a, m) => a + m.beneficios, 0), cor: COR.texto },
           { key: 'total', label: 'Total da folha CLT', valoresMensal: folha.mensal.map(m => m.total), totalValor: folha.totalAnual, cor: COR.azul },
         ]}
       />
@@ -8979,6 +8961,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                         HC_EXISTENTE na Resorts, CORP01 no Corporativo). */}
                     {g.contas.filter(c => c.nome === 'Headcount Existente').map(c => (
                       <div key={c.codigo} style={{ marginBottom: 18 }}>
+                        <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>1.1 Headcount Existente</h5>
                         <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, marginBottom: 10, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                           <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
                           <div style={{ fontSize: 11, color: COR.texto }}>
@@ -8997,6 +8980,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                           total={totalConta(c.codigo)}
                           receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                           ocultarClassificacao={unidadeId === 'corporativo'}
+                          ocultarAddSublinha
                           unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
                           cambios={cambios}
                         />
@@ -9010,7 +8994,6 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                       updateFuncionario={updateFuncionario}
                       removeFuncionario={removeFuncionario}
                       premissasPessoal={premissasPessoal}
-                      updatePremissaPessoal={updatePremissaPessoal}
                       folha={folhaAtual}
                     />
                     {/* Consultórias PJs (2026-08-23) — 2ª conta analítica do
