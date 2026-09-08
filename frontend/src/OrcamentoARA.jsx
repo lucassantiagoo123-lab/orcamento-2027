@@ -94,6 +94,28 @@ const SUBUNIDADES_RESORTS = [
   { id: 'samoa_villa', nome: 'Samoa Villa' },
   { id: 'resorts', nome: 'Consolidado' },
 ];
+// Quais contas do plano um CC enxerga na tela de lançamento.
+//
+// Regra original (Têxtil/Agrícola/Corporativo, das matrizes de governança
+// delas): CC de produção só vê contas de origem 'Custo', CC de despesa só vê
+// as de origem 'Despesa'.
+//
+// ARA Resorts (2026-09-08, pedido do usuário): "todas as contas analíticas e
+// todos os pacotes devem se repetir para todos os Centros de Custo" — ex.:
+// pacote Produção, MATERIAL DE LIMPEZA, SERVICOS PRESTADOS PJ disponíveis em
+// qualquer CC. Então, na Resorts, todo CC vê o plano inteiro.
+//
+// Isso muda só a lista OFERECIDA na tela. A classificação contábil do que foi
+// lançado sempre veio do TIPO DO CC, nunca da origem da conta (ver o cálculo
+// de `cpv` e `despesasSemDA` em computeDRE) — então liberar a lista não move
+// nada na DRE: o que for lançado num CC de produção entra no CPV, e num CC de
+// despesa entra nas Despesas Operacionais, seja qual for a conta escolhida.
+function contasDoPacoteNoCc(planoContas, pacoteId, cc, unidadeId) {
+  const contas = planoContas?.[pacoteId] || [];
+  if (FAMILIA_RESORTS.includes(unidadeId)) return contas;
+  const origem = cc.tipo === 'producao' ? 'Custo' : 'Despesa';
+  return contas.filter(c => c.origem === origem);
+}
 // Toda "família" de unidades multi-site (fazendas, resorts) — usada pra
 // agrupar a barra de navegação genericamente (ver VisaoGerente) sem
 // precisar de um bloco de código separado por família.
@@ -2392,20 +2414,27 @@ function computeGruposReceitaTipo(lados, unidadeKind, cambios) {
 }
 // Custos (CPV) por tipo (pacote do plano de contas dos CC de produção) e,
 // dentro do tipo, por empresa. A folha de CCs de produção (mão de obra
-// direta) entra como um "tipo" sintético — o pacote 'pessoal' nunca tem
-// lançamento em custos.linhas (é sempre calculado, ver computeFolhaPessoalMes)
-// e o pacote 'depreciacao' fica de fora do CPV (some depois do EBITDA,
-// mesmo racional de computeDRE).
+// direta) entra como um "tipo" sintético, junto com o que tiver sido lançado
+// à mão em contas do pacote 'pessoal' (2026-09-08: na Resorts todo CC vê o
+// plano inteiro, então essas contas passaram a ser lançáveis — antes só o
+// Corporativo tinha esse caso, via CONTA_CONSULTORIA_PJ). O pacote
+// 'depreciacao' fica de fora do CPV (some depois do EBITDA, mesmo racional
+// de computeDRE).
 function computeGruposCustosMensal(lados, ipcaAnualPct) {
   const grupos = [];
   grupos.push({
     chave: '__pessoal_producao__',
     nome: 'Mão de obra direta (Pessoal)',
-    porLado: lados.map(lado => ({
-      nome: lado.nome,
-      valoresMensal: MESES.map((_, m) => ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'producao')
-        .reduce((acc, cc) => acc + (folhaAnualPorCC(lado.dados, cc.codigo).totalMes[m] || 0), 0)),
-    })),
+    porLado: lados.map(lado => {
+      const ccs = ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'producao');
+      const contasPessoal = lado.ref.planoContas.pessoal || [];
+      return {
+        nome: lado.nome,
+        valoresMensal: MESES.map((_, m) => ccs.reduce((acc, cc) =>
+          acc + (folhaAnualPorCC(lado.dados, cc.codigo).totalMes[m] || 0)
+          + contasPessoal.reduce((a2, c) => a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes), 0), 0)),
+      };
+    }),
   });
   const pacoteIds = new Map();
   lados.forEach(lado => lado.ref.pacotes.forEach(p => { if (p.id !== 'pessoal' && p.id !== 'depreciacao') pacoteIds.set(p.id, p.nome); }));
@@ -2414,7 +2443,11 @@ function computeGruposCustosMensal(lados, ipcaAnualPct) {
       chave: pid,
       nome,
       porLado: lados.map(lado => {
-        const contas = (lado.ref.planoContas[pid] || []).filter(c => c.origem === 'Custo');
+        // Sem filtro por origem da conta (2026-09-08): o CPV da DRE soma tudo
+        // que está num CC de produção, seja qual for a conta (ver computeDRE),
+        // e na Resorts todo CC oferece o plano inteiro — filtrar por origem
+        // aqui faria o detalhamento por pacote não fechar com o total.
+        const contas = lado.ref.planoContas[pid] || [];
         const ccs = ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'producao');
         const valoresMensal = MESES.map((_, m) => ccs.reduce((acc, cc) => acc + contas.reduce((a2, c) =>
           a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes), 0), 0));
@@ -2427,7 +2460,8 @@ function computeGruposCustosMensal(lados, ipcaAnualPct) {
     .filter(g => g.valoresMensal.some(v => v !== 0));
 }
 // Despesas Operacionais — sempre nos 3 baldes pedidos (Pessoal/Vendas/
-// Gerais), cada um aberto por empresa. Pessoal = folha dos CCs de despesa;
+// Gerais), cada um aberto por empresa. Pessoal = folha dos CCs de despesa
+// mais o que for lançado em contas do pacote 'pessoal';
 // Vendas = pacote 'comercial' (Comercial e Marketing); Gerais = todo o
 // resto (exceto 'pessoal', 'comercial' e 'depreciacao' — esta última segue
 // como linha própria abaixo do EBITDA, fora das Despesas Operacionais).
@@ -2435,16 +2469,24 @@ function computeDespesasOperacionaisPorGrupo(lados, ipcaAnualPct) {
   function porPacotes(pacoteIds) {
     return lados.map(lado => {
       const ccs = ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'despesa');
-      const contas = pacoteIds.flatMap(pid => (lado.ref.planoContas[pid] || []).filter(c => c.origem === 'Despesa'));
+      // Idem computeGruposCustosMensal: sem filtro por origem, senão o que for
+      // lançado num CC de despesa numa conta de origem 'Custo' (possível na
+      // Resorts) entraria no EBITDA mas sumiria deste detalhamento.
+      const contas = pacoteIds.flatMap(pid => lado.ref.planoContas[pid] || []);
       const valoresMensal = MESES.map((_, m) => ccs.reduce((acc, cc) => acc + contas.reduce((a2, c) =>
         a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes), 0), 0));
       return { nome: lado.nome, valoresMensal };
     });
   }
-  const pessoal = lados.map(lado => ({
+  // Folha calculada dos CCs de despesa + o que tiver sido lançado à mão em
+  // contas do pacote 'pessoal' (ver nota em computeGruposCustosMensal) — sem
+  // essa segunda parcela o valor entraria no EBITDA e sumiria do balde.
+  const pessoalLancado = porPacotes(['pessoal']);
+  const pessoal = lados.map((lado, i) => ({
     nome: lado.nome,
     valoresMensal: MESES.map((_, m) => ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'despesa')
-      .reduce((acc, cc) => acc + (folhaAnualPorCC(lado.dados, cc.codigo).totalMes[m] || 0), 0)),
+      .reduce((acc, cc) => acc + (folhaAnualPorCC(lado.dados, cc.codigo).totalMes[m] || 0), 0)
+      + pessoalLancado[i].valoresMensal[m]),
   }));
   const vendas = porPacotes(['comercial']);
   const idsGerais = new Set();
@@ -5669,11 +5711,10 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
     return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Sem Centros de Custo cadastrados para esta unidade.</p>;
   }
   const ccAtual = refUnidade.ccs.find(c => c.codigo === ccSel) || refUnidade.ccs[0];
-  const origemAlvo = ccAtual.tipo === 'producao' ? 'Custo' : 'Despesa';
   function chaveLinha(contaCodigo) { return `${ccSel}|${contaCodigo}`; }
   function totalConta(contaCodigo) { return valorLinhaAnual(linhas[chaveLinha(contaCodigo)], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes); }
   const gruposPacote = (refUnidade.pacotes || [])
-    .map(p => ({ ...p, contas: (refUnidade.planoContas?.[p.id] || []).filter(c => c.origem === origemAlvo) }))
+    .map(p => ({ ...p, contas: contasDoPacoteNoCc(refUnidade.planoContas, p.id, ccAtual, unidadeId) }))
     .filter(g => g.contas.length > 0);
   const funcionariosCC = funcionarios.filter(f => f.ccCodigo === ccSel);
   const folhaAtual = computeFolhaPessoalAnual(funcionariosCC, premissasPessoal);
@@ -8503,12 +8544,15 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
   const [pacotesAbertos, setPacotesAbertos] = useState({});
   const [contasAbertas, setContasAbertas] = useState({});
 
-  function ccsDaConta(conta) {
-    const tipoAlvo = conta.origem === 'Custo' ? 'producao' : 'despesa';
-    return ccsConsolidado.filter(cc => cc.tipo === tipoAlvo);
-  }
+  // Soma a conta em TODOS os CCs, não só nos do tipo "esperado" pela origem
+  // dela (2026-09-08): na ARA Resorts todo CC enxerga o plano inteiro (ver
+  // contasDoPacoteNoCc), então uma conta de origem 'Custo' pode ter
+  // lançamento legítimo num CC de despesa e vice-versa — filtrar por tipo
+  // aqui faria esse valor sumir do consolidado sem sumir da DRE. Nas demais
+  // unidades não muda nada: lá o CC nunca chega a oferecer a conta do outro
+  // lado, então essas combinações somam zero.
   function totalContaMes(conta, m) {
-    return ccsDaConta(conta).reduce((acc, cc) => acc + totalContaMesCC(cc.codigo, conta.codigo, m), 0);
+    return ccsConsolidado.reduce((acc, cc) => acc + totalContaMesCC(cc.codigo, conta.codigo, m), 0);
   }
   function totalContaAnual(conta) {
     return MESES.reduce((acc, _, m) => acc + totalContaMes(conta, m), 0);
@@ -8596,7 +8640,11 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
                 {pAberto && contas.map(c => {
                   const chaveConta = `${p.id}|${c.codigo}`;
                   const cAberto = !!contasAbertas[chaveConta];
-                  const ccs = ccsDaConta(c);
+                  // Só os CCs que de fato têm lançamento nesta conta — desde
+                  // que a Resorts passou a oferecer o plano inteiro em todo CC
+                  // (ver contasDoPacoteNoCc), listar todos deixaria dezenas de
+                  // linhas zeradas abertas embaixo de cada conta.
+                  const ccs = ccsConsolidado.filter(cc => MESES.some((_, m) => totalContaMesCC(cc.codigo, c.codigo, m) !== 0));
                   return (
                     <React.Fragment key={c.codigo}>
                       <Linha
@@ -8679,7 +8727,6 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   }
 
   const ccAtual = ccsVisiveis.find(c => c.codigo === ccSel) || ccsVisiveis[0];
-  const origemAlvo = ccAtual.tipo === 'producao' ? 'Custo' : 'Despesa';
 
   function chaveLinha(contaCodigo) { return `${ccSel}|${contaCodigo}`; }
   function folhaCC(ccCodigo) {
@@ -8699,8 +8746,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     return valorLinhaMes(linhas[`${ccCodigo}|${contaCodigo}`], m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
   }
   function contasDoCc(cc) {
-    const origem = cc.tipo === 'producao' ? 'Custo' : 'Despesa';
-    return refUnidade.pacotes.flatMap(p => (refUnidade.planoContas[p.id] || []).filter(c => c.origem === origem));
+    return refUnidade.pacotes.flatMap(p => contasDoPacoteNoCc(refUnidade.planoContas, p.id, cc, unidadeId));
   }
   function totalCcAnual(ccCodigo) {
     const cc = refUnidade.ccs.find(c => c.codigo === ccCodigo);
@@ -8821,7 +8867,8 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const gruposPacote = refUnidade.pacotes
     .map(p => ({
       ...p,
-      contas: (refUnidade.planoContas[p.id] || []).filter(c => c.origem === origemAlvo && (!contasMapeadasCC || contasMapeadasCC.includes(c.codigo))),
+      contas: contasDoPacoteNoCc(refUnidade.planoContas, p.id, ccAtual, unidadeId)
+        .filter(c => !contasMapeadasCC || contasMapeadasCC.includes(c.codigo)),
     }))
     .filter(g => g.contas.length > 0);
   const contasSemPacote = []; // Matriz_Governanca_OBZ_2027_4: 100% das contas Têxtil classificadas
