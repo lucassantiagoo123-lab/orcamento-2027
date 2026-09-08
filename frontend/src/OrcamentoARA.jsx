@@ -1152,10 +1152,21 @@ const PLANO_CONTAS_RESORTS = {
     { codigo: '410202030', nome: "CESTA BASICA", origem: 'Custo' },
     { codigo: '410203010', nome: "CLIMA ORGANIZACIONAL (RH)", origem: 'Custo' },
     { codigo: '410301110', nome: "EPI", origem: 'Custo' },
-    { codigo: '410307080', nome: "LANCHES E REFEICOES", origem: 'Despesa' },
-    { codigo: '410307090', nome: "MEDICAMENTOS", origem: 'Despesa' },
-    { codigo: '410307190', nome: "CURSOS/SEMINARIOS", origem: 'Despesa' },
-    { codigo: '410307250', nome: "UNIFORMES", origem: 'Despesa' },
+    // individual: true (2026-09-08, bug reportado: "não estou identificando"
+    // essas contas na tela) — o pacote Pessoal, em AbaCustos, é renderizado
+    // à parte (Headcount Existente + Novo Headcount), sem cair no loop
+    // genérico de contas de qualquer outro pacote; as ~20 contas acima
+    // (SALARIOS, INSS, FGTS, FÉRIAS...) são só referência de propósito —
+    // já viram custo pelo Headcount Existente (lançamento manual) ou pelo
+    // Novo Headcount (calculado), lançar de novo aqui duplicaria. Estas 4,
+    // porém, não são componente de folha (vale-refeição avulso, remédios,
+    // treinamento, uniforme) — precisam de lançamento próprio, então
+    // ganham essa flag pra aparecer como conta analítica normal (ver
+    // AbaCustos/CustosLeituraVersao, bloco "outras contas do Pessoal").
+    { codigo: '410307080', nome: "LANCHES E REFEICOES", origem: 'Despesa', individual: true },
+    { codigo: '410307090', nome: "MEDICAMENTOS", origem: 'Despesa', individual: true },
+    { codigo: '410307190', nome: "CURSOS/SEMINARIOS", origem: 'Despesa', individual: true },
+    { codigo: '410307250', nome: "UNIFORMES", origem: 'Despesa', individual: true },
   ],
   administrativo_utilidades: [
     { codigo: '410301010', nome: "MATERIAL DE ESCRITORIO", origem: 'Custo' },
@@ -5907,6 +5918,20 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
                         />
                       </div>
                     ))}
+                    {g.contas.filter(c => c.individual).map(c => (
+                      <div key={c.codigo} style={{ marginTop: 10 }}>
+                        <LinhaContaLeitura
+                          conta={c}
+                          linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
+                          aberta={contaAberta === chaveLinha(c.codigo)}
+                          onToggle={() => setContaAberta(prev => prev === chaveLinha(c.codigo) ? null : chaveLinha(c.codigo))}
+                          total={totalConta(c.codigo)}
+                          receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                          ocultarClassificacao={unidadeId === 'corporativo'}
+                          ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
+                        />
+                      </div>
+                    ))}
                   </>
                 ) : (
                   g.contas.map(c => (
@@ -9030,6 +9055,34 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                     {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
                       <div key={c.codigo} style={{ marginTop: 18 }}>
                         <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Consultórias PJs — conta analítica</h5>
+                        <LinhaConta
+                          conta={c}
+                          linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                          aberta={contaAberta === chaveLinha(c.codigo)}
+                          onToggle={() => toggleConta(c.codigo)}
+                          onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                          onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                          onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                          onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                          total={totalConta(c.codigo)}
+                          receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                          ocultarClassificacao={unidadeId === 'corporativo'}
+                          unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
+                          cambios={cambios}
+                        />
+                      </div>
+                    ))}
+                    {/* Outras contas do Pessoal marcadas individual: true
+                        (2026-09-08, bug: "não estou identificando" essas
+                        contas na tela) — não são componente de folha (ex.:
+                        Lanches e Refeições, Medicamentos, Cursos/Seminários,
+                        Uniformes na Resorts), então precisam de lançamento
+                        próprio como qualquer LinhaConta normal. As ~20
+                        contas de referência da folha (Salários, INSS, FGTS,
+                        Férias...) continuam de fora — já viram custo pelo
+                        Headcount Existente ou pelo Novo Headcount calculado. */}
+                    {g.contas.filter(c => c.individual).map(c => (
+                      <div key={c.codigo} style={{ marginTop: 10 }}>
                         <LinhaConta
                           conta={c}
                           linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}

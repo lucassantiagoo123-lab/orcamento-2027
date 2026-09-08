@@ -437,10 +437,12 @@ export const PLANO_CONTAS_RESORTS = {
     { codigo: '410202030', nome: "CESTA BASICA", origem: 'Custo' },
     { codigo: '410203010', nome: "CLIMA ORGANIZACIONAL (RH)", origem: 'Custo' },
     { codigo: '410301110', nome: "EPI", origem: 'Custo' },
-    { codigo: '410307080', nome: "LANCHES E REFEICOES", origem: 'Despesa' },
-    { codigo: '410307090', nome: "MEDICAMENTOS", origem: 'Despesa' },
-    { codigo: '410307190', nome: "CURSOS/SEMINARIOS", origem: 'Despesa' },
-    { codigo: '410307250', nome: "UNIFORMES", origem: 'Despesa' },
+    // individual: true — ver nota completa no espelho frontend (não afeta o
+    // cálculo aqui, só mantém o plano de contas em sincronia).
+    { codigo: '410307080', nome: "LANCHES E REFEICOES", origem: 'Despesa', individual: true },
+    { codigo: '410307090', nome: "MEDICAMENTOS", origem: 'Despesa', individual: true },
+    { codigo: '410307190', nome: "CURSOS/SEMINARIOS", origem: 'Despesa', individual: true },
+    { codigo: '410307250', nome: "UNIFORMES", origem: 'Despesa', individual: true },
   ],
   administrativo_utilidades: [
     { codigo: '410301010', nome: "MATERIAL DE ESCRITORIO", origem: 'Custo' },
