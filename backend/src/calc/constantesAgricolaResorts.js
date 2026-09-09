@@ -132,7 +132,7 @@ export const PLANO_CONTAS_AGRICOLA = {
     { codigo: '71101012', nome: "ASSISTENCIA MEDICA E SOCIAL", origem: 'Custo' },
     { codigo: '71101013', nome: "DESPESAS COM TREINAMENTO DE PESSOAL", origem: 'Custo', individual: true },
     { codigo: '71101014', nome: "PENSAO ALIMENTICIA", origem: 'Custo' },
-    { codigo: '71101015', nome: "SEGURANCA DO TRABALHO", origem: 'Custo' },
+    { codigo: '71101015', nome: "SEGURANCA DO TRABALHO", origem: 'Custo', individual: true },
     { codigo: '71101016', nome: "CURSOS E TREINAMENTOS", origem: 'Custo', individual: true },
     { codigo: '71101017', nome: "TRANSPORTE DE PESSOAL", origem: 'Custo' },
     { codigo: '71101018', nome: "ALIMENTACAO", origem: 'Custo', individual: true },
@@ -143,7 +143,7 @@ export const PLANO_CONTAS_AGRICOLA = {
     { codigo: '71101098', nome: "RATEIO - MAO DE OBRA", origem: 'Custo' },
     { codigo: '71102006', nome: "REFEITORIO", origem: 'Custo', individual: true },
     { codigo: '71102018', nome: "MATERIAL DE EPI", origem: 'Custo', individual: true },
-    { codigo: '71102044', nome: "PRODUTOS DE ENFERMARIA", origem: 'Custo' },
+    { codigo: '71102044', nome: "PRODUTOS DE ENFERMARIA", origem: 'Custo', individual: true },
     { codigo: '34101001', nome: "SALARIOS", origem: 'Despesa' },
     { codigo: '34101002', nome: "PREMIOS E GRATIFICACOES", origem: 'Despesa' },
     { codigo: '34101003', nome: "13º SALARIO", origem: 'Despesa' },
@@ -435,8 +435,8 @@ export const PLANO_CONTAS_RESORTS = {
     { codigo: '410202010', nome: "CONVENIO MEDICO", origem: 'Custo' },
     { codigo: '410202020', nome: "CONVENIO ODONTOLOGICO", origem: 'Custo' },
     { codigo: '410202030', nome: "CESTA BASICA", origem: 'Custo' },
-    { codigo: '410203010', nome: "CLIMA ORGANIZACIONAL (RH)", origem: 'Custo' },
-    { codigo: '410301110', nome: "EPI", origem: 'Custo' },
+    { codigo: '410203010', nome: "CLIMA ORGANIZACIONAL (RH)", origem: 'Custo', individual: true },
+    { codigo: '410301110', nome: "EPI", origem: 'Custo', individual: true },
     // individual: true — ver nota completa no espelho frontend (não afeta o
     // cálculo aqui, só mantém o plano de contas em sincronia).
     { codigo: '410307080', nome: "LANCHES E REFEICOES", origem: 'Despesa', individual: true },
