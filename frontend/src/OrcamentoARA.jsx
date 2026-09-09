@@ -2139,6 +2139,25 @@ function emptyFormData(unidadeId = 'textil') {
 
 function somaMes(arr) { return (arr || []).reduce((a, v) => a + parseNum(v), 0); }
 
+// Desembolsos mensais de um projeto de CAPEX (2026-09-09, pedido: "precisa
+// conter a tabela de preenchimento mensal para os desembolsos de cada
+// investimento"). Antes, cada projeto tinha um valor único pago inteiro num
+// único mês (`valor`/`mes`) — vira uma grade de 12 meses (`desembolsos`),
+// mesmo padrão de TabelaMensal usado no resto do app. Sem apagar dado
+// antigo: projeto já salvo com `valor`/`mes` (sem `desembolsos` ainda) é
+// lido como se aquele valor único tivesse sido desembolsado só naquele mês
+// — na próxima edição vira `desembolsos` de verdade.
+function desembolsosDoProjeto(p) {
+  if (p.desembolsos) return p.desembolsos;
+  if (p.valor) {
+    const arr = mesesVazios();
+    const idx = p.mes ? MESES.indexOf(p.mes) : -1;
+    arr[idx >= 0 ? idx : 0] = p.valor;
+    return arr;
+  }
+  return mesesVazios();
+}
+
 // ---------------------------------------------------------------------------
 // Cálculo da cascata de DRE — segue a estrutura da aba "1.1 DRE" e o modelo
 // de referência (Receita Líquida → Lucro Bruto → EBITDA → Lucro Líquido)
@@ -2386,7 +2405,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
   const lucroLiquido = ebt - ircsl;
   const margemLiquida = receitaLiquida ? (lucroLiquido / receitaLiquida) * 100 : 0;
 
-  const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + parseNum(p.valor), 0);
+  const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
 
   return {
     receitaBruta, deducoes, receitaLiquida, cpv, lucroBruto, margemBruta,
@@ -2650,7 +2669,7 @@ function dreDaUnidade(dadosUnidade, unidadeId, ipcaAnualPct, cambios) {
 // mesmo número em ambos — nunca diverge por manutenção em duplicado.
 // ---------------------------------------------------------------------------
 function computeDFC(data, dre, ref, ipcaAnualPct) {
-  const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + parseNum(p.valor), 0);
+  const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
 
   const linhasFin = data.fcFinanciamentos?.linhas || [];
   const captacoes = linhasFin.reduce((acc, l) => acc + somaMes(l.captacoes), 0);
@@ -2857,7 +2876,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 
   const fcOperacionalMes = MESES.map((_, m) => ebitdaMes[m] - ircslMes[m] + ajuste13Mes[m] + variacaoGiroMes[m] + ajustePagamentoMes[m]);
 
-  const capexMes = MESES.map((_, m) => (data.capex.projetos || []).reduce((acc, p) => acc + (p.mes === MESES[m] ? parseNum(p.valor) : 0), 0));
+  const capexMes = MESES.map((_, m) => (data.capex.projetos || []).reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0));
   const fcInvestimentoMes = capexMes.map(v => -v);
 
   const linhasFin = data.fcFinanciamentos?.linhas || [];
@@ -4155,11 +4174,18 @@ export default function OrcamentoARA({ usuario }) {
     atualizar(['custos', 'detalhes'], dados.custos.detalhes.filter(d => d.id !== id));
   }
 
+  // desembolsos: mesesVazios() (2026-09-09) — grade mensal do investimento,
+  // ver desembolsosDoProjeto. `valor`/`mes` somem dos projetos novos (só
+  // continuam existindo em projetos antigos, lidos pelo fallback de compat).
   function addProjeto(categoria) {
-    atualizar(['capex', 'projetos'], [...dados.capex.projetos, { id: uid(), nome: '', valor: '', mes: '', justificativa: '', categoria: categoria || 'melhoria_interna' }]);
+    atualizar(['capex', 'projetos'], [...dados.capex.projetos, { id: uid(), nome: '', desembolsos: mesesVazios(), justificativa: '', categoria: categoria || 'melhoria_interna' }]);
   }
   function updateProjeto(id, campo, valor) {
     atualizar(['capex', 'projetos'], dados.capex.projetos.map(p => p.id === id ? { ...p, [campo]: valor } : p));
+  }
+  function updateDesembolsoProjeto(id, mesIdx, valor) {
+    atualizar(['capex', 'projetos'], dados.capex.projetos.map(p =>
+      p.id === id ? { ...p, desembolsos: atualizarArray(desembolsosDoProjeto(p), mesIdx, valor) } : p));
   }
   function removeProjeto(id) {
     atualizar(['capex', 'projetos'], dados.capex.projetos.filter(p => p.id !== id));
@@ -4844,10 +4870,16 @@ export default function OrcamentoARA({ usuario }) {
     // ================= CAPEX, FC Financiamentos, Provisões, Balanço, Plano 5Y =================
     // Continuam como valor calculado (digitação direta hoje, sem racional de
     // fórmula próprio pra replicar — ver nota no topo da função).
-    const linhasCapex = [['Categoria', 'Projeto', 'Mês', 'Valor', 'Justificativa']];
+    // Desembolso mensal (2026-09-09) — uma linha por mês com valor lançado,
+    // em vez do valor único + mês único de antes (ver desembolsosDoProjeto).
+    const linhasCapex = [['Categoria', 'Projeto', 'Mês', 'Desembolso (R$)', 'Justificativa']];
     (d.capex.projetos || []).forEach(p => {
-      if (!parseNum(p.valor)) return;
-      linhasCapex.push([CATEGORIAS_CAPEX.find(c => c.id === p.categoria)?.nome || p.categoria, p.nome, p.mes || '', parseNum(p.valor), p.justificativa || '']);
+      const desembolsos = desembolsosDoProjeto(p);
+      MESES.forEach((m, mi) => {
+        const valor = parseNum(desembolsos[mi]);
+        if (!valor) return;
+        linhasCapex.push([CATEGORIAS_CAPEX.find(c => c.id === p.categoria)?.nome || p.categoria, p.nome, m, valor, p.justificativa || '']);
+      });
     });
     const wsCapex = XLSX.utils.aoa_to_sheet(linhasCapex);
     wsCapex['!cols'] = [{ wch: 22 }, { wch: 26 }, { wch: 10 }, { wch: 14 }, { wch: 40 }];
@@ -5183,7 +5215,7 @@ export default function OrcamentoARA({ usuario }) {
           addDetalhe={addDetalhe} updateDetalhe={updateDetalhe} removeDetalhe={removeDetalhe}
           addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
           updatePremissaPessoal={updatePremissaPessoal}
-          addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto}
+          addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} updateDesembolsoProjeto={updateDesembolsoProjeto}
           addLinhaFinanciamento={addLinhaFinanciamento} updateLinhaFinanciamento={updateLinhaFinanciamento}
           removeLinhaFinanciamento={removeLinhaFinanciamento} updateMovimentacaoAcionista={updateMovimentacaoAcionista}
           updatePremissa5Y={updatePremissa5Y}
@@ -5350,7 +5382,7 @@ function VisaoGerente(props) {
     addObjetivo, updateObjetivo, removeObjetivo, addIniciativa, updateIniciativa, removeIniciativa,
     updateConta, updateSublinha, addSublinha, removeSublinha, addDetalhe, updateDetalhe, removeDetalhe,
     addFuncionario, updateFuncionario, removeFuncionario, updatePremissaPessoal,
-    addProjeto, updateProjeto, removeProjeto,
+    addProjeto, updateProjeto, removeProjeto, updateDesembolsoProjeto,
     addLinhaFinanciamento, updateLinhaFinanciamento, removeLinhaFinanciamento, updateMovimentacaoAcionista,
     updatePremissa5Y, updateCenarioSensibilidade,
     atualizar, autorNome, setAutorNome,
@@ -5657,7 +5689,7 @@ function VisaoGerente(props) {
           />
         )}
         {aba === 'capex' && (
-          <AbaCapex projetos={dados.capex.projetos} addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} />
+          <AbaCapex projetos={dados.capex.projetos} addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} updateDesembolsoProjeto={updateDesembolsoProjeto} />
         )}
         {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={referenciaDaUnidade(unidadeAtual)} ipcaAnualPct={ipcaAnualPct} />}
         {aba === 'provisoes' && <AbaProvisoes provisoes={dados.provisoes} resultado={dados.resultado} atualizar={atualizar} />}
@@ -6106,24 +6138,35 @@ function ReceitaLeituraVersao({ dados, cambios }) {
   return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Sem dados de receita nesta unidade.</p>;
 }
 
-// CAPEX, versão leitura — lista simples (cada projeto é um valor único num
-// mês específico, não uma série mensal, mesmo formato do editor AbaCapex).
+// CAPEX, versão leitura (2026-09-09) — cada projeto com sua grade mensal de
+// desembolsos, mesmo formato do editor AbaCapex — ver desembolsosDoProjeto.
 function CapexLeituraVersao({ dados }) {
   const projetos = dados.capex?.projetos || [];
   const CATEGORIA_LABEL = { carryover: 'Carryover / Comprometido', melhoria_interna: 'Melhoria Interna', desenvolvimento_expansao: 'Desenvolvimento e Expansão' };
   if (projetos.length === 0) return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Nenhum projeto de CAPEX lançado.</p>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {projetos.map(p => (
-        <div key={p.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 6, padding: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: COR.texto }}>{p.nome || '(sem nome)'}</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(parseNum(p.valor))}</span>
+      {projetos.map(p => {
+        const desembolsos = desembolsosDoProjeto(p);
+        return (
+          <div key={p.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 6, padding: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: COR.texto }}>{p.nome || '(sem nome)'}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(somaMes(desembolsos))}</span>
+            </div>
+            <div style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 6 }}>{CATEGORIA_LABEL[p.categoria] || p.categoria || 'Sem categoria'}</div>
+            {p.justificativa && <div style={{ fontSize: 10.5, color: COR.texto, marginBottom: 6 }}>{p.justificativa}</div>}
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <CabecalhoMensalLeitura />
+                <tbody>
+                  <LinhaCalculadaMensal label="Desembolso (R$)" valoresMensal={desembolsos.map(parseNum)} formatarCelula={formatBRL} />
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div style={{ fontSize: 10.5, color: '#7A8088' }}>{CATEGORIA_LABEL[p.categoria] || p.categoria || 'Sem categoria'} · {p.mes || 'sem mês'}</div>
-          {p.justificativa && <div style={{ fontSize: 10.5, color: COR.texto, marginTop: 4 }}>{p.justificativa}</div>}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -9220,18 +9263,22 @@ const CATEGORIAS_CAPEX = [
   { id: 'desenvolvimento_expansao', nome: '3. Desenvolvimento e Expansão', descricao: '' },
 ];
 
-function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto }) {
-  const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+// Pedido de 2026-09-09: "precisa conter a tabela de preenchimento mensal
+// para os desembolsos de cada investimento criado para cada grupo de
+// investimento" — cada projeto ganha uma TabelaMensal de 1 linha (o mesmo
+// padrão usado em todo o resto do app), em vez do valor único + mês único
+// de antes. Ver desembolsosDoProjeto (compat com dado antigo).
+function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDesembolsoProjeto }) {
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>6. CAPEX</h3>
-      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>Investimentos por projeto (inclui o CC Investimentos do Protheus), com mês previsto e justificativa — agrupados por categoria.</p>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>Investimentos por projeto (inclui o CC Investimentos do Protheus), com desembolso mês a mês e justificativa — agrupados por categoria.</p>
 
       {CATEGORIAS_CAPEX.map(cat => {
         // Projetos criados antes desta categorização caem em 'melhoria_interna'
         // por padrão (mesmo fallback do addProjeto) — nada some da lista.
         const projetosCategoria = projetos.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
-        const totalCategoria = projetosCategoria.reduce((acc, p) => acc + parseNum(p.valor), 0);
+        const totalCategoria = projetosCategoria.reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
         return (
           <div key={cat.id} style={{ marginBottom: 22 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
@@ -9242,13 +9289,18 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto }) {
 
             {projetosCategoria.map(p => (
               <div key={p.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, marginBottom: 10, background: COR.claro }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8, marginBottom: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                   <CampoTexto value={p.nome} onChange={v => updateProjeto(p.id, 'nome', v)} placeholder="Nome do projeto" />
-                  <CampoNumero value={p.valor} onChange={v => updateProjeto(p.id, 'valor', v)} prefixo="R$" placeholder="0,00" />
-                  <Selecao value={p.mes} onChange={v => updateProjeto(p.id, 'mes', v)} opcoes={meses} />
                   <button onClick={() => removeProjeto(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={14} /></button>
                 </div>
                 <CampoTexto value={p.justificativa} onChange={v => updateProjeto(p.id, 'justificativa', v)} placeholder="Justificativa de viabilidade" />
+                <div style={{ marginTop: 8 }}>
+                  <TabelaMensal
+                    linhas={[{ key: 'desembolso', label: 'Desembolso (R$)', valores: desembolsosDoProjeto(p) }]}
+                    onChangeCelula={(_, mi, v) => updateDesembolsoProjeto(p.id, mi, v)}
+                    corTotal={COR.azul}
+                  />
+                </div>
               </div>
             ))}
             <Botao variante="fantasma" icone={Plus} onClick={() => addProjeto(cat.id)}>Adicionar projeto — {cat.nome}</Botao>

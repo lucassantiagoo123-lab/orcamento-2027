@@ -34,6 +34,21 @@ export function somaMes(arr) {
   return (arr || []).reduce((a, v) => a + parseNum(v), 0);
 }
 
+// Desembolsos mensais de um projeto de CAPEX (2026-09-09) — ver nota
+// completa no espelho frontend. Compat: projeto antigo com valor único
+// (`valor`/`mes`), sem `desembolsos` ainda, é lido como desembolsado só
+// naquele mês.
+export function desembolsosDoProjeto(p) {
+  if (p.desembolsos) return p.desembolsos;
+  if (p.valor) {
+    const arr = mesesVazios();
+    const idx = p.mes ? MESES.indexOf(p.mes) : -1;
+    arr[idx >= 0 ? idx : 0] = p.valor;
+    return arr;
+  }
+  return mesesVazios();
+}
+
 export function novaLinhaFinanciamento() {
   return {
     id: uid(), banco: '', linha: '', moeda: 'BRL', saldoInicial: '',
@@ -552,7 +567,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
   const lucroLiquido = ebt - ircsl;
   const margemLiquida = receitaLiquida ? (lucroLiquido / receitaLiquida) * 100 : 0;
 
-  const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + parseNum(p.valor), 0);
+  const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
 
   return {
     receitaBruta, deducoes, receitaLiquida, cpv, lucroBruto, margemBruta,
@@ -650,7 +665,7 @@ export function dreDaUnidade(dadosUnidade, unidadeId, ref, ipcaAnualPct, cambios
 // a conta em dois lugares.
 // ---------------------------------------------------------------------------
 export function computeDFC(data, dre, ref, ipcaAnualPct) {
-  const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + parseNum(p.valor), 0);
+  const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
 
   const linhasFin = data.fcFinanciamentos?.linhas || [];
   const captacoes = linhasFin.reduce((acc, l) => acc + somaMes(l.captacoes), 0);
@@ -769,7 +784,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 
   const fcOperacionalMes = MESES.map((_, m) => ebitdaMes[m] - ircslMes[m] + ajuste13Mes[m] + variacaoGiroMes[m] + ajustePagamentoMes[m]);
 
-  const capexMes = MESES.map((_, m) => (data.capex.projetos || []).reduce((acc, p) => acc + (p.mes === MESES[m] ? parseNum(p.valor) : 0), 0));
+  const capexMes = MESES.map((_, m) => (data.capex.projetos || []).reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0));
   const fcInvestimentoMes = capexMes.map(v => -v);
 
   const linhasFin = data.fcFinanciamentos?.linhas || [];
