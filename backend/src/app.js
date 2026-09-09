@@ -17,7 +17,14 @@ export function criarApp() {
 
   app.use(helmet());
   app.use(cors({ origin: config.frontendOrigin, credentials: true }));
-  app.use(express.json());
+  // limit (2026-09-09, bug real: PayloadTooLargeError travando o autosave de
+  // Samoa Beach assim que a gestora abria a unidade) — o padrão do Express é
+  // 100kb, e o documento de orçamento (JSONB único por unidade, com
+  // custos.linhas de todo CC × conta) já passa disso desde que a Resorts
+  // ganhou o plano de contas completo em todo CC (ver contasDoPacoteNoCc,
+  // 2026-09-08). 10mb dá bastante margem pro documento crescer sem precisar
+  // mexer aqui de novo.
+  app.use(express.json({ limit: '10mb' }));
   app.use(cookieParser());
 
   app.get('/health', (req, res) => res.json({ ok: true, ssoConfigurado, loginDevDisponivel }));
@@ -36,9 +43,22 @@ export function criarApp() {
   app.use('/api/premissas-macro', authenticate, premissasMacroRouter);
   app.use('/api/processo', authenticate, processoRouter);
 
+  // 2026-09-09: erros do próprio Express/body-parser (payload grande demais,
+  // JSON malformado etc.) já vêm com status e mensagem úteis — antes isto
+  // sempre respondia 500/"erro_interno" pra qualquer erro, escondendo até
+  // esses casos claros (só apareciam no log do servidor, nunca pro usuário
+  // nem pra quem for investigar pela tela). Preserva o status/mensagem
+  // quando o próprio erro já traz um (4xx conhecido); só cai no genérico
+  // 500/"erro_interno" pra exceção de verdade não tratada.
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     console.error(err);
+    if (err.status === 413 || err.type === 'entity.too.large') {
+      return res.status(413).json({ erro: 'payload_grande_demais', mensagem: 'Documento grande demais para salvar de uma vez. Fale com o Admin FP&A — pode ser um sinal de que o plano de contas dessa unidade cresceu além do esperado.' });
+    }
+    if (err.status && err.status < 500) {
+      return res.status(err.status).json({ erro: 'requisicao_invalida', mensagem: err.message || 'Requisição inválida.' });
+    }
     res.status(500).json({ erro: 'erro_interno' });
   });
 
