@@ -1,4 +1,4 @@
-// Portado verbatim de OrcamentoARA.jsx (Caminho A) — plano de contas, pacotes
+﻿// Portado verbatim de OrcamentoARA.jsx (Caminho A) — plano de contas, pacotes
 // e centros de custo oficiais da ARA Têxtil (fonte: Matriz_Governanca_OBZ_2027_4.xlsx
 // e consulta CTT010). Não editar aqui sem editar também o .jsx (ou, quando a
 // Fase 6 aposentar o protótipo, tratar isto como única fonte). Ver seed
@@ -85,9 +85,9 @@ export const PLANO_CONTAS = {
     { codigo: '71101008', nome: 'INDENIZACOES E AVISO PREVIO', origem: 'Custo' },
     { codigo: '71101009', nome: 'VALE ELETRONICO (VEM)', origem: 'Custo' },
     { codigo: '71101010', nome: 'CESTAS BASICAS', origem: 'Custo' },
-    { codigo: '71101011', nome: 'FARDAMENTOS - EPI', origem: 'Custo' },
+    { codigo: '71101011', nome: 'FARDAMENTOS - EPI', origem: 'Custo', individual: true },
     { codigo: '71101012', nome: 'ASSISTENCIA MEDICA E SOCIAL', origem: 'Custo' },
-    { codigo: '71101013', nome: 'DESPESAS COM TREINAMENTO DE PESSOAL', origem: 'Custo' },
+    { codigo: '71101013', nome: 'DESPESAS COM TREINAMENTO DE PESSOAL', origem: 'Custo', individual: true },
     { codigo: '71101014', nome: 'PENSAO ALIMENTICIA', origem: 'Custo' },
     { codigo: '71102098', nome: 'RATEIO - MAO DE OBRA', origem: 'Custo' },
     { codigo: '34101001', nome: 'ORDENADOS E SALARIOS', origem: 'Despesa' },
@@ -99,9 +99,9 @@ export const PLANO_CONTAS = {
     { codigo: '34101007', nome: 'INDENIZACOES E AVISO PREVIO', origem: 'Despesa' },
     { codigo: '34101008', nome: 'VALE ELETRONICO (VEM)', origem: 'Despesa' },
     { codigo: '34101009', nome: 'CESTAS BASICAS', origem: 'Despesa' },
-    { codigo: '34101010', nome: 'FARDAMENTOS - EPI', origem: 'Despesa' },
+    { codigo: '34101010', nome: 'FARDAMENTOS - EPI', origem: 'Despesa', individual: true },
     { codigo: '34101011', nome: 'ASSISTENCIA MEDICA E SOCIAL', origem: 'Despesa' },
-    { codigo: '34101012', nome: 'DESPESAS COM TREINAMENTO DE PESSOAL', origem: 'Despesa' },
+    { codigo: '34101012', nome: 'DESPESAS COM TREINAMENTO DE PESSOAL', origem: 'Despesa', individual: true },
     { codigo: '34101014', nome: 'HORAS EXTRAS', origem: 'Despesa' },
     { codigo: '34201001', nome: 'ORDENADOS E SALARIOS', origem: 'Despesa' },
     { codigo: '34201002', nome: 'PREMIOS E GRATIFICACOES', origem: 'Despesa' },
@@ -112,9 +112,9 @@ export const PLANO_CONTAS = {
     { codigo: '34201007', nome: 'INDENIZACOES E AVISO PREVIO', origem: 'Despesa' },
     { codigo: '34201008', nome: 'VALE ELETRONICO (VEM)', origem: 'Despesa' },
     { codigo: '34201009', nome: 'CESTAS BASICAS', origem: 'Despesa' },
-    { codigo: '34201010', nome: 'FARDAMENTOS - EPI', origem: 'Despesa' },
+    { codigo: '34201010', nome: 'FARDAMENTOS - EPI', origem: 'Despesa', individual: true },
     { codigo: '34201011', nome: 'ASSISTENCIA MEDICA E SOCIAL', origem: 'Despesa' },
-    { codigo: '34201012', nome: 'DESPESA COM TREINAMENTO DE PESSOAL', origem: 'Despesa' },
+    { codigo: '34201012', nome: 'DESPESA COM TREINAMENTO DE PESSOAL', origem: 'Despesa', individual: true },
     { codigo: '34201013', nome: 'PENSAO ALIMENTICIA', origem: 'Despesa' },
     { codigo: '34201014', nome: 'PRO-LABORE', origem: 'Despesa' },
     { codigo: '34201015', nome: 'HORAS EXTRAS', origem: 'Despesa' },
