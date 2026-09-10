@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { exigirUnidade, exigirPerfil, exigirAcessoNaoExpirado } from '../middleware/authorize.js';
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
+import { mesclarCustos } from '../db/mesclarCustos.js';
 import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade, ehSnapshotConsolidado } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
 import { notificarEnvioParaFpa } from '../email/notificacoes.js';
@@ -205,12 +206,20 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
 
 orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoExpirado, exigirLancamentoHabilitado, async (req, res, next) => {
   try {
-    const { dados, motivo } = req.body;
+    const { dados, motivo, custosBase } = req.body;
     if (!dados) return res.status(400).json({ erro: 'dados_obrigatorio' });
 
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
 
-    const erroEscopoCc = validarEscritaCcCustos(req.usuario, req.params.unidadeId, atual.dados, dados);
+    // Merge de edições simultâneas (2026-09-10, ver db/mesclarCustos.js) —
+    // `custosBase` é o que o navegador tinha em `custos` quando CARREGOU a
+    // tela, não o que está no banco agora. A validação de escopo de CC usa
+    // esse baseline de verdade (em vez de `atual.dados`, uma aproximação)
+    // pra saber exatamente o que ESTE cliente editou. Sem `custosBase`
+    // (chamador antigo), cai no comportamento de sempre — dadosParaEscopo
+    // vira `atual.dados` e a fusão nem roda, mais abaixo.
+    const dadosParaEscopo = custosBase ? { ...atual.dados, custos: custosBase } : atual.dados;
+    const erroEscopoCc = validarEscritaCcCustos(req.usuario, req.params.unidadeId, dadosParaEscopo, dados);
     if (erroEscopoCc) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroEscopoCc });
     const erroSecao = validarSoCustosAlterado(req.usuario, atual.dados, dados);
     if (erroSecao) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroSecao });
@@ -226,15 +235,28 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoE
       }
     }
 
+    // Escopo confirmado com o usuário: só Custos e Despesas ganha merge por
+    // enquanto — Receita/CAPEX/etc. continuam substituindo a seção inteira
+    // (não têm granularidade por CC no modelo hoje, ver nota em
+    // validarEscritaCcCustos). custosBase ausente = comportamento de sempre.
+    const dadosParaSalvar = custosBase
+      ? { ...dados, custos: mesclarCustos(custosBase, atual.dados.custos, dados.custos) }
+      : dados;
+
     // Seção 3.3 — dados e log de alteração gravados na mesma transação:
     // ou os dois efeitos acontecem, ou nenhum (ver db/orcamentos.js).
     const { orcamento: atualizado } = await atualizarDadosComAuditoria({
       orcamentoAntes: atual,
-      dadosNovos: dados,
+      dadosNovos: dadosParaSalvar,
       usuarioId: req.usuario.id,
       motivo: motivo || null,
     });
 
+    // O cliente precisa do resultado MESCLADO de volta (não só confirmar
+    // "salvei o que mandei") — pode ter mudança de outro usuário que este
+    // navegador ainda não tinha; o frontend atualiza `custos` na tela e a
+    // próxima base de comparação com isso (ver salvar()/salvarRascunhoAgora
+    // no .jsx).
     res.json({ orcamento: atualizado });
   } catch (err) { next(err); }
 });

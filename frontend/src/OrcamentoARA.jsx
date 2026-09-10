@@ -3828,15 +3828,29 @@ export default function OrcamentoARA({ usuario }) {
   // (que fica dentro do JSONB e o gestor controla).
   const [aguardandoLiberacao, setAguardandoLiberacao] = useState(false);
 
+  // custosBaseRef (2026-09-10, ver backend/src/db/mesclarCustos.js): o
+  // `custos` deste navegador no momento em que carregou a tela — a base de
+  // comparação pra o servidor saber o que ESTE cliente editou (em vez do
+  // que está no banco agora, que pode ter mudança de outro usuário
+  // enquanto esta aba ficou aberta). Atualizado sempre que `dados` vem
+  // fresco do servidor (carregarUnidade, envio de versão) e depois de cada
+  // salvamento bem-sucedido (ver salvar()/salvarRascunhoAgora), nunca nos
+  // edits locais do dia a dia (atualizar()) — é isso que faz a diferença
+  // entre "o que já estava salvo" e "o que estou editando agora".
+  const custosBaseRef = useRef(null);
+
   const carregarUnidade = useCallback(async (idUnidade) => {
     setCarregando(true);
     setErro(null);
     try {
       const r = await getOrcamento(idUnidade);
       setDados(r.orcamento.dados);
+      custosBaseRef.current = r.orcamento.dados.custos;
       setAguardandoLiberacao(r.orcamento.aguardando_liberacao || false);
     } catch (e) {
-      setDados(emptyFormData());
+      const vazio = emptyFormData();
+      setDados(vazio);
+      custosBaseRef.current = vazio.custos;
       setAguardandoLiberacao(false);
     }
     try {
@@ -3990,13 +4004,30 @@ export default function OrcamentoARA({ usuario }) {
       maxWaitTimerRef.current = null;
       const dadosAtuais = dadosRef.current;
       const unidade = unidadeAtualRef.current;
+      const custosBaseAoEnviar = custosBaseRef.current;
       try {
         const status = dadosAtuais.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
         // comRetentativa (2026-09-10, pedido: "como faço pra evitar isso" —
         // falha de rede genuína, ex.: backend reiniciando alguns segundos
         // num deploy) — reintenta sozinho antes de incomodar o gestor com um
         // erro; PUT de rascunho é idempotente, seguro repetir.
-        await comRetentativa(() => putOrcamento(unidade, { ...dadosAtuais, meta: { ...dadosAtuais.meta, status, atualizadoEm: new Date().toISOString() } }));
+        const resultado = await comRetentativa(() => putOrcamento(unidade, { ...dadosAtuais, meta: { ...dadosAtuais.meta, status, atualizadoEm: new Date().toISOString() } }, undefined, custosBaseAoEnviar));
+        // Merge de edições simultâneas (2026-09-10, ver mesclarCustos no
+        // backend): o servidor pode ter mesclado mudança de outro usuário
+        // junto — atualiza a tela e a base de comparação com o resultado de
+        // verdade, não com o que este navegador mandou. `setDados` só roda
+        // quando o conteúdo de fato mudou (comparação profunda): sem essa
+        // guarda, um novo objeto (mesmo conteúdo idêntico, referência
+        // diferente) rearmaria o autosave via o efeito que observa `dados`
+        // — cada salvamento disparando outro em loop, mesmo sem edição
+        // nenhuma de ninguém.
+        if (resultado?.orcamento?.dados?.custos) {
+          const custosMesclado = resultado.orcamento.dados.custos;
+          custosBaseRef.current = custosMesclado;
+          if (JSON.stringify(custosMesclado) !== JSON.stringify(dadosAtuais.custos)) {
+            setDados(prev => ({ ...prev, custos: custosMesclado }));
+          }
+        }
         setUltimoSalvoEm(new Date());
         setErro(null); // limpa um erro anterior assim que um salvamento subsequente dá certo
         setPedindoMotivo(false);
@@ -4049,7 +4080,16 @@ export default function OrcamentoARA({ usuario }) {
     setErro(null);
     try {
       const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
-      await comRetentativa(() => putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } }, motivo));
+      const custosBaseAoEnviar = custosBaseRef.current;
+      const resultado = await comRetentativa(() => putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } }, motivo, custosBaseAoEnviar));
+      // Merge de edições simultâneas — ver nota completa em salvar() acima.
+      if (resultado?.orcamento?.dados?.custos) {
+        const custosMesclado = resultado.orcamento.dados.custos;
+        custosBaseRef.current = custosMesclado;
+        if (JSON.stringify(custosMesclado) !== JSON.stringify(dados.custos)) {
+          setDados(prev => ({ ...prev, custos: custosMesclado }));
+        }
+      }
       setUltimoSalvoEm(new Date());
       setPedindoMotivo(false);
       setMotivoBloqueio('');
@@ -4234,6 +4274,7 @@ export default function OrcamentoARA({ usuario }) {
       // acabou de ser gravada por enviarVersaoApi já aparece lá.
       const { orcamento } = await enviarVersaoApi(unidadeAtual, comentarioEnvio.trim());
       setDados(orcamento.dados);
+      custosBaseRef.current = orcamento.dados.custos;
       setAguardandoLiberacao(orcamento.aguardando_liberacao || false);
       setVersoes(await listarVersoes(unidadeAtual));
 
