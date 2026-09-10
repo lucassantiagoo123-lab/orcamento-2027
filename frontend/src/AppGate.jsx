@@ -1,13 +1,52 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { getMe, irParaLogin } from './api/auth.js';
 import { verificarStatusBackend } from './api/devLogin.js';
 import { loginSenha } from './api/senha.js';
-import { ApiError } from './api/client.js';
+import { ApiError, definirCallbackSessaoExpirada, obterUltimaAtividade } from './api/client.js';
 import OrcamentoARA from './OrcamentoARA.jsx';
 import AdminPanel from './AdminPanel.jsx';
 
 const COR_AZUL = '#0C4391';
 const COR_LARANJA = '#FFA707';
+
+// Pop-up de sessão expirada (2026-09-10, pedido: "mensagem mais clara de
+// inatividade como pop-up central independente vinculado ao tempo e
+// indicando que é necessário fazer login novamente") — antes disto, uma
+// sessão expirada só aparecia como o texto cru "nao_autenticado" no
+// badgezinho de erro do autosave (mesma classe de problema do bug do
+// erro_interno em 2026-09-09: código interno vazando pra tela sem
+// tradução). É "independente" porque é renderizado por cima de qualquer
+// tela (orçamento, admin, o que for) via `sessaoExpirada` no App inteiro,
+// não um estado local de uma tela específica.
+function PopUpSessaoExpirada({ minutos }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(10,20,40,0.55)', zIndex: 9999,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '28px 30px', maxWidth: 380, textAlign: 'center',
+        boxShadow: '0 12px 40px rgba(0,0,0,0.25)', fontFamily: "'Segoe UI', system-ui, sans-serif",
+      }}>
+        <div style={{ fontSize: 34, marginBottom: 10 }}>⏱</div>
+        <h2 style={{ fontSize: 17, color: COR_AZUL, margin: '0 0 8px' }}>Sessão expirada por inatividade</h2>
+        <p style={{ fontSize: 13, color: '#494949', margin: '0 0 20px', lineHeight: 1.5 }}>
+          {minutos ? `Você ficou mais de ${minutos} minutos sem usar a plataforma, ` : 'Sua sessão expirou, '}
+          e por segurança você foi desconectado automaticamente. É necessário fazer login novamente para continuar.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          style={{
+            fontSize: 13, fontWeight: 700, padding: '10px 22px', borderRadius: 7,
+            border: 'none', background: COR_LARANJA, color: '#fff', cursor: 'pointer',
+          }}
+        >
+          Fazer login novamente
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /** Porta de entrada: resolve a sessão (via /auth/me) antes de montar a
  * aplicação. Sem isso, OrcamentoARA não sabe o perfil/escopo real do usuário
@@ -18,7 +57,8 @@ export default function AppGate() {
   const [estado, setEstado] = useState('carregando'); // 'carregando' | 'deslogado' | 'logado'
   const [usuario, setUsuario] = useState(null);
   const [tela, setTela] = useState('orcamento'); // 'orcamento' | 'admin' — só admin_fpa alcança 'admin'
-  const [statusBackend, setStatusBackend] = useState(null); // { ssoConfigurado } — loginDevDisponivel também vem do /health, mas não é mais usado aqui (ver nota abaixo de LoginSenha)
+  const [statusBackend, setStatusBackend] = useState(null); // { ssoConfigurado, sessionTtlMinutes } — loginDevDisponivel também vem do /health, mas não é mais usado aqui (ver nota abaixo de LoginSenha)
+  const [sessaoExpirada, setSessaoExpirada] = useState(false);
 
   useEffect(() => {
     getMe()
@@ -29,6 +69,36 @@ export default function AppGate() {
       .catch(() => setEstado('deslogado'));
     verificarStatusBackend().then(setStatusBackend);
   }, []);
+
+  // Reativo: qualquer chamada à API (autosave incluso, que roda sozinho em
+  // segundo plano) que voltar 401 nao_autenticado dispara isto — pega o caso
+  // real (sessão já expirou no servidor), não só uma estimativa. Só conta
+  // como "expirou no meio do uso" se já estávamos logados — ignora o 401
+  // esperado da primeira checagem /auth/me antes do login (ver getMe).
+  const estadoRef = useRef(estado);
+  estadoRef.current = estado;
+  useEffect(() => {
+    definirCallbackSessaoExpirada(() => {
+      if (estadoRef.current === 'logado') setSessaoExpirada(true);
+    });
+    return () => definirCallbackSessaoExpirada(null);
+  }, []);
+
+  // Proativo: cronometra a partir da última requisição autenticada com
+  // sucesso (ver obterUltimaAtividade em api/client.js) — mesmo relógio que
+  // o backend usa pra renovar a sessão (renovação deslizante), então o
+  // aviso aparece perto do momento real em que o servidor vai deslogar, sem
+  // depender do usuário tentar salvar algo pra descobrir. Checa a cada 15s;
+  // só roda enquanto logado e com o tempo real do plano (sessionTtlMinutes)
+  // já carregado do /health.
+  useEffect(() => {
+    if (estado !== 'logado' || !statusBackend?.sessionTtlMinutes) return;
+    const ttlMs = statusBackend.sessionTtlMinutes * 60 * 1000;
+    const t = setInterval(() => {
+      if (Date.now() - obterUltimaAtividade() > ttlMs) setSessaoExpirada(true);
+    }, 15000);
+    return () => clearInterval(t);
+  }, [estado, statusBackend?.sessionTtlMinutes]);
 
   if (estado === 'carregando') {
     return <TelaCentral texto="Carregando sessão…" />;
@@ -67,23 +137,31 @@ export default function AppGate() {
   }
 
   if (tela === 'admin' && usuario.perfil === 'admin_fpa') {
-    return <AdminPanel voltar={() => setTela('orcamento')} />;
+    return (
+      <>
+        <AdminPanel voltar={() => setTela('orcamento')} />
+        {sessaoExpirada && <PopUpSessaoExpirada minutos={statusBackend?.sessionTtlMinutes} />}
+      </>
+    );
   }
 
   return (
-    <div>
-      {usuario.perfil === 'admin_fpa' && (
-        <div style={{ background: '#0A2E63', padding: '4px 22px', textAlign: 'right' }}>
-          <button
-            onClick={() => setTela('admin')}
-            style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: '1px solid #3E63A8', background: 'transparent', color: '#fff', cursor: 'pointer' }}
-          >
-            ⚙ Administração
-          </button>
-        </div>
-      )}
-      <OrcamentoARA usuario={usuario} />
-    </div>
+    <>
+      <div>
+        {usuario.perfil === 'admin_fpa' && (
+          <div style={{ background: '#0A2E63', padding: '4px 22px', textAlign: 'right' }}>
+            <button
+              onClick={() => setTela('admin')}
+              style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: '1px solid #3E63A8', background: 'transparent', color: '#fff', cursor: 'pointer' }}
+            >
+              ⚙ Administração
+            </button>
+          </div>
+        )}
+        <OrcamentoARA usuario={usuario} />
+      </div>
+      {sessaoExpirada && <PopUpSessaoExpirada minutos={statusBackend?.sessionTtlMinutes} />}
+    </>
   );
 }
 

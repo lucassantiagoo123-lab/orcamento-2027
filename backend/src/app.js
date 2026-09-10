@@ -27,7 +27,13 @@ export function criarApp() {
   app.use(express.json({ limit: '10mb' }));
   app.use(cookieParser());
 
-  app.get('/health', (req, res) => res.json({ ok: true, ssoConfigurado, loginDevDisponivel }));
+  // sessionTtlMinutes (2026-09-10, pedido: pop-up central de inatividade
+  // "vinculado ao tempo") — expõe o valor real configurado (ver
+  // config.session.ttlMinutes/SESSION_TTL_MINUTES) pra o frontend cronometrar
+  // a inatividade com o MESMO número que o backend usa pra expirar a sessão
+  // (ver middleware/authenticate.js, renovação deslizante) — nunca um valor
+  // fixo no cliente que poderia divergir se essa env var mudar no Railway.
+  app.get('/health', (req, res) => res.json({ ok: true, ssoConfigurado, loginDevDisponivel, sessionTtlMinutes: config.session.ttlMinutes }));
 
   app.use('/auth', authRouter);
 

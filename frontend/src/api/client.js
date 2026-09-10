@@ -10,6 +10,32 @@ export class ApiError extends Error {
   }
 }
 
+// Sessão expirada (2026-09-10, pedido: "pop-up central independente...
+// indicando que é necessário fazer login novamente") — apiFetch é o único
+// lugar por onde toda chamada à API passa, então é o único jeito de pegar um
+// 401 nao_autenticado não importa qual tela/ação disparou a requisição (o
+// autosave, por exemplo, roda em segundo plano sem o usuário clicar em
+// nada). Quem quiser reagir (AppGate) registra um callback aqui — sem
+// import circular, client.js não conhece AppGate. AppGate decide se isso é
+// de fato "sessão expirou no meio do uso" (ignora o 401 esperado da
+// primeira checagem /auth/me, antes de logar — ver getMe em api/auth.js).
+let onSessaoExpirada = null;
+export function definirCallbackSessaoExpirada(fn) {
+  onSessaoExpirada = fn;
+}
+
+// Última vez que uma requisição autenticada teve sucesso (2026-09-10) — usa
+// pra estimar no cliente quando a sessão deve expirar por inatividade
+// (renovação deslizante, ver backend/src/middleware/authenticate.js: todo
+// request autenticado reemite o cookie com mais SESSION_TTL_MINUTES pela
+// frente). Não é "mexeu o mouse" — é a mesma coisa que o servidor usa (um
+// request de verdade), então o aviso do cliente bate com o momento real em
+// que o backend vai deslogar.
+let ultimaAtividadeEm = Date.now();
+export function obterUltimaAtividade() {
+  return ultimaAtividadeEm;
+}
+
 export async function apiFetch(path, options = {}) {
   // Upload de arquivo (2026-09-07, ver api/premissasMacro.js): quando o body
   // já é um FormData (multipart), manda como está — sem JSON.stringify e
@@ -32,6 +58,15 @@ export async function apiFetch(path, options = {}) {
   const isJson = res.headers.get('content-type')?.includes('application/json');
   const body = isJson ? await res.json() : null;
 
-  if (!res.ok) throw new ApiError(res.status, body);
+  // Qualquer resposta que não seja 401 passou pelo `authenticate` do backend
+  // com sucesso (mesmo um 403/404 de uma rota específica) — a sessão acabou
+  // de ser renovada lá (ver renovação deslizante), então conta como
+  // atividade aqui também, não só nos 2xx.
+  if (res.status !== 401) ultimaAtividadeEm = Date.now();
+
+  if (!res.ok) {
+    if (res.status === 401 && body?.erro === 'nao_autenticado') onSessaoExpirada?.();
+    throw new ApiError(res.status, body);
+  }
   return body;
 }
