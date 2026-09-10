@@ -505,7 +505,7 @@ export const CCS_PLACEHOLDER_AGRICOLA_RESORTS = [
 
 // Pacotes orçamentários — fonte oficial: Matriz_Governanca_OBZ_2027_4.xlsx, aba Têxtil_Contas_x_Pacote (167 contas, 100% classificadas)
 const PACOTES_TEXTIL = [
-  { id: 'pessoal', nome: "Pessoal", ref: 'Matriz_Governanca_OBZ_2027_4 (43 contas)' },
+  { id: 'pessoal', nome: "Pessoal", ref: 'Matriz_Governanca_OBZ_2027_4 (43 contas) + sintéticas (2 — Headcount Existente)' },
   { id: 'producao', nome: "Produção", ref: 'Matriz_Governanca_OBZ_2027_4 (12 contas)' },
   { id: 'manutencao', nome: "Manutenção", ref: 'Matriz_Governanca_OBZ_2027_4 (13 contas)' },
   { id: 'fretes', nome: "Fretes e Logística", ref: 'Matriz_Governanca_OBZ_2027_4 (8 contas)' },
@@ -734,10 +734,10 @@ const PLANO_CONTAS = {
 // 71102036 em manutencao; 71102049 em producao; 71103001 em servicos),
 // mantendo o resto do plano intacto. Total agora: 157 contas.
 const PACOTES_AGRICOLA = [
-  { id: 'pessoal', nome: "Pessoal", ref: 'Matriz_Governanca_OBZ_2027_4 (62 contas)' },
-  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Matriz_Governanca_OBZ_2027_4 (29 contas)' },
-  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas) + Camadas.xlsx (1 conta)' },
-  { id: 'manutencao', nome: "Manutenção", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas) + Camadas.xlsx (2 contas)' },
+  { id: 'pessoal', nome: "Pessoal", ref: 'Matriz_Governanca_OBZ_2027_4 (62 contas) + sintéticas (2 — Headcount Existente)' },
+  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Matriz_Governanca_OBZ_2027_4 (29 contas) + Base orçamento 2026.xlsx (1 conta)' },
+  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas) + Camadas.xlsx (1 conta) + Base orçamento 2026.xlsx (2 contas)' },
+  { id: 'manutencao', nome: "Manutenção", ref: 'Matriz_Governanca_OBZ_2027_4 (9 contas) + Camadas.xlsx (2 contas) + Base orçamento 2026.xlsx (1 conta)' },
   { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Matriz_Governanca_OBZ_2027_4 (4 contas)' },
   { id: 'depreciacao', nome: "Depreciação e Amortização", ref: 'Matriz_Governanca_OBZ_2027_4 (3 contas)' },
   { id: 'fretes', nome: "Fretes e Logística", ref: 'Matriz_Governanca_OBZ_2027_4 (10 contas)' },
@@ -1100,19 +1100,29 @@ export const CONTAS_POR_CC_AGRICOLA = {
 // backend/src/db/migracaoContasResorts.js); 6 contas genuínas que só
 // existiam no .xlsb novo foram adicionadas (marcadas inline abaixo). Total
 // agora: 108 contas (102 já existiam + 6 novas), todas 41xxx/51xxx.
+// Fonte de todo pacote abaixo: Plano de Contas Resorts.xlsb (2026-09-07) —
+// NÃO Matriz_Governanca_OBZ_2027_4. A matriz foi a fonte original (até
+// 2026-09-06), mas 158 das 260 contas dela eram contaminação da Têxtil/
+// Agrícola (mesmo código 71xxx/72xxx/34xxx reaproveitado por engano na
+// planilha-fonte) — descartada inteira depois de cruzar com o .xlsb oficial
+// (ver nota em PLANO_CONTAS_RESORTS/PACOTES_RESORTS mais abaixo). Os rótulos
+// aqui citavam "Matriz_Governanca_OBZ_2027_4" até 2026-09-10 por engano —
+// corrigido junto com a contagem de duas áreas que cresceram desde então
+// (Headcount Existente sintética em Pessoal; Experiência Villa Muro Alto,
+// do De/Para do Samoa Villa, em Administrativo e Utilidades).
 const PACOTES_RESORTS = [
-  { id: 'producao', nome: "Produção", ref: 'Matriz_Governanca_OBZ_2027_4 (2 contas)' },
-  { id: 'pessoal', nome: "Pessoal", ref: 'Matriz_Governanca_OBZ_2027_4 + Plano de Contas Resorts.xlsb (26 contas)' },
-  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Matriz_Governanca_OBZ_2027_4 + Plano de Contas Resorts.xlsb (24 contas)' },
-  { id: 'tecnologia', nome: "Tecnologia e Inovação", ref: 'Matriz_Governanca_OBZ_2027_4 (2 contas)' },
-  { id: 'comercial', nome: "Comercial e Marketing", ref: 'Matriz_Governanca_OBZ_2027_4 + Plano de Contas Resorts.xlsb (9 contas)' },
-  { id: 'manutencao', nome: "Manutenção", ref: 'Matriz_Governanca_OBZ_2027_4 (14 contas)' },
-  { id: 'fretes', nome: "Fretes e Logística", ref: 'Matriz_Governanca_OBZ_2027_4 (6 contas)' },
-  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Matriz_Governanca_OBZ_2027_4 (10 contas)' },
-  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Matriz_Governanca_OBZ_2027_4 (6 contas)' },
-  { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Matriz_Governanca_OBZ_2027_4 (5 contas)' },
-  { id: 'viagens', nome: "Viagens", ref: 'Matriz_Governanca_OBZ_2027_4 (3 contas)' },
-  { id: 'depreciacao', nome: "Depreciação e Amortização", ref: 'Matriz_Governanca_OBZ_2027_4 (1 conta)' },
+  { id: 'producao', nome: "Produção", ref: 'Plano de Contas Resorts.xlsb (2 contas)' },
+  { id: 'pessoal', nome: "Pessoal", ref: 'Plano de Contas Resorts.xlsb (26 contas) + sintéticas (1 — Headcount Existente)' },
+  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Plano de Contas Resorts.xlsb (24 contas) + De/Para Samoa Villa (1 conta)' },
+  { id: 'tecnologia', nome: "Tecnologia e Inovação", ref: 'Plano de Contas Resorts.xlsb (2 contas)' },
+  { id: 'comercial', nome: "Comercial e Marketing", ref: 'Plano de Contas Resorts.xlsb (9 contas)' },
+  { id: 'manutencao', nome: "Manutenção", ref: 'Plano de Contas Resorts.xlsb (14 contas)' },
+  { id: 'fretes', nome: "Fretes e Logística", ref: 'Plano de Contas Resorts.xlsb (6 contas)' },
+  { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Plano de Contas Resorts.xlsb (10 contas)' },
+  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Plano de Contas Resorts.xlsb (6 contas)' },
+  { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Plano de Contas Resorts.xlsb (5 contas)' },
+  { id: 'viagens', nome: "Viagens", ref: 'Plano de Contas Resorts.xlsb (3 contas)' },
+  { id: 'depreciacao', nome: "Depreciação e Amortização", ref: 'Plano de Contas Resorts.xlsb (1 conta)' },
 ];
 
 const PLANO_CONTAS_RESORTS = {
@@ -3701,8 +3711,16 @@ function PainelPlanoContas({ refUnidade }) {
       </button>
       {aberto && (
         <div style={{ padding: 14, maxHeight: 480, overflowY: 'auto' }}>
+          {/* Pedido de 2026-09-10: a legenda dizia sempre "Fonte:
+              Matriz_Governanca_OBZ_2027_4.xlsx", mesmo em unidades cuja
+              fonte é outra (Resorts inteira veio do .xlsb, não da matriz —
+              ver PACOTES_RESORTS) ou mista (Agrícola: matriz + Camadas.xlsx
+              + Base orçamento 2026.xlsx + contas sintéticas nossas, como
+              Headcount Existente). Cada pacote já carrega sua fonte de
+              verdade em `p.ref` — a legenda deixa de fixar uma fonte única
+              e mostra a de cada pacote, abaixo do nome dele. */}
           <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 12 }}>
-            Fonte: Matriz_Governanca_OBZ_2027_4.xlsx — {totalContas} contas classificadas em {refUnidade.pacotes.length} pacotes.
+            {totalContas} contas classificadas em {refUnidade.pacotes.length} pacotes — fonte de cada pacote logo abaixo do nome dele.
             Este painel é somente leitura — o lançamento acontece por conta, dentro do CC selecionado na aba acima.
           </p>
           {refUnidade.pacotes.map(p => {
@@ -3710,20 +3728,24 @@ function PainelPlanoContas({ refUnidade }) {
             if (contas.length === 0) return null;
             return (
               <div key={p.id} style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 1 }}>
                   {p.nome} <span style={{ fontWeight: 400, color: '#8A8F96' }}>({contas.length} contas)</span>
                 </div>
+                {p.ref && <div style={{ fontSize: 9.5, color: '#8A8F96', marginBottom: 4 }}>{p.ref}</div>}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                  {contas.map(c => (
-                    <span key={c.origem + c.codigo} title={c.codigo}
-                      style={{
-                        fontSize: 10, padding: '2px 7px', borderRadius: 10,
-                        background: c.origem === 'Custo' ? '#E8F0FA' : COR.total,
-                        color: COR.texto, border: `1px solid ${COR.borda}`,
-                      }}>
-                      {c.nome.toLowerCase()}
-                    </span>
-                  ))}
+                  {contas.map(c => {
+                    const sintetica = c.codigo.startsWith('HC_EXISTENTE');
+                    return (
+                      <span key={c.origem + c.codigo} title={sintetica ? `${c.codigo} — conta sintética, não vem de nenhum arquivo-fonte` : c.codigo}
+                        style={{
+                          fontSize: 10, padding: '2px 7px', borderRadius: 10,
+                          background: c.origem === 'Custo' ? '#E8F0FA' : COR.total,
+                          color: COR.texto, border: `1px ${sintetica ? 'dashed' : 'solid'} ${sintetica ? COR.laranja : COR.borda}`,
+                        }}>
+                        {c.nome.toLowerCase()}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             );
