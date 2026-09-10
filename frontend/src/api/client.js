@@ -36,6 +36,24 @@ export function obterUltimaAtividade() {
   return ultimaAtividadeEm;
 }
 
+// comRetentativa (2026-09-10, pedido: "como faço pra evitar isso" — falha de
+// rede genuína, ex.: backend reiniciando alguns segundos durante um deploy
+// no Railway, mostrava erro já na primeira tentativa) — tenta de novo
+// sozinho só quando o erro NÃO é um ApiError (o servidor respondeu de
+// verdade; retentar não ajudaria, e numa escrita não-idempotente tipo
+// enviar versão poderia até duplicar). Usar só em escritas idempotentes
+// (PUT de rascunho — reenviar o mesmo `dados` é seguro), nunca em
+// enviarVersao/POST.
+export async function comRetentativa(fn, tentativas = 2, esperaMs = 1200) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof ApiError || tentativas <= 0) throw e;
+    await new Promise((r) => setTimeout(r, esperaMs));
+    return comRetentativa(fn, tentativas - 1, esperaMs * 1.5);
+  }
+}
+
 export async function apiFetch(path, options = {}) {
   // Upload de arquivo (2026-09-07, ver api/premissasMacro.js): quando o body
   // já é um FormData (multipart), manda como está — sem JSON.stringify e

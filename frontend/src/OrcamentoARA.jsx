@@ -14,7 +14,7 @@ import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVers
 import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, definirFontePremissaMacro as definirFontePremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
 import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
 import { logout } from './api/auth.js';
-import { ApiError } from './api/client.js';
+import { ApiError, comRetentativa } from './api/client.js';
 
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
@@ -3992,7 +3992,11 @@ export default function OrcamentoARA({ usuario }) {
       const unidade = unidadeAtualRef.current;
       try {
         const status = dadosAtuais.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
-        await putOrcamento(unidade, { ...dadosAtuais, meta: { ...dadosAtuais.meta, status, atualizadoEm: new Date().toISOString() } });
+        // comRetentativa (2026-09-10, pedido: "como faço pra evitar isso" —
+        // falha de rede genuína, ex.: backend reiniciando alguns segundos
+        // num deploy) — reintenta sozinho antes de incomodar o gestor com um
+        // erro; PUT de rascunho é idempotente, seguro repetir.
+        await comRetentativa(() => putOrcamento(unidade, { ...dadosAtuais, meta: { ...dadosAtuais.meta, status, atualizadoEm: new Date().toISOString() } }));
         setUltimoSalvoEm(new Date());
         setErro(null); // limpa um erro anterior assim que um salvamento subsequente dá certo
         setPedindoMotivo(false);
@@ -4045,7 +4049,7 @@ export default function OrcamentoARA({ usuario }) {
     setErro(null);
     try {
       const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
-      await putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } }, motivo);
+      await comRetentativa(() => putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } }, motivo));
       setUltimoSalvoEm(new Date());
       setPedindoMotivo(false);
       setMotivoBloqueio('');
