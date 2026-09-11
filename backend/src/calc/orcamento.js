@@ -241,6 +241,7 @@ function receitaVazia(unidadeId) {
         vendaInterna: { pctTon: mesesVazios(), precoKg: mesesVazios() },
         vendaExterna: {
           pctTon: mesesVazios(),
+          volumeKg: mesesVazios(),
           gbp: { pct: mesesVazios(), precoMoeda: mesesVazios() },
           eur: { pct: mesesVazios(), precoMoeda: mesesVazios() },
           usd: { pct: mesesVazios(), precoMoeda: mesesVazios() },
@@ -433,15 +434,22 @@ function computeReceitaAgricola(agricola, cambios) {
   const refugoKgMes = embaladaKgMes.map(v => v * refugoPct);
   const producaoTotalKgMes = embaladaKgMes.map((v, m) => v + refugoKgMes[m]);
 
+  // Volume Mercado Externo (2026-09-11) — ver nota completa no espelho
+  // frontend (AbaReceitaAgricola/computeReceitaAgricola): passa a ser o
+  // dado digitado direto (vendaExterna.volumeKg); o Interno vira o residual
+  // (Produção Total − Externo do mesmo mês, nunca negativo). pctTon (dos
+  // dois lados) fica sem uso, não apagado do documento por compatibilidade.
+  const ve = agricola?.vendaExterna || {};
+  const volumeExternoTotalKgMes = (ve.volumeKg || mesesVazios()).map(parseNum);
+  const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => Math.max(0, v - volumeExternoTotalKgMes[m]));
+
   const vi = agricola?.vendaInterna || {};
-  const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => v * parseNum(vi.pctTon?.[m]) / 100);
   const receitaInternaMes = volumeInternoKgMes.map((v, m) => v * parseNum(vi.precoKg?.[m]));
 
-  // % Ton. Mercado Externo (2026-09-08) — ver nota completa no espelho
-  // frontend: sempre 100% − % Mercado Interno do mesmo mês.
-  const ve = agricola?.vendaExterna || {};
-  const pctExternoMes = MESES.map((_, m) => Math.max(0, 100 - parseNum(vi.pctTon?.[m])));
-  const volumeExternoTotalKgMes = producaoTotalKgMes.map((v, m) => v * pctExternoMes[m] / 100);
+  // % de Ton. vendida em cada mercado — 100% calculadas a partir dos
+  // volumes acima (não mais digitadas nos dois lados).
+  const pctInternoMes = producaoTotalKgMes.map((v, m) => v > 0 ? (volumeInternoKgMes[m] / v) * 100 : 0);
+  const pctExternoMes = producaoTotalKgMes.map((v, m) => v > 0 ? (volumeExternoTotalKgMes[m] / v) * 100 : 0);
 
   function porMoeda(moedaObj, chaveCambio) {
     const volumeKgMes = volumeExternoTotalKgMes.map((v, m) => v * parseNum(moedaObj?.pct?.[m]) / 100);
@@ -458,7 +466,7 @@ function computeReceitaAgricola(agricola, cambios) {
 
   return {
     embaladaKgMes, refugoKgMes, producaoTotalKgMes,
-    volumeInternoKgMes, receitaInternaMes,
+    volumeInternoKgMes, receitaInternaMes, pctInternoMes,
     pctExternoMes, volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
     receitaBrutaMes,
   };
@@ -1027,8 +1035,10 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
       // ARA Agrícola (2026-09-07) — espelho de OrcamentoARA.jsx, ver
       // computeReceitaAgricola.
       const embaladaOk = somaMes(data.receita.agricola.embaladaKg) > 0;
-      const vendaOk = somaMes(data.receita.agricola.vendaInterna?.pctTon) > 0
-        || somaMes(data.receita.agricola.vendaExterna?.pctTon) > 0;
+      // Volume Mercado Externo (2026-09-11) é o novo input que decide a
+      // cascata (ver computeReceitaAgricola) — checar ele já cobre os dois
+      // lados (Interno vira sempre o residual, nunca é digitado direto).
+      const vendaOk = somaMes(data.receita.agricola.vendaExterna?.volumeKg) > 0;
       checks.push({
         label: 'Receita: Produção (Embalada) e Vendas (Interno/Externo) com valor lançado',
         ok: embaladaOk && vendaOk,
@@ -1162,7 +1172,7 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     const ve = ag.vendaExterna || {};
     return algumNegativo(ag.embaladaKg) || parseNum(ag.refugoPct) < 0
       || algumNegativo(ag.vendaInterna?.pctTon) || algumNegativo(ag.vendaInterna?.precoKg)
-      || algumNegativo(ve.pctTon)
+      || algumNegativo(ve.pctTon) || algumNegativo(ve.volumeKg)
       || ['gbp', 'eur', 'usd'].some(m => algumNegativo(ve[m]?.pct) || algumNegativo(ve[m]?.precoMoeda));
   })();
   const valoresNegativos = agricolaTemNegativo

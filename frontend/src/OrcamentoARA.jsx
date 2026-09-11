@@ -2029,6 +2029,7 @@ function receitaVazia(unidadeId) {
         vendaInterna: { pctTon: mesesVazios(), precoKg: mesesVazios() },
         vendaExterna: {
           pctTon: mesesVazios(),
+          volumeKg: mesesVazios(),
           gbp: { pct: mesesVazios(), precoMoeda: mesesVazios() },
           eur: { pct: mesesVazios(), precoMoeda: mesesVazios() },
           usd: { pct: mesesVazios(), precoMoeda: mesesVazios() },
@@ -2264,20 +2265,28 @@ function computeReceitaAgricola(agricola, cambios) {
   const refugoKgMes = embaladaKgMes.map(v => v * refugoPct);
   const producaoTotalKgMes = embaladaKgMes.map((v, m) => v + refugoKgMes[m]);
 
+  // Volume Mercado Externo (Kg) (2026-09-11, pedido: "a lógica é inputar o
+  // volume de venda do Mercado externo, e o volume de venda do mercado
+  // interno ser a diferença para completar a produção") — inverte a direção
+  // anterior (Interno % digitado, Externo residual): agora é o volume
+  // Externo que é digitado direto (vendaExterna.volumeKg), e o Interno vira
+  // o residual (Produção Total − Externo do mesmo mês, nunca negativo — um
+  // Externo maior que a Produção do mês seria dado inconsistente, mas não
+  // deveria virar volume interno negativo). vendaInterna.pctTon e
+  // vendaExterna.pctTon (campos do modelo anterior) ficam sem uso, não
+  // apagados do documento por compatibilidade com dados já salvos.
+  const ve = agricola?.vendaExterna || {};
+  const volumeExternoTotalKgMes = (ve.volumeKg || mesesVazios()).map(parseNum);
+  const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => Math.max(0, v - volumeExternoTotalKgMes[m]));
+
   const vi = agricola?.vendaInterna || {};
-  const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => v * parseNum(vi.pctTon?.[m]) / 100);
   const receitaInternaMes = volumeInternoKgMes.map((v, m) => v * parseNum(vi.precoKg?.[m]));
 
-  // % Ton. Mercado Externo (2026-09-08, pedido: "precisa ser calculada
-  // automaticamente considerando a diferença para 100% da linha % de Ton.
-  // vendida (Mercado Interno)") — deixa de ser digitado (vendaExterna.pctTon
-  // fica sem uso, não apagado do documento por compatibilidade com dados já
-  // salvos) e vira sempre 100% − % Mercado Interno do mesmo mês. Impedido de
-  // ficar negativo (Interno > 100% seria dado inconsistente, mas não deveria
-  // virar um volume externo negativo).
-  const ve = agricola?.vendaExterna || {};
-  const pctExternoMes = MESES.map((_, m) => Math.max(0, 100 - parseNum(vi.pctTon?.[m])));
-  const volumeExternoTotalKgMes = producaoTotalKgMes.map((v, m) => v * pctExternoMes[m] / 100);
+  // % de Ton. vendida em cada mercado (2026-09-11): deixam de ser digitados
+  // nos dois lados — viram 100% calculados a partir dos volumes acima
+  // (sempre somam 100% da Produção Total do mês, por construção).
+  const pctInternoMes = producaoTotalKgMes.map((v, m) => v > 0 ? (volumeInternoKgMes[m] / v) * 100 : 0);
+  const pctExternoMes = producaoTotalKgMes.map((v, m) => v > 0 ? (volumeExternoTotalKgMes[m] / v) * 100 : 0);
 
   function porMoeda(moedaObj, chaveCambio) {
     const volumeKgMes = volumeExternoTotalKgMes.map((v, m) => v * parseNum(moedaObj?.pct?.[m]) / 100);
@@ -2294,7 +2303,7 @@ function computeReceitaAgricola(agricola, cambios) {
 
   return {
     embaladaKgMes, refugoKgMes, producaoTotalKgMes,
-    volumeInternoKgMes, receitaInternaMes,
+    volumeInternoKgMes, receitaInternaMes, pctInternoMes,
     pctExternoMes, volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
     receitaBrutaMes,
   };
@@ -3150,11 +3159,10 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
       // algum mês — cobre tanto quem começou pela Produção quanto quem já
       // tem só uma venda registrada.
       const embaladaOk = somaMes(data.receita.agricola.embaladaKg) > 0;
-      // % Mercado Externo (2026-09-08) virou sempre 100% − % Interno (ver
-      // computeReceitaAgricola) — não é mais digitado, então checar só o
-      // Interno já cobre os dois lados (Interno=0 sem nada preenchido não é
-      // "100% Externo deliberado", é só ninguém ter mexido ainda).
-      const vendaOk = somaMes(data.receita.agricola.vendaInterna?.pctTon) > 0;
+      // Volume Mercado Externo (2026-09-11) é o novo input que decide a
+      // cascata (ver computeReceitaAgricola) — checar ele já cobre os dois
+      // lados (Interno vira sempre o residual, nunca é digitado direto).
+      const vendaOk = somaMes(data.receita.agricola.vendaExterna?.volumeKg) > 0;
       checks.push({
         label: 'Receita: Produção (Embalada) e Vendas (Interno/Externo) com valor lançado',
         ok: embaladaOk && vendaOk,
@@ -3289,7 +3297,7 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     const ve = ag.vendaExterna || {};
     return algumNegativo(ag.embaladaKg) || parseNum(ag.refugoPct) < 0
       || algumNegativo(ag.vendaInterna?.pctTon) || algumNegativo(ag.vendaInterna?.precoKg)
-      || algumNegativo(ve.pctTon)
+      || algumNegativo(ve.pctTon) || algumNegativo(ve.volumeKg)
       || ['gbp', 'eur', 'usd'].some(m => algumNegativo(ve[m]?.pct) || algumNegativo(ve[m]?.precoMoeda));
   })();
   const valoresNegativos = agricolaTemNegativo
@@ -3421,6 +3429,12 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
               próprio (COR.total), só a alternância cinza que saiu. */}
           {(linhasCalculadasAntes || []).map(linhaCalculadaRow)}
           {linhas.map((linha, i) => {
+            // linha.calculada (2026-09-11): permite intercalar uma linha
+            // não-editável NO MEIO de `linhas` (ex.: Volume digitado, depois
+            // %Volume calculado, depois Preço digitado) — linhasCalculadas/
+            // linhasCalculadasAntes só resolvem "tudo calculado antes" ou
+            // "tudo calculado depois" do bloco editável inteiro, não intercalado.
+            if (linha.calculada) return linhaCalculadaRow(linha);
             const total = linha.totalValor !== undefined ? linha.totalValor : somaMes(linha.valores);
             const formatarTotalLinha = linha.formatarTotal || formatarTotal;
             return (
@@ -6091,6 +6105,7 @@ function ReceitaLeituraVersao({ dados, cambios }) {
   if (receita.agricola) {
     const r = computeReceitaAgricola(receita.agricola, cambios);
     const linha = (label, arr, fmt) => <LinhaCalculadaMensal key={label} label={label} valoresMensal={arr} formatarCelula={fmt || formatarQtdLeitura} />;
+    const fmtPct = v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
     return (
       <div>
         <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Produção → Vendas Mercado Interno/Externo</h4>
@@ -6101,12 +6116,15 @@ function ReceitaLeituraVersao({ dados, cambios }) {
               {linha('Embalada (Kg)', r.embaladaKgMes)}
               {linha(`Refugo (Kg) — ${parseNum(receita.agricola.refugoPct).toLocaleString('pt-BR')}%`, r.refugoKgMes)}
               {linha('Produção Total (Kg)', r.producaoTotalKgMes)}
-              {linha('Volume Mercado Interno (Kg)', r.volumeInternoKgMes)}
-              {linha('Preço Interno (R$/Kg)', (receita.agricola.vendaInterna?.precoKg || mesesVazios()).map(parseNum), formatBRL)}
-              {linha('Receita Mercado Interno (R$)', r.receitaInternaMes, formatBRL)}
+              {/* Volume Externo (2026-09-11) é o input; Interno é o residual — ver AbaReceitaAgricola/computeReceitaAgricola. */}
               {linha('Volume Mercado Externo (Kg)', r.volumeExternoTotalKgMes)}
+              {linha('% de Ton. vendida (Mercado Externo)', r.pctExternoMes, fmtPct)}
               {['gbp', 'eur', 'usd'].map(m => linha(`Receita ${m.toUpperCase()} (R$)`, r[m].receitaMes, formatBRL))}
               {linha('Receita Mercado Externo (R$)', r.receitaExternaMes, formatBRL)}
+              {linha('Volume Mercado Interno (Kg)', r.volumeInternoKgMes)}
+              {linha('% de Ton. vendida (Mercado Interno)', r.pctInternoMes, fmtPct)}
+              {linha('Preço Interno (R$/Kg)', (receita.agricola.vendaInterna?.precoKg || mesesVazios()).map(parseNum), formatBRL)}
+              {linha('Receita Mercado Interno (R$)', r.receitaInternaMes, formatBRL)}
             </tbody>
           </table>
         </div>
@@ -7356,6 +7374,7 @@ function agricolaComPadroes(agricola) {
     vendaInterna: { pctTon: vi.pctTon || mesesVazios(), precoKg: vi.precoKg || mesesVazios() },
     vendaExterna: {
       pctTon: ve.pctTon || mesesVazios(),
+      volumeKg: ve.volumeKg || mesesVazios(),
       gbp: moeda(ve.gbp), eur: moeda(ve.eur), usd: moeda(ve.usd),
     },
     justificativa: a.justificativa || '',
@@ -7398,15 +7417,26 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
   const eurLinhas = linhasMoeda('eur', 'EUR', 'EUR');
   const usdLinhas = linhasMoeda('usd', 'USD', 'USD');
 
+  // % Volume por mercado (2026-09-11) — calculada, não mais digitada (ver
+  // computeReceitaAgricola). Formatação compartilhada pelas duas linhas
+  // "%Volume" abaixo (Externo e Interno).
+  const fmtPctVolume = v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+  const fmtPctVolumeTotal = v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% méd.`;
+
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>2. Premissas de receita — ARA Agrícola</h3>
       <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
-        Cascata Produção → Vendas: a Produção Total (Embalada + Refugo) alimenta o volume vendido nos dois mercados;
-        o Mercado Externo ainda separa o volume vendido em 3 moedas (GBP/EUR/USD), cada uma convertida pelo câmbio da Premissa Macro.
+        Cascata Produção → Vendas: a Produção Total da Fazenda (Embalada + Refugo) é a referência de cada mês; o volume vendido no Mercado
+        Externo é digitado diretamente (em Kg, ainda separado em 3 moedas — GBP/EUR/USD, cada uma convertida pelo câmbio da Premissa Macro) e o
+        volume do Mercado Interno é sempre a diferença até completar a Produção Total daquele mês (e do ano).
       </p>
 
-      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.1 Produção</h4>
+      {/* Pedido de 2026-09-11: "deixe apenas Produção Total da Fazenda" —
+          só o título da seção mudou (deixa de ser numerada "2.1", vira uma
+          referência acima das duas seções de Vendas); as linhas da tabela
+          (Embalada, Refugo, Total) continuam todas, nada foi removido. */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>Produção Total da Fazenda</h4>
       <TabelaMensal
         linhas={[
           { key: 'embaladaKg', label: 'Safra Produção — Embalada (Kg)', valores: ag.embaladaKg },
@@ -7419,53 +7449,41 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
             key: 'refugoKg', label: 'Safra Produção — Refugo (Kg)', valoresMensal: r.refugoKgMes, totalValor: somaMes(r.refugoKgMes), cor: COR.laranja, ...FMT_KG,
             refugoInput: { valor: ag.refugoPct, onChange: v => atualizarAgricola(['refugoPct'], v), placeholder: '0,0' },
           },
-          { key: 'producaoTotal', label: 'Produção — Embalada + Refugo (Kg)', valoresMensal: r.producaoTotalKgMes, totalValor: somaMes(r.producaoTotalKgMes), cor: COR.azul, ...FMT_KG },
+          { key: 'producaoTotal', label: 'Produção Total da Fazenda (Kg)', valoresMensal: r.producaoTotalKgMes, totalValor: somaMes(r.producaoTotalKgMes), cor: COR.azul, ...FMT_KG },
         ]}
       />
       <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 18 }}>
         Refugo (%) é um único percentual pro ano inteiro (não varia por mês) — aplicado sobre a Embalada de cada mês.
       </p>
 
-      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.2 Vendas — Mercado Interno</h4>
+      {/* Pedido de 2026-09-11: Mercado Externo passa a ser a 2.1 (era 2.3) —
+          agora é quem recebe o volume digitado direto; sequência de linhas
+          dentro da tabela: Volume (input) → %Volume (calculado) → Preço
+          (input, aqui por moeda). linha.calculada (ver TabelaMensal) permite
+          intercalar a linha calculada de %Volume no meio de `linhas`. */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.1 Vendas — Mercado Externo</h4>
       <TabelaMensal
         linhas={[
-          { key: 'pctTon', label: '% de Ton. vendida (Mercado Interno)', valores: ag.vendaInterna?.pctTon || mesesVazios() },
-          { key: 'precoKg', label: 'Preço (R$/Kg)', valores: ag.vendaInterna?.precoKg || mesesVazios() },
+          { key: 'volumeExterno', label: 'Volume vendido — Mercado Externo (Kg)', valores: ve.volumeKg || mesesVazios(), formatarTotal: FMT_KG.formatarTotal },
+          {
+            key: 'pctExterno', calculada: true, label: '% de Ton. vendida (Mercado Externo)', valoresMensal: r.pctExternoMes,
+            totalValor: r.pctExternoMes.reduce((a, v) => a + v, 0) / 12, cor: COR.texto,
+            formatarCelula: fmtPctVolume, formatarTotal: fmtPctVolumeTotal,
+          },
+          ...gbpLinhas.linhas, ...eurLinhas.linhas, ...usdLinhas.linhas,
         ]}
-        onChangeCelula={(key, mi, v) => atualizarAgricola(['vendaInterna', key], atualizarArray(ag.vendaInterna?.[key] || mesesVazios(), mi, v))}
-        corTotal={COR.verde}
-        linhasCalculadas={[
-          { key: 'volumeInterno', label: 'Volume vendido — Mercado Interno (Kg)', valoresMensal: r.volumeInternoKgMes, totalValor: somaMes(r.volumeInternoKgMes), cor: COR.texto, ...FMT_KG },
-          { key: 'receitaInterna', label: 'Receita Total Mercado Interno (R$)', valoresMensal: r.receitaInternaMes, totalValor: somaMes(r.receitaInternaMes), cor: COR.verde },
-        ]}
-      />
-
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>2.3 Vendas — Mercado Externo</h4>
-      {/* % de Ton. Mercado Externo (2026-09-08) — deixou de ser editável,
-          vira linhasCalculadasAntes: sempre 100% − % Mercado Interno do
-          mesmo mês (ver pctExternoMes em computeReceitaAgricola). Pedido:
-          "precisa ser na primeira linha da tabela" — linhasCalculadasAntes
-          desenha antes de `linhas` (ver TabelaMensal), diferente de
-          linhasCalculadas normal (sempre depois). */}
-      <TabelaMensal
-        linhas={[...gbpLinhas.linhas, ...eurLinhas.linhas, ...usdLinhas.linhas]}
         onChangeCelula={(key, mi, v) => {
+          if (key === 'volumeExterno') {
+            atualizarAgricola(['vendaExterna', 'volumeKg'], atualizarArray(ve.volumeKg || mesesVazios(), mi, v));
+            return;
+          }
           const [chave, campo] = key.split('_'); // ex.: 'gbp_pct' -> ['gbp','pct'], 'gbp_preco' -> ['gbp','preco']
           const campoReal = campo === 'preco' ? 'precoMoeda' : 'pct';
           const atual = ve[chave]?.[campoReal] || mesesVazios();
           atualizarAgricola(['vendaExterna', chave, campoReal], atualizarArray(atual, mi, v));
         }}
         corTotal={COR.verde}
-        linhasCalculadasAntes={[
-          {
-            key: 'pctTon', label: '% de Ton. vendida (Mercado Externo)', valoresMensal: r.pctExternoMes,
-            totalValor: r.pctExternoMes.reduce((a, v) => a + v, 0) / 12, cor: COR.texto,
-            formatarCelula: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`,
-            formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% méd.`,
-          },
-        ]}
         linhasCalculadas={[
-          { key: 'volumeExterno', label: 'Volume vendido — Mercado Externo (Kg)', valoresMensal: r.volumeExternoTotalKgMes, totalValor: somaMes(r.volumeExternoTotalKgMes), cor: COR.texto, ...FMT_KG },
           ...gbpLinhas.calculadas, ...eurLinhas.calculadas, ...usdLinhas.calculadas,
           { key: 'receitaExterna', label: 'Receita Total Mercado Externo (R$)', valoresMensal: r.receitaExternaMes, totalValor: somaMes(r.receitaExternaMes), cor: COR.verde },
         ]}
@@ -7475,6 +7493,28 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
           ? `Atenção: % de GBP + EUR + USD não soma 100% do volume do Mercado Externo em ${mesesForaDe100.join(', ')}.`
           : 'As 3 % (GBP/EUR/USD) devem somar 100% do volume do Mercado Externo em cada mês.'}
       </p>
+
+      {/* Pedido de 2026-09-11: Mercado Interno passa a ser a 2.2 (era 2.2,
+          continua) — Volume e %Volume viram calculados (residual da
+          Produção Total menos o Externo digitado acima); só Preço continua
+          digitado. Mesma sequência: Volume → %Volume → Preço. */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>2.2 Vendas — Mercado Interno</h4>
+      <TabelaMensal
+        linhas={[
+          { key: 'volumeInterno', calculada: true, label: 'Volume vendido — Mercado Interno (Kg)', valoresMensal: r.volumeInternoKgMes, totalValor: somaMes(r.volumeInternoKgMes), cor: COR.texto, ...FMT_KG },
+          {
+            key: 'pctInterno', calculada: true, label: '% de Ton. vendida (Mercado Interno)', valoresMensal: r.pctInternoMes,
+            totalValor: r.pctInternoMes.reduce((a, v) => a + v, 0) / 12, cor: COR.texto,
+            formatarCelula: fmtPctVolume, formatarTotal: fmtPctVolumeTotal,
+          },
+          { key: 'precoKg', label: 'Preço (R$/Kg)', valores: ag.vendaInterna?.precoKg || mesesVazios() },
+        ]}
+        onChangeCelula={(key, mi, v) => atualizarAgricola(['vendaInterna', key], atualizarArray(ag.vendaInterna?.[key] || mesesVazios(), mi, v))}
+        corTotal={COR.verde}
+        linhasCalculadas={[
+          { key: 'receitaInterna', label: 'Receita Total Mercado Interno (R$)', valoresMensal: r.receitaInternaMes, totalValor: somaMes(r.receitaInternaMes), cor: COR.verde },
+        ]}
+      />
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Receita Operacional Bruta — consolidado</h4>
       <TabelaMensal
