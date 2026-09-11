@@ -1998,6 +1998,43 @@ function parseNum(v) {
   return isNaN(n) ? 0 : n;
 }
 
+// Formatação de exibição pt-BR com ponto de milhar (2026-09-11, pedido:
+// "os números inputados na plataforma precisam manter a formatação de
+// ponto entre milhares"). SEMPRE com pelo menos 1 casa decimal (mesmo em
+// valor inteiro, ex.: "29.649,0") — não é só estética: um "29.649" sem
+// vírgula seria reinterpretado por parseNum como 29,649 (vírgula ausente
+// = ponto tratado como decimal), então o decimal forçado é o que torna
+// seguro reexibir um valor com ponto de milhar sem corromper o dado no
+// próximo parse. Puramente uma transformação de EXIBIÇÃO (ver
+// InputNumerico) — nunca escreve de volta no valor armazenado.
+function formatarNumeroExibicao(v) {
+  if (v === '' || v === null || v === undefined) return v;
+  if (typeof v === 'string' && v.trim() === '') return v;
+  const n = parseNum(v);
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 4 });
+}
+
+// Input numérico genérico — mostra o valor bruto (como o usuário está
+// digitando) enquanto focado, e a versão formatada (ponto de milhar +
+// vírgula decimal, ver formatarNumeroExibicao) assim que perde o foco.
+// Usado nas ~4 rotinas de input numérico do app (célula mensal de
+// TabelaMensal, colunaExtra, CampoNumero, GradeMensalLinha).
+function InputNumerico({ value, onChange, onPaste, placeholder, style }) {
+  const [focado, setFocado] = useState(false);
+  return (
+    <input
+      type="text" inputMode="decimal"
+      value={focado ? value : formatarNumeroExibicao(value)}
+      placeholder={placeholder}
+      onFocus={() => setFocado(true)}
+      onBlur={() => setFocado(false)}
+      onChange={e => onChange(e.target.value)}
+      onPaste={onPaste}
+      style={style}
+    />
+  );
+}
+
 // unidadeId só muda os produtos de referência: PRODUTOS_REF (têxteis) só faz
 // sentido para a Têxtil. Agrícola/Resorts começam com lista vazia — sem uma
 // lista de referência oficial de produtos/serviços pra essas duas ainda.
@@ -2361,18 +2398,26 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // (Resorts) ou sem receita (Corporativo) caem em [] e o reduce dá 0 —
   // nunca quebra, essas unidades nem oferecem 'custo_por_kg' como opção
   // (ver UNIDADES_COM_CUSTO_POR_KG).
-  const volumeTotalKgMes = data.receita.agricola
-    ? computeReceitaAgricola(data.receita.agricola, cambios).producaoTotalKgMes
+  const receitaAgricolaCalc = data.receita.agricola ? computeReceitaAgricola(data.receita.agricola, cambios) : null;
+  const volumeTotalKgMes = receitaAgricolaCalc
+    ? receitaAgricolaCalc.producaoTotalKgMes
     : MESES.map((_, m) => (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000);
 
   // Base do percentual de dedução: normalmente a receita bruta total
   // (Têxtil/Agrícola), mas uma linha pode apontar `baseLinhaIds` — soma só
-  // das linhas referenciadas (Resorts).
+  // das linhas referenciadas (Resorts). ARA Agrícola (2026-09-11, pedido:
+  // "o INSS presente nas deduções deve ser calculado apenas sob a receita
+  // do Mercado Interno") — caso especial: a dedução de id 'inss' (só existe
+  // em DEDUCOES_REF_AGRICOLA) usa a Receita Mercado Interno como base, não
+  // a receita bruta total (que inclui o Mercado Externo).
   const deducoesMes = MESES.map((_, m) =>
     (data.receita.deducoes || []).reduce((a, d) => {
-      const base = (d.baseLinhaIds && linhasReceitaMes)
-        ? d.baseLinhaIds.reduce((s, id) => s + (linhasReceitaMes[id]?.[m] || 0), 0)
-        : receitaBrutaMes[m];
+      let base = receitaBrutaMes[m];
+      if (d.baseLinhaIds && linhasReceitaMes) {
+        base = d.baseLinhaIds.reduce((s, id) => s + (linhasReceitaMes[id]?.[m] || 0), 0);
+      } else if (d.id === 'inss' && receitaAgricolaCalc) {
+        base = receitaAgricolaCalc.receitaInternaMes[m];
+      }
       return a + base * (parseNum(d.pcts?.[m]) / 100);
     }, 0)
   );
@@ -3377,9 +3422,9 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
     return (
       <td style={{ padding: 3, border: `1px solid ${COR.borda}`, background: COR.branco }}>
         {dado ? (
-          <input
-            type="text" inputMode="decimal" value={dado.valor} placeholder={dado.placeholder}
-            onChange={e => dado.onChange(e.target.value)}
+          <InputNumerico
+            value={dado.valor} placeholder={dado.placeholder}
+            onChange={dado.onChange}
             style={{ width: '100%', border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 11, color: COR.laranja, fontWeight: 700, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' }}
           />
         ) : (
@@ -3443,9 +3488,9 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
                 {colunaExtra && celulaExtra(linha, i)}
                 {MESES.map((m, mi) => (
                   <td key={m} style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-                    <input
-                      type="text" inputMode="decimal" value={linha.valores[mi]}
-                      onChange={e => onChangeCelula(linha.key, mi, e.target.value)}
+                    <InputNumerico
+                      value={linha.valores[mi]}
+                      onChange={v => onChangeCelula(linha.key, mi, v)}
                       onPaste={e => onPasteMensal(e, mi, (idxs, vals) => onChangeCelula(linha.key, idxs, vals))}
                       style={{ width: '100%', border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 11, color: COR.texto, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' }}
                     />
@@ -3472,9 +3517,9 @@ function CampoNumero({ value, onChange, placeholder, prefixo, sufixo }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', border: `1px solid ${COR.borda}`, borderRadius: 6, background: COR.branco }}>
       {prefixo && <span style={{ padding: '0 8px', color: '#8A8F96', fontSize: 12 }}>{prefixo}</span>}
-      <input
-        type="text" inputMode="decimal" value={value} placeholder={placeholder}
-        onChange={e => onChange(e.target.value)}
+      <InputNumerico
+        value={value} placeholder={placeholder}
+        onChange={onChange}
         style={{ flex: 1, border: 'none', outline: 'none', padding: '8px 10px', fontFamily: FONT, fontSize: 13, color: COR.texto, background: 'transparent', minWidth: 0 }}
       />
       {sufixo && <span style={{ padding: '0 8px', color: '#8A8F96', fontSize: 12 }}>{sufixo}</span>}
@@ -7534,12 +7579,20 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
       />
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Deduções sobre a receita</h4>
-      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Percentual sobre a receita bruta, mês a mês.</p>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Percentual sobre a receita bruta, mês a mês — exceto INSS, calculado só sobre a Receita Mercado Interno (pedido de 2026-09-11).
+      </p>
+      {/* Base da dedução (2026-09-11): INSS usa só a Receita Mercado
+          Interno (r.receitaInternaMes), as demais usam a receita bruta
+          total — mesmo critério de dre.deducoes em computeDRE, replicado
+          aqui só pra exibir o valor (R$) de cada linha corretamente. */}
       <TabelaMensal
         linhas={deducoes.map(d => {
-          const valoresMensal = MESES.map((_, m) => (dre.receitaBrutaMes?.[m] || 0) * (parseNum(d.pcts?.[m]) / 100));
+          const baseMes = d.id === 'inss' ? r.receitaInternaMes : (dre.receitaBrutaMes || mesesVazios());
+          const valoresMensal = MESES.map((_, m) => (baseMes[m] || 0) * (parseNum(d.pcts?.[m]) / 100));
           const totalAbs = valoresMensal.reduce((a, v) => a + v, 0);
-          const pctPonderado = dre.receitaBruta > 0 ? (totalAbs / dre.receitaBruta) * 100 : 0;
+          const baseTotal = baseMes.reduce((a, v) => a + v, 0);
+          const pctPonderado = baseTotal > 0 ? (totalAbs / baseTotal) * 100 : 0;
           return { key: d.id, label: d.nome, valores: d.pcts, totalValor: pctPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` };
         })}
         onChangeCelula={(dedId, mesIdx, valor) => {
@@ -7550,12 +7603,16 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
         sufixo="%"
         linhasCalculadas={[
           ...deducoes.map(d => {
-            const valoresMensal = MESES.map((_, m) => (dre.receitaBrutaMes?.[m] || 0) * (parseNum(d.pcts?.[m]) / 100));
+            const baseMes = d.id === 'inss' ? r.receitaInternaMes : (dre.receitaBrutaMes || mesesVazios());
+            const valoresMensal = MESES.map((_, m) => (baseMes[m] || 0) * (parseNum(d.pcts?.[m]) / 100));
             return { key: `${d.id}_abs`, label: `${d.nome} (R$)`, valoresMensal, totalValor: valoresMensal.reduce((a, v) => a + v, 0), cor: COR.vermelho };
           }),
           {
             key: 'total_deducoes', label: 'Total de deduções (R$)',
-            valoresMensal: MESES.map((_, m) => (dre.receitaBrutaMes?.[m] || 0) * (deducoes.reduce((acc, d) => acc + parseNum(d.pcts?.[m]), 0) / 100)),
+            valoresMensal: MESES.map((_, m) => deducoes.reduce((acc, d) => {
+              const base = d.id === 'inss' ? r.receitaInternaMes[m] : (dre.receitaBrutaMes?.[m] || 0);
+              return acc + base * (parseNum(d.pcts?.[m]) / 100);
+            }, 0)),
             totalValor: dre.deducoes, cor: COR.azul,
           },
         ]}
@@ -7851,9 +7908,9 @@ function GradeMensalLinha({ label, valores, onChange, formatarTotal }) {
       <td style={{ fontSize: 10.5, color: COR.texto, padding: '4px 8px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco, whiteSpace: 'nowrap' }}>{label}</td>
       {MESES.map((m, mi) => (
         <td key={m} style={{ padding: 2, border: `1px solid ${COR.borda}` }}>
-          <input
-            type="text" inputMode="decimal" value={vals[mi]}
-            onChange={e => onChange(mi, e.target.value)}
+          <InputNumerico
+            value={vals[mi]}
+            onChange={v => onChange(mi, v)}
             onPaste={e => onPasteMensal(e, mi, (idxs, vals2) => onChange(idxs, vals2))}
             style={{ width: '100%', minWidth: 56, border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 10.5, color: COR.texto, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' }}
           />

@@ -516,19 +516,27 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // (Corporativo) caem em [] e o reduce dá 0 — nunca quebra, essas
   // unidades nem oferecem 'custo_por_kg' como opção (ver
   // UNIDADES_COM_CUSTO_POR_KG no frontend). Volume vem em toneladas — ×1000 pra kg.
-  const volumeTotalKgMes = data.receita.agricola
-    ? computeReceitaAgricola(data.receita.agricola, cambios).producaoTotalKgMes
+  const receitaAgricolaCalc = data.receita.agricola ? computeReceitaAgricola(data.receita.agricola, cambios) : null;
+  const volumeTotalKgMes = receitaAgricolaCalc
+    ? receitaAgricolaCalc.producaoTotalKgMes
     : MESES.map((_, m) => (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000);
 
   // Base do percentual de dedução: normalmente a receita bruta total
   // (Têxtil/Agrícola), mas uma linha pode apontar `baseLinhaIds` — soma só
   // das linhas referenciadas (Resorts: PIS/Cofins de Hospedagem incidem só
-  // sobre a receita de Hospedagem, não sobre A&B, por exemplo).
+  // sobre a receita de Hospedagem, não sobre A&B, por exemplo). ARA Agrícola
+  // (2026-09-11, pedido: "o INSS presente nas deduções deve ser calculado
+  // apenas sob a receita do Mercado Interno") — caso especial: a dedução de
+  // id 'inss' (só existe em DEDUCOES_REF_AGRICOLA) usa a Receita Mercado
+  // Interno como base, não a receita bruta total (que inclui o Externo).
   const deducoesMes = MESES.map((_, m) =>
     (data.receita.deducoes || []).reduce((a, d) => {
-      const base = (d.baseLinhaIds && linhasReceitaMes)
-        ? d.baseLinhaIds.reduce((s, id) => s + (linhasReceitaMes[id]?.[m] || 0), 0)
-        : receitaBrutaMes[m];
+      let base = receitaBrutaMes[m];
+      if (d.baseLinhaIds && linhasReceitaMes) {
+        base = d.baseLinhaIds.reduce((s, id) => s + (linhasReceitaMes[id]?.[m] || 0), 0);
+      } else if (d.id === 'inss' && receitaAgricolaCalc) {
+        base = receitaAgricolaCalc.receitaInternaMes[m];
+      }
       return a + base * (parseNum(d.pcts?.[m]) / 100);
     }, 0)
   );
