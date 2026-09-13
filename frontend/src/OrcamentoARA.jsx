@@ -2047,6 +2047,8 @@ function receitaVazia(unidadeId) {
     return {
       produtos: PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
+      // Movimentação de estoque em volume (2026-09-13) — só Têxtil.
+      estoqueProducao: { saldoInicialJan: '' },
     };
   }
   if (unidadeId === 'agricola' || unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') {
@@ -2134,8 +2136,18 @@ function emptyFormData(unidadeId = 'textil') {
         recebimentosVendasNovDez: mesesVazios(),
         premissasRecebimento: premissasRecebimentoVazias(),
         // Plano de contas fixo (ver PLANO_CONTAS_PAGAMENTOS_TEXTIL), não
-        // mais lista livre — decisão de 2026-08-16.
+        // mais lista livre — decisão de 2026-08-16. Substituído em
+        // 2026-09-13 por premissasPagamento2 (5.2 Premissas de pagamento),
+        // mas mantido no modelo de dados para compatibilidade com orçamentos
+        // já preenchidos.
         pagamentosManuais: pagamentosManuaisVazios(),
+        // 5.2 Premissas de pagamento (2026-09-13): carteira + Nov/Dez +
+        // timing por conta analítica (% pago no mesmo mês).
+        premissasPagamento2: {
+          carteira: mesesVazios(),
+          competenciaNovDez: mesesVazios(),
+          porConta: {},
+        },
       } : {}),
     },
     provisoes: {
@@ -3062,18 +3074,22 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   // nota no topo desta função).
   const ircslMes = computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct).ircslMes;
 
-  // "Deixe a opção de incluir manualmente algum pagamento" (pedido de
-  // 2026-08-16) — plano de contas fixo (ver PLANO_CONTAS_PAGAMENTOS_TEXTIL,
-  // confirmado pelo usuário por print), somado às saídas do FC Direto sem
-  // duplicar o que já vem de Custos e Despesas.
-  const pagamentosManuaisMes = computePagamentosManuaisMes(cg.pagamentosManuais);
+  // 5.2 Premissas de pagamento (2026-09-13, substituiu PLANO_CONTAS_PAGAMENTOS_TEXTIL):
+  // carteira e Competência Nov/Dez entram como saídas adicionais no FC Direto;
+  // porConta (timing por conta analítica) é usado na tela 5.2 mas o FC Direto
+  // ainda usa a composição de CPV + despesas diretas (pagamentosFornecedoresMes
+  // + despesasCaixaSemPessoalMes) — o wiring fino por conta será na próxima fase.
+  const premPag2 = cg.premissasPagamento2 || {};
+  const pagamentosCarteiraMes = (premPag2.carteira || mesesVazios()).map(parseNum);
+  const pagamentosNovDezMes = (premPag2.competenciaNovDez || mesesVazios()).map(parseNum);
 
   const fcOperacionalDiretoMes = MESES.map((_, m) =>
-    recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m] - pagamentosManuaisMes[m]
+    recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m] - pagamentosCarteiraMes[m] - pagamentosNovDezMes[m]
   );
 
   return {
-    recebimentosClientesMes, pagamentosFornecedoresMes, pessoalEmCaixaMes, pagamentosDespesasMes, ircslMes, pagamentosManuaisMes,
+    recebimentosClientesMes, pagamentosFornecedoresMes, pessoalEmCaixaMes, pagamentosDespesasMes, ircslMes,
+    pagamentosCarteiraMes, pagamentosNovDezMes,
     fcOperacionalDiretoMes,
   };
 }
@@ -5799,6 +5815,7 @@ function VisaoGerente(props) {
               unidadeId={unidadeAtual}
               produtos={dados.receita.produtos} deducoes={dados.receita.deducoes}
               deducoesJustificativa={dados.receita.deducoesJustificativa} justificativaGeral={dados.receita.justificativaGeral}
+              estoqueProducao={dados.receita.estoqueProducao}
               updateProduto={updateProduto} updateDeducao={updateDeducao} atualizar={atualizar} dre={dre} cambios={cambios}
             />
           )
@@ -7194,17 +7211,67 @@ function AbaEstrategicas({ estrategicas, atualizar, premissasMacro, addObjetivo,
 
 const MOEDAS_ME = [{ id: 'usd', nome: 'USD' }, { id: 'eur', nome: 'EUR' }, { id: 'gbp', nome: 'GBP' }];
 
-function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, justificativaGeral, updateProduto, updateDeducao, atualizar, dre, cambios }) {
+function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, justificativaGeral, estoqueProducao, updateProduto, updateDeducao, atualizar, dre, cambios }) {
   const mostrarReferenciaTextil = unidadeId === 'textil';
   const volumeTotalMes = MESES.map((_, m) => produtos.reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0));
   const volumeTotalAnual = volumeTotalMes.reduce((a, v) => a + v, 0);
   const precoPonderadoMes = MESES.map((_, m) => (volumeTotalMes[m] > 0 ? dre.receitaBrutaMes[m] / volumeTotalMes[m] : 0));
   const precoPonderadoAnual = volumeTotalAnual > 0 ? dre.receitaBruta / volumeTotalAnual : 0;
 
+  // Movimentação de estoque em volume — só Têxtil (2026-09-13). Saldo Inicial
+  // de janeiro é digitado; dos meses seguintes, é o Saldo Final do mês anterior.
+  // Compras de matéria-prima ficam para fase posterior (ainda não inputadas).
+  // Vendas = soma dos volumes de todos os produtos (volumeTotalMes, automático).
+  let estoqueSection = null;
+  if (unidadeId === 'textil') {
+    const est = estoqueProducao || {};
+    const saldoInicialJanV = parseNum(est.saldoInicialJan || '');
+    const saldoFinalMes = [];
+    for (let m = 0; m < 12; m++) {
+      const si = m === 0 ? saldoInicialJanV : saldoFinalMes[m - 1];
+      saldoFinalMes.push(si - volumeTotalMes[m]);
+    }
+    const saldoInicialMes = MESES.map((_, m) => m === 0 ? saldoInicialJanV : saldoFinalMes[m - 1]);
+    estoqueSection = (
+      <div style={{ marginBottom: 24, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: COR.branco }}>
+        <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 6 }}>1. Produção — Movimentação de Estoque (t)</h4>
+        <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 12 }}>
+          Saldo inicial de janeiro digitado manualmente; dos meses seguintes, o saldo inicial é o saldo final do mês anterior.
+          Vendas = soma dos volumes de todos os produtos abaixo (automático).
+        </p>
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, color: COR.texto }}>Saldo Inicial em Janeiro (t):</span>
+          <div style={{ width: 140 }}>
+            <InputNumerico
+              value={est.saldoInicialJan || ''}
+              onChange={v => atualizar(['receita', 'estoqueProducao', 'saldoInicialJan'], v)}
+              placeholder="0"
+              style={{ width: '100%', fontFamily: FONT, fontSize: 12, padding: '4px 7px', border: `1px solid ${COR.borda}`, borderRadius: 5 }}
+            />
+          </div>
+        </div>
+        <TabelaMensal
+          linhas={[]}
+          onChangeCelula={() => {}}
+          linhasCalculadas={[
+            { key: 'saldoInicial', label: 'Saldo Inicial (t)', valoresMensal: saldoInicialMes, totalValor: saldoInicialJanV, cor: COR.texto },
+            { key: 'vendas', label: '(-) Vendas (t)', valoresMensal: volumeTotalMes.map(v => -v), totalValor: -volumeTotalAnual, cor: COR.vermelho },
+            { key: 'saldoFinal', label: '(=) Saldo Final (t)', valoresMensal: saldoFinalMes, totalValor: saldoFinalMes[11], cor: COR.azul },
+          ]}
+        />
+        <p style={{ fontSize: 10.5, color: '#B5B9BE', marginTop: 6 }}>
+          * Total de Saldo Inicial = valor de janeiro; Total de Saldo Final = valor de dezembro.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>2. Premissas de receita</h3>
       <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>Volume e preço por produto, mês a mês (aba "1.1 DRE"). O orçamento é base zero — projete do zero, mês a mês. Linhas cinzas "referência" trazem o realizado/orçado 2026 (fonte: Premissas_por_Empresa.xlsx) só para contexto — não alimentam o cálculo de 2027.</p>
+
+      {estoqueSection}
 
       {produtos.map((p, i) => {
         const ref = PRODUTOS_REF.find(r => r.nome === p.nome);
@@ -8781,12 +8848,22 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
   function totalContaAnual(conta) {
     return MESES.reduce((acc, _, m) => acc + totalContaMes(conta, m), 0);
   }
+  // Contas sintéticas de Headcount Existente — agrupadas dentro da linha
+  // "CLT" no consolidado (2026-09-13: CLT = HC Existente + Folha Novo HC).
+  const contasHC = (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente');
+  function hcExistenteMes(m) {
+    return contasHC.reduce((accC, c) =>
+      accC + ccsConsolidado.reduce((accCC, cc) => accCC + totalContaMesCC(cc.codigo, c.codigo, m), 0), 0
+    );
+  }
   function totalFolhaMes(m) {
-    return ccsConsolidado.reduce((acc, cc) => acc + (folhaCC(cc.codigo).mensal[m]?.total || 0), 0);
+    const folhaNovo = ccsConsolidado.reduce((acc, cc) => acc + (folhaCC(cc.codigo).mensal[m]?.total || 0), 0);
+    return folhaNovo + hcExistenteMes(m);
   }
   function totalPacoteMes(pacoteId, m) {
     const contas = refUnidade.planoContas[pacoteId] || [];
-    const totalContas = contas.reduce((acc, c) => acc + totalContaMes(c, m), 0);
+    // HC Existente já entrou em totalFolhaMes, não conta de novo em totalContaMes
+    const totalContas = contas.filter(c => c.nome !== 'Headcount Existente').reduce((acc, c) => acc + totalContaMes(c, m), 0);
     return totalContas + (pacoteId === 'pessoal' ? totalFolhaMes(m) : 0);
   }
   function totalPacoteAnual(pacoteId) {
@@ -8848,20 +8925,42 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
                 {pAberto && p.id === 'pessoal' && (
                   <React.Fragment>
                     <Linha
-                      label="CLT — Folha calculada" valoresMensal={MESES.map((_, m) => totalFolhaMes(m))} total={MESES.reduce((acc, _, m) => acc + totalFolhaMes(m), 0)}
+                      label="CLT — Headcount Existente + Novo Headcount"
+                      valoresMensal={MESES.map((_, m) => totalFolhaMes(m))}
+                      total={MESES.reduce((acc, _, m) => acc + totalFolhaMes(m), 0)}
                       indent={1} onClick={() => setContasAbertas(prev => ({ ...prev, __folha__: !prev.__folha__ }))}
                       aberto={!!contasAbertas.__folha__} temFilhos
                     />
-                    {contasAbertas.__folha__ && ccsConsolidado.map(cc => (
-                      <Linha
-                        key={cc.codigo} label={cc.nome} indent={2} cor="#8A8F96" bg={COR.claro}
-                        valoresMensal={MESES.map((_, m) => folhaCC(cc.codigo).mensal[m]?.total || 0)}
-                        total={folhaCC(cc.codigo).totalAnual}
-                      />
-                    ))}
+                    {contasAbertas.__folha__ && (
+                      <React.Fragment>
+                        {contasHC.map(c => (
+                          <React.Fragment key={c.codigo}>
+                            {ccsConsolidado
+                              .filter(cc => MESES.some((_, m) => totalContaMesCC(cc.codigo, c.codigo, m) !== 0))
+                              .map(cc => (
+                                <Linha
+                                  key={`hc-${c.codigo}-${cc.codigo}`}
+                                  label={`${cc.nome} — Headcount Existente`}
+                                  indent={2} cor="#8A8F96" bg={COR.claro}
+                                  valoresMensal={MESES.map((_, m) => totalContaMesCC(cc.codigo, c.codigo, m))}
+                                  total={MESES.reduce((acc, _, m) => acc + totalContaMesCC(cc.codigo, c.codigo, m), 0)}
+                                />
+                              ))}
+                          </React.Fragment>
+                        ))}
+                        {ccsConsolidado.map(cc => (
+                          <Linha
+                            key={cc.codigo} label={`${cc.nome} — Folha CLT (Novo HC)`} indent={2} cor="#8A8F96" bg={COR.claro}
+                            valoresMensal={MESES.map((_, m) => folhaCC(cc.codigo).mensal[m]?.total || 0)}
+                            total={folhaCC(cc.codigo).totalAnual}
+                          />
+                        ))}
+                      </React.Fragment>
+                    )}
                   </React.Fragment>
                 )}
-                {pAberto && contas.map(c => {
+                {/* HC Existente já está dentro da linha CLT acima — não renderizar de novo */}
+                {pAberto && contas.filter(c => c.nome !== 'Headcount Existente').map(c => {
                   const chaveConta = `${p.id}|${c.codigo}`;
                   const cAberto = !!contasAbertas[chaveConta];
                   // Só os CCs que de fato têm lançamento nesta conta — desde
@@ -9518,38 +9617,52 @@ function linhasFcDireto(fcd) {
     { key: 'pessoal', label: '(-) Pagamentos de pessoal', valoresMensal: fcd.pessoalEmCaixaMes.map(v => -v), totalValor: -fcd.pessoalEmCaixaMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
     { key: 'despesas', label: '(-) Pagamentos de despesas operacionais', valoresMensal: fcd.pagamentosDespesasMes.map(v => -v), totalValor: -fcd.pagamentosDespesasMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
     { key: 'ircslDireto', label: '(-) Pagamento de IRCSL', valoresMensal: fcd.ircslMes.map(v => -v), totalValor: -fcd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-    { key: 'manuais', label: '(-) Pagamentos manuais', valoresMensal: fcd.pagamentosManuaisMes.map(v => -v), totalValor: -fcd.pagamentosManuaisMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+    { key: 'carteira', label: '(-) Pagamentos em carteira', valoresMensal: fcd.pagamentosCarteiraMes.map(v => -v), totalValor: -fcd.pagamentosCarteiraMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+    { key: 'novdez', label: '(-) Pagamentos Competência Nov e Dez', valoresMensal: fcd.pagamentosNovDezMes.map(v => -v), totalValor: -fcd.pagamentosNovDezMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
     { key: 'fcopDireto', label: '(=) FC Operacional (Direto)', valoresMensal: fcd.fcOperacionalDiretoMes, totalValor: fcd.fcOperacionalDiretoMes.reduce((a, v) => a + v, 0), cor: COR.azul },
   ];
 }
 
-// Só ARA Têxtil — cascata de recebimentos real (Premissas Têxtil.xlsx, aba
-// Premissas Kgiro), plano de contas de pagamentos manuais (aba Fluxo de
-// Caixa Direto) e o próprio FC Direto — igual ao da Revisão (pedido de
-// 2026-08-16). Ver nota completa em PREMISSAS_RECEBIMENTO_REF /
-// computeRecebimentosKgiroMensal / PLANO_CONTAS_PAGAMENTOS_TEXTIL.
+// Só ARA Têxtil — cascata de recebimentos (5.1) e premissas de pagamento
+// por conta analítica (5.2, refatorado em 2026-09-13 — substituiu o plano
+// fixo PLANO_CONTAS_PAGAMENTOS_TEXTIL por uma visão dinâmica de todas as
+// contas de C&D com timing configurável). FC Direto ao final.
 function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct }) {
   const kgiro = computeRecebimentosKgiroMensal({ capitalGiro }, dre);
   const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const p = capitalGiro.premissasRecebimento;
-  const pagamentos = capitalGiro.pagamentosManuais || pagamentosManuaisVazios();
+  const premPag2 = capitalGiro.premissasPagamento2 || {};
 
   function updatePremissa(id, valor) {
     atualizar(['capitalGiro', 'premissasRecebimento'], { ...p, [id]: valor });
   }
-  function updatePagamento(contaId, mesIdx, valor) {
-    // Defensivo: se o orçamento foi criado antes desta migração (formato
-    // antigo, lista livre), pagamentos[contaId] pode não existir ainda.
-    const novoArray = atualizarArray(pagamentos[contaId], mesIdx, valor);
-    atualizar(['capitalGiro', 'pagamentosManuais'], { ...pagamentos, [contaId]: novoArray });
+  function updatePagamento2(chave, mesIdx, valor) {
+    const novoArray = atualizarArray(premPag2[chave] || mesesVazios(), mesIdx, valor);
+    atualizar(['capitalGiro', 'premissasPagamento2', chave], novoArray);
+  }
+  function updatePorConta(contaCodigo, valor) {
+    atualizar(['capitalGiro', 'premissasPagamento2', 'porConta'], { ...(premPag2.porConta || {}), [contaCodigo]: valor });
   }
 
-  // Linha "à vista" (defasagem 0) e as 12 linhas de aging (30 a 360 dias),
-  // cada uma com sua própria % de premissa editável e valor mensal
-  // calculado — mesma disposição da planilha (coluna D = premissa, colunas
-  // H em diante = meses).
   const linhaAVista = PREMISSAS_RECEBIMENTO_REF[0];
   const faixasAging = PREMISSAS_RECEBIMENTO_REF.slice(1);
+
+  // Competência de uma conta analítica, somada em todos os CCs da unidade.
+  function competenciaMesContas(contaCodigo, m) {
+    return Object.entries(dados.custos.linhas || {}).reduce((acc, [chave, linha]) => {
+      const partes = chave.split('|');
+      if (partes.length < 2 || partes[1] !== contaCodigo) return acc;
+      return acc + valorLinhaMes(linha, m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+    }, 0);
+  }
+
+  // Total Pessoal = folha CLT (novo HC) + HC Existente, todas as CCs.
+  const pessoalMes = MESES.map((_, m) => {
+    const folha = refUnidade.ccs.reduce((acc, cc) => acc + (folhaAnualPorCC(dados, cc.codigo).mensal[m]?.total || 0), 0);
+    const contasHCPac = (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente');
+    const hc = contasHCPac.reduce((accC, c) => accC + competenciaMesContas(c.codigo, m), 0);
+    return folha + hc;
+  });
 
   return (
     <div>
@@ -9560,7 +9673,8 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
         automaticamente a partir da Receita Líquida (após cancelamento) — só a coluna de % de premissa é editável.
       </p>
 
-      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>Premissas e cascata de recebimentos</h4>
+      {/* 5.1 Premissas de recebimento */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>5.1 Premissas de recebimento</h4>
       <TabelaMensal
         colunaExtra={{ titulo: 'Premissa', chave: 'premissa' }}
         linhas={[
@@ -9595,21 +9709,87 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
           placeholder="Justificativa das premissas de recebimento (ex.: mudança de prazo médio, renegociação com clientes)" />
       </div>
 
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 26, marginBottom: 8 }}>Pagamentos manuais (FC Direto)</h4>
+      {/* 5.2 Premissas de pagamento */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 28, marginBottom: 6 }}>5.2 Premissas de pagamento</h4>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
-        Plano de contas da aba Fluxo de Caixa Direto (fonte: Premissas Têxtil.xlsx). Lançamento manual mês a mês —
-        essas contas somam às saídas do FC Direto abaixo, sem duplicar o que já vem de Custos e Despesas.
+        Pagamentos em carteira e de Competência Nov/Dez digitados mês a mês. Para as contas analíticas de
+        Custos e Despesas, o campo "% mesmo mês" define quanto é pago no mês de competência — o restante
+        vai pro mês seguinte. Pessoal: competência = caixa no mesmo mês (fixo).
       </p>
+
       <TabelaMensal
-        linhas={PLANO_CONTAS_PAGAMENTOS_TEXTIL.map(c => ({ key: c.id, label: c.nome, valores: pagamentos[c.id] || mesesVazios() }))}
-        onChangeCelula={updatePagamento}
+        linhas={[
+          { key: 'carteira', label: 'Pagamentos em carteira', valores: premPag2.carteira || mesesVazios() },
+          { key: 'competenciaNovDez', label: 'Pagamentos Competência Nov e Dez', valores: premPag2.competenciaNovDez || mesesVazios() },
+        ]}
+        onChangeCelula={(chave, mesIdx, valor) => updatePagamento2(chave, mesIdx, valor)}
         corTotal={COR.vermelho}
       />
 
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 26, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal, por natureza de recebimento e pagamento</h4>
+      {/* Contas analíticas de C&D por pacote */}
+      {refUnidade.pacotes.map(pacote => {
+        if (pacote.id === 'depreciacao') return null; // não é saída de caixa
+        const contas = refUnidade.planoContas[pacote.id] || [];
+
+        if (pacote.id === 'pessoal') {
+          return (
+            <div key="pessoal" style={{ marginTop: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>{pacote.nome}</div>
+              <TabelaMensal
+                linhas={[]}
+                onChangeCelula={() => {}}
+                linhasCalculadas={[{
+                  key: 'pessoal',
+                  label: 'Total Pessoal (CLT + HC Existente) — Competência = Caixa',
+                  valoresMensal: pessoalMes,
+                  totalValor: pessoalMes.reduce((a, v) => a + v, 0),
+                  cor: COR.texto,
+                }]}
+              />
+            </div>
+          );
+        }
+
+        // Só mostra contas que têm algum valor preenchido em C&D
+        const contasComValor = contas.filter(c =>
+          c.nome !== 'Headcount Existente' &&
+          MESES.some((_, m) => competenciaMesContas(c.codigo, m) !== 0)
+        );
+        if (contasComValor.length === 0) return null;
+
+        return (
+          <div key={pacote.id} style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>{pacote.nome}</div>
+            <TabelaMensal
+              colunaExtra={{ titulo: '% mesmo mês', chave: 'premissa' }}
+              linhas={[]}
+              onChangeCelula={() => {}}
+              linhasCalculadas={contasComValor.map(c => {
+                const pctStr = (premPag2.porConta || {})[c.codigo] ?? '100';
+                const compMes = MESES.map((_, m) => competenciaMesContas(c.codigo, m));
+                return {
+                  key: c.codigo,
+                  label: c.nome,
+                  valoresMensal: compMes,
+                  totalValor: compMes.reduce((a, v) => a + v, 0),
+                  cor: COR.texto,
+                  premissa: {
+                    valor: pctStr,
+                    onChange: v => updatePorConta(c.codigo, v),
+                    placeholder: '100%',
+                  },
+                };
+              })}
+            />
+          </div>
+        );
+      })}
+
+      {/* FC Direto */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 28, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal, por natureza de recebimento e pagamento</h4>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
         Mesma tabela apresentada na Revisão, Análise e Envio — recebimentos vêm da cascata acima, pagamentos somam
-        Custos e Despesas + a lista manual acima.
+        Custos e Despesas + Carteira e Competência Nov/Dez da seção 5.2.
       </p>
       <TabelaMensal
         linhas={[]}
