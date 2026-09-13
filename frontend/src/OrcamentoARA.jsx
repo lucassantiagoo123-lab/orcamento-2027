@@ -2157,6 +2157,16 @@ function emptyFormData(unidadeId = 'textil') {
           porConta: {},
         },
       } : {}),
+      // 5.2 Premissas de pagamento para Agrícola e Resorts (2026-09-13):
+      // mesmo racional da Têxtil (carteira + Nov/Dez + timing por conta),
+      // sem 5.1 cascata de recebimento (em construção).
+      ...(['agricola_tds', 'agricola_fds', 'samoa_beach', 'samoa_villa'].includes(unidadeId) ? {
+        premissasPagamento2: {
+          carteira: mesesVazios(),
+          competenciaNovDez: mesesVazios(),
+          porConta: {},
+        },
+      } : {}),
     },
     provisoes: {
       inadimplencia: mesesVazios(), contingencias: mesesVazios(), perdas: mesesVazios(), justificativa: '',
@@ -5842,7 +5852,7 @@ function VisaoGerente(props) {
         {aba === 'capex' && (
           <AbaCapex projetos={dados.capex.projetos} addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} updateDesembolsoProjeto={updateDesembolsoProjeto} />
         )}
-        {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={referenciaDaUnidade(unidadeAtual)} ipcaAnualPct={ipcaAnualPct} />}
+        {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={referenciaDaUnidade(unidadeAtual)} ipcaAnualPct={ipcaAnualPct} unidadeId={unidadeAtual} />}
         {aba === 'provisoes' && <AbaProvisoes provisoes={dados.provisoes} resultado={dados.resultado} atualizar={atualizar} />}
         {aba === 'fcfinanciamentos' && (
           <AbaFcFinanciamentos
@@ -9582,9 +9592,14 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
   );
 }
 
-function AbaGiro({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct }) {
+function AbaGiro({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct, unidadeId }) {
   if (capitalGiro.premissasRecebimento) {
     return <AbaGiroTextil capitalGiro={capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={refUnidade} ipcaAnualPct={ipcaAnualPct} />;
+  }
+  // Agrícola e Resorts (sites editáveis): 5.1 placeholder + 5.2 premissas de pagamento.
+  // Corporativo excluído (pendência De/Para conta×CC, estrutura diferente).
+  if (unidadeId !== 'corporativo' && refUnidade.pacotes?.length > 0) {
+    return <AbaGiroPacotes capitalGiro={capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={refUnidade} ipcaAnualPct={ipcaAnualPct} />;
   }
   return (
     <div>
@@ -9610,6 +9625,175 @@ function AbaGiro({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct 
         <CampoJustificativa value={capitalGiro.justificativa} onChange={v => atualizar(['capitalGiro', 'justificativa'], v)}
           placeholder="Justificativa dos prazos (ex.: renegociação com fornecedor, mudança de política de crédito)" />
       </div>
+    </div>
+  );
+}
+
+// Agrícola (TDS/FDS) e Resorts (Beach/Villa) — 5.1 placeholder + 5.2 premissas de pagamento
+// com o mesmo racional da AbaGiroTextil: carteira + Nov/Dez + tabela compacta por conta.
+// 5.1 (recebimentos) ainda não construída para essas unidades.
+function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct }) {
+  const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
+  const premPag2 = capitalGiro.premissasPagamento2 || {};
+
+  function updatePagamento2(chave, mesIdx, valor) {
+    const novoArray = atualizarArray(premPag2[chave] || mesesVazios(), mesIdx, valor);
+    atualizar(['capitalGiro', 'premissasPagamento2', chave], novoArray);
+  }
+  function getContaConfig(codigo) {
+    const raw = (premPag2.porConta || {})[codigo];
+    if (raw === undefined || raw === null) return { tipo: 'competencia_caixa', pct: '100', valores: mesesVazios() };
+    if (typeof raw === 'string') return { tipo: 'percentual_mes', pct: raw, valores: mesesVazios() };
+    return { tipo: 'competencia_caixa', pct: '100', valores: mesesVazios(), ...raw };
+  }
+  function updatePremissaConta(contaCodigo, campo, valor) {
+    const config = getContaConfig(contaCodigo);
+    atualizar(['capitalGiro', 'premissasPagamento2', 'porConta'], {
+      ...(premPag2.porConta || {}),
+      [contaCodigo]: { ...config, [campo]: valor },
+    });
+  }
+  function competenciaMesContas(contaCodigo, m) {
+    return Object.entries(dados.custos.linhas || {}).reduce((acc, [chave, linha]) => {
+      const partes = chave.split('|');
+      if (partes.length < 2 || partes[1] !== contaCodigo) return acc;
+      return acc + valorLinhaMes(linha, m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+    }, 0);
+  }
+  const pessoalMes = MESES.map((_, m) => {
+    const folha = refUnidade.ccs.reduce((acc, cc) => acc + (folhaAnualPorCC(dados, cc.codigo).mensal[m]?.total || 0), 0);
+    const contasHCPac = (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente');
+    const hc = contasHCPac.reduce((accC, c) => accC + competenciaMesContas(c.codigo, m), 0);
+    return folha + hc;
+  });
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>5. Kgiro e FC Operacional</h3>
+
+      {/* 5.1 placeholder */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 6 }}>5.1 Premissas de recebimento</h4>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#FFF8F0', border: `1px solid ${COR.laranja}`, borderRadius: 7, marginBottom: 20 }}>
+        <AlertTriangle size={15} color={COR.laranja} style={{ flexShrink: 0 }} />
+        <span style={{ fontSize: 11.5, color: '#7A4800' }}>
+          Premissas de recebimento para esta unidade ainda serão construídas em etapa futura.
+        </span>
+      </div>
+
+      {/* 5.2 Premissas de pagamento */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 6 }}>5.2 Premissas de pagamento</h4>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Pagamentos em carteira e de Competência Nov/Dez digitados mês a mês. Para as contas analíticas de
+        Custos e Despesas, defina o critério de timing por conta. Pessoal: competência = caixa (fixo).
+      </p>
+
+      <TabelaMensal
+        linhas={[
+          { key: 'carteira', label: 'Pagamentos em carteira', valores: premPag2.carteira || mesesVazios() },
+          { key: 'competenciaNovDez', label: 'Pagamentos Competência Nov e Dez', valores: premPag2.competenciaNovDez || mesesVazios() },
+        ]}
+        onChangeCelula={(chave, mesIdx, valor) => updatePagamento2(chave, mesIdx, valor)}
+        corTotal={COR.vermelho}
+      />
+
+      {/* Contas analíticas por pacote — tabela compacta */}
+      {refUnidade.pacotes.map(pacote => {
+        if (pacote.id === 'depreciacao') return null;
+        const contas = refUnidade.planoContas[pacote.id] || [];
+
+        if (pacote.id === 'pessoal') {
+          return (
+            <div key="pessoal" style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{pacote.nome}</div>
+              <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={[{
+                key: 'pessoal', label: 'Total Pessoal (CLT + HC Existente) — Competência = Caixa',
+                valoresMensal: pessoalMes, totalValor: pessoalMes.reduce((a, v) => a + v, 0), cor: COR.texto,
+              }]} />
+            </div>
+          );
+        }
+
+        const contasPacote = contas.filter(c => c.nome !== 'Headcount Existente');
+        if (contasPacote.length === 0) return null;
+
+        const TH = { background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', textAlign: 'right', fontWeight: 700 };
+        return (
+          <div key={pacote.id} style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{pacote.nome}</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT, fontSize: 10.5 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...TH, textAlign: 'left', minWidth: 130, padding: '5px 8px', position: 'sticky', left: 0 }}>Conta</th>
+                    <th style={{ ...TH, textAlign: 'left', minWidth: 195, padding: '5px 6px' }}>Critério</th>
+                    {MESES.map(m => <th key={m} style={{ ...TH, minWidth: 55 }}>{m}</th>)}
+                    <th style={{ ...TH, background: COR.laranja, minWidth: 72, padding: '5px 8px' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contasPacote.map((c, ci) => {
+                    const config = getContaConfig(c.codigo);
+                    const compMes = MESES.map((_, m) => competenciaMesContas(c.codigo, m));
+                    const compTotal = compMes.reduce((a, v) => a + v, 0);
+                    const vals = config.valores || mesesVazios();
+                    const valsTotal = vals.reduce((a, v) => a + parseNum(v), 0);
+                    const bg = ci % 2 === 0 ? COR.branco : COR.claro;
+                    const TD = { padding: '3px 4px', borderBottom: `1px solid ${COR.borda}`, textAlign: 'right', background: bg };
+                    return (
+                      <tr key={c.codigo}>
+                        <td style={{ ...TD, textAlign: 'left', padding: '4px 8px', fontWeight: 500, color: COR.texto, position: 'sticky', left: 0 }}>{c.nome}</td>
+                        <td style={{ ...TD, textAlign: 'left', padding: '3px 6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <div style={{ minWidth: 168 }}>
+                              <Selecao value={config.tipo} onChange={v => updatePremissaConta(c.codigo, 'tipo', v)} opcoes={OPCOES_TIMING_PAGAMENTO} />
+                            </div>
+                            {config.tipo === 'percentual_mes' && (
+                              <>
+                                <div style={{ width: 48 }}>
+                                  <InputNumerico
+                                    value={config.pct || ''}
+                                    onChange={v => updatePremissaConta(c.codigo, 'pct', v)}
+                                    placeholder="100"
+                                    style={{ width: '100%', fontFamily: FONT, fontSize: 10.5, padding: '3px 4px', border: `1px solid ${COR.borda}`, borderRadius: 4, textAlign: 'right' }}
+                                  />
+                                </div>
+                                <span style={{ fontSize: 10, color: '#8A8F96' }}>%</span>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                        {MESES.map((_, m) => (
+                          <td key={m} style={TD}>
+                            {config.tipo === 'valor_direto' ? (
+                              <InputNumerico
+                                value={vals[m] ?? ''}
+                                onChange={v => updatePremissaConta(c.codigo, 'valores', atualizarArray(vals, m, v))}
+                                placeholder="0"
+                                style={{ width: 52, fontFamily: FONT, fontSize: 10, padding: '2px 3px', border: `1px solid ${COR.borda}`, borderRadius: 3, textAlign: 'right' }}
+                              />
+                            ) : (
+                              <span style={{ color: compMes[m] !== 0 ? COR.texto : '#C8CBD0' }}>
+                                {compMes[m] !== 0 ? formatBRL(compMes[m]) : '—'}
+                              </span>
+                            )}
+                          </td>
+                        ))}
+                        <td style={{ ...TD, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>
+                          {formatBRL(config.tipo === 'valor_direto' ? valsTotal : compTotal)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* FC Direto */}
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 28, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal</h4>
+      <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={linhasFcDireto(fcd)} />
     </div>
   );
 }
