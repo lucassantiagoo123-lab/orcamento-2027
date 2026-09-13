@@ -209,6 +209,14 @@ const PREMISSAS_RECEBIMENTO_REF = [
   { id: 'd330', nome: '330 dias', pctRef: 0, defasagemMeses: 11 },
   { id: 'd360', nome: '360 dias', pctRef: 0, defasagemMeses: 12 },
 ];
+
+// Critérios de timing de pagamento para a seção 5.2 (2026-09-13).
+const OPCOES_TIMING_PAGAMENTO = [
+  { id: 'competencia_caixa', nome: 'Competência igual a caixa' },
+  { id: 'percentual_mes', nome: 'Percentual por mês' },
+  { id: 'valor_direto', nome: 'Valor direto' },
+];
+
 function premissasRecebimentoVazias() {
   const p = {};
   PREMISSAS_RECEBIMENTO_REF.forEach((r) => { p[r.id] = ''; });
@@ -9640,8 +9648,25 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
     const novoArray = atualizarArray(premPag2[chave] || mesesVazios(), mesIdx, valor);
     atualizar(['capitalGiro', 'premissasPagamento2', chave], novoArray);
   }
-  function updatePorConta(contaCodigo, valor) {
-    atualizar(['capitalGiro', 'premissasPagamento2', 'porConta'], { ...(premPag2.porConta || {}), [contaCodigo]: valor });
+  // Lê config de timing de uma conta, com backward compat (string antiga = percentual_mes).
+  function getContaConfig(codigo) {
+    const raw = (premPag2.porConta || {})[codigo];
+    if (raw === undefined || raw === null) {
+      return { tipo: 'competencia_caixa', pct: '100', valores: mesesVazios() };
+    }
+    if (typeof raw === 'string') {
+      // Backward compat: valor salvo como string era % mesmo mês
+      return { tipo: 'percentual_mes', pct: raw, valores: mesesVazios() };
+    }
+    return { tipo: 'competencia_caixa', pct: '100', valores: mesesVazios(), ...raw };
+  }
+
+  function updatePremissaConta(contaCodigo, campo, valor) {
+    const config = getContaConfig(contaCodigo);
+    atualizar(['capitalGiro', 'premissasPagamento2', 'porConta'], {
+      ...(premPag2.porConta || {}),
+      [contaCodigo]: { ...config, [campo]: valor },
+    });
   }
 
   const linhaAVista = PREMISSAS_RECEBIMENTO_REF[0];
@@ -9726,7 +9751,7 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
         corTotal={COR.vermelho}
       />
 
-      {/* Contas analíticas de C&D por pacote */}
+      {/* Contas analíticas de C&D por pacote — todas as contas, com critério de timing configurável */}
       {refUnidade.pacotes.map(pacote => {
         if (pacote.id === 'depreciacao') return null; // não é saída de caixa
         const contas = refUnidade.planoContas[pacote.id] || [];
@@ -9750,37 +9775,76 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
           );
         }
 
-        // Só mostra contas que têm algum valor preenchido em C&D
-        const contasComValor = contas.filter(c =>
-          c.nome !== 'Headcount Existente' &&
-          MESES.some((_, m) => competenciaMesContas(c.codigo, m) !== 0)
-        );
-        if (contasComValor.length === 0) return null;
+        // Todas as contas analíticas (exceto HC Existente que já vai em Pessoal)
+        const contasPacote = contas.filter(c => c.nome !== 'Headcount Existente');
+        if (contasPacote.length === 0) return null;
 
         return (
           <div key={pacote.id} style={{ marginTop: 18 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>{pacote.nome}</div>
-            <TabelaMensal
-              colunaExtra={{ titulo: '% mesmo mês', chave: 'premissa' }}
-              linhas={[]}
-              onChangeCelula={() => {}}
-              linhasCalculadas={contasComValor.map(c => {
-                const pctStr = (premPag2.porConta || {})[c.codigo] ?? '100';
-                const compMes = MESES.map((_, m) => competenciaMesContas(c.codigo, m));
-                return {
-                  key: c.codigo,
-                  label: c.nome,
-                  valoresMensal: compMes,
-                  totalValor: compMes.reduce((a, v) => a + v, 0),
-                  cor: COR.texto,
-                  premissa: {
-                    valor: pctStr,
-                    onChange: v => updatePorConta(c.codigo, v),
-                    placeholder: '100%',
-                  },
-                };
-              })}
-            />
+            <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>{pacote.nome}</div>
+            {contasPacote.map(c => {
+              const config = getContaConfig(c.codigo);
+              const compMes = MESES.map((_, m) => competenciaMesContas(c.codigo, m));
+              const compTotal = compMes.reduce((a, v) => a + v, 0);
+              return (
+                <div key={c.codigo} style={{ marginBottom: 10, border: `1px solid ${COR.borda}`, borderRadius: 6, padding: '8px 10px', background: COR.branco }}>
+                  {/* Cabeçalho da conta: nome + seletor de critério */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 600, color: COR.texto, flex: 1, minWidth: 140 }}>{c.nome}</span>
+                    <div style={{ minWidth: 210 }}>
+                      <Selecao
+                        value={config.tipo}
+                        onChange={v => updatePremissaConta(c.codigo, 'tipo', v)}
+                        opcoes={OPCOES_TIMING_PAGAMENTO}
+                      />
+                    </div>
+                  </div>
+                  {/* Critério 1: Competência igual a caixa */}
+                  {config.tipo === 'competencia_caixa' && (
+                    <TabelaMensal
+                      linhas={[]} onChangeCelula={() => {}}
+                      linhasCalculadas={[{
+                        key: c.codigo, label: 'Competência (= Caixa)',
+                        valoresMensal: compMes, totalValor: compTotal, cor: COR.texto,
+                      }]}
+                    />
+                  )}
+                  {/* Critério 2: Percentual por mês */}
+                  {config.tipo === 'percentual_mes' && (
+                    <TabelaMensal
+                      colunaExtra={{ titulo: '% mesmo mês', chave: 'premissa' }}
+                      linhas={[]} onChangeCelula={() => {}}
+                      linhasCalculadas={[{
+                        key: c.codigo, label: 'Competência',
+                        valoresMensal: compMes, totalValor: compTotal, cor: COR.texto,
+                        premissa: {
+                          valor: config.pct || '100',
+                          onChange: v => updatePremissaConta(c.codigo, 'pct', v),
+                          placeholder: '100%',
+                        },
+                      }]}
+                    />
+                  )}
+                  {/* Critério 3: Valor direto (digitado mês a mês) */}
+                  {config.tipo === 'valor_direto' && (
+                    <TabelaMensal
+                      linhas={[{
+                        key: c.codigo, label: 'Pagamento direto (R$)',
+                        valores: config.valores || mesesVazios(),
+                      }]}
+                      onChangeCelula={(_, mesIdx, valor) => {
+                        const novosValores = atualizarArray(config.valores || mesesVazios(), mesIdx, valor);
+                        updatePremissaConta(c.codigo, 'valores', novosValores);
+                      }}
+                      linhasCalculadas={[{
+                        key: `comp_${c.codigo}`, label: 'Competência (ref.)',
+                        valoresMensal: compMes, totalValor: compTotal, cor: '#8A8F96',
+                      }]}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         );
       })}
