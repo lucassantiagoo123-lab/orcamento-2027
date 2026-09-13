@@ -9751,100 +9751,97 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
         corTotal={COR.vermelho}
       />
 
-      {/* Contas analíticas de C&D por pacote — todas as contas, com critério de timing configurável */}
+      {/* Contas analíticas de C&D por pacote — tabela compacta, critério por conta */}
       {refUnidade.pacotes.map(pacote => {
         if (pacote.id === 'depreciacao') return null; // não é saída de caixa
         const contas = refUnidade.planoContas[pacote.id] || [];
 
         if (pacote.id === 'pessoal') {
           return (
-            <div key="pessoal" style={{ marginTop: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>{pacote.nome}</div>
-              <TabelaMensal
-                linhas={[]}
-                onChangeCelula={() => {}}
-                linhasCalculadas={[{
-                  key: 'pessoal',
-                  label: 'Total Pessoal (CLT + HC Existente) — Competência = Caixa',
-                  valoresMensal: pessoalMes,
-                  totalValor: pessoalMes.reduce((a, v) => a + v, 0),
-                  cor: COR.texto,
-                }]}
-              />
+            <div key="pessoal" style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{pacote.nome}</div>
+              <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={[{
+                key: 'pessoal', label: 'Total Pessoal (CLT + HC Existente) — Competência = Caixa',
+                valoresMensal: pessoalMes, totalValor: pessoalMes.reduce((a, v) => a + v, 0), cor: COR.texto,
+              }]} />
             </div>
           );
         }
 
-        // Todas as contas analíticas (exceto HC Existente que já vai em Pessoal)
         const contasPacote = contas.filter(c => c.nome !== 'Headcount Existente');
         if (contasPacote.length === 0) return null;
 
+        const TH = { background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', textAlign: 'right', fontWeight: 700 };
         return (
-          <div key={pacote.id} style={{ marginTop: 18 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>{pacote.nome}</div>
-            {contasPacote.map(c => {
-              const config = getContaConfig(c.codigo);
-              const compMes = MESES.map((_, m) => competenciaMesContas(c.codigo, m));
-              const compTotal = compMes.reduce((a, v) => a + v, 0);
-              return (
-                <div key={c.codigo} style={{ marginBottom: 10, border: `1px solid ${COR.borda}`, borderRadius: 6, padding: '8px 10px', background: COR.branco }}>
-                  {/* Cabeçalho da conta: nome + seletor de critério */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 600, color: COR.texto, flex: 1, minWidth: 140 }}>{c.nome}</span>
-                    <div style={{ minWidth: 210 }}>
-                      <Selecao
-                        value={config.tipo}
-                        onChange={v => updatePremissaConta(c.codigo, 'tipo', v)}
-                        opcoes={OPCOES_TIMING_PAGAMENTO}
-                      />
-                    </div>
-                  </div>
-                  {/* Critério 1: Competência igual a caixa */}
-                  {config.tipo === 'competencia_caixa' && (
-                    <TabelaMensal
-                      linhas={[]} onChangeCelula={() => {}}
-                      linhasCalculadas={[{
-                        key: c.codigo, label: 'Competência (= Caixa)',
-                        valoresMensal: compMes, totalValor: compTotal, cor: COR.texto,
-                      }]}
-                    />
-                  )}
-                  {/* Critério 2: Percentual por mês */}
-                  {config.tipo === 'percentual_mes' && (
-                    <TabelaMensal
-                      colunaExtra={{ titulo: '% mesmo mês', chave: 'premissa' }}
-                      linhas={[]} onChangeCelula={() => {}}
-                      linhasCalculadas={[{
-                        key: c.codigo, label: 'Competência',
-                        valoresMensal: compMes, totalValor: compTotal, cor: COR.texto,
-                        premissa: {
-                          valor: config.pct || '100',
-                          onChange: v => updatePremissaConta(c.codigo, 'pct', v),
-                          placeholder: '100%',
-                        },
-                      }]}
-                    />
-                  )}
-                  {/* Critério 3: Valor direto (digitado mês a mês) */}
-                  {config.tipo === 'valor_direto' && (
-                    <TabelaMensal
-                      linhas={[{
-                        key: c.codigo, label: 'Pagamento direto (R$)',
-                        valores: config.valores || mesesVazios(),
-                      }]}
-                      onChangeCelula={(_, mesIdx, valor) => {
-                        const novosValores = atualizarArray(config.valores || mesesVazios(), mesIdx, valor);
-                        updatePremissaConta(c.codigo, 'valores', novosValores);
-                      }}
-                      linhasCalculadas={[{
-                        key: `comp_${c.codigo}`, label: 'Competência (ref.)',
-                        valoresMensal: compMes, totalValor: compTotal, cor: '#8A8F96',
-                      }]}
-                    />
-                  )}
-                </div>
-              );
-            })}
+          <div key={pacote.id} style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{pacote.nome}</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT, fontSize: 10.5 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...TH, textAlign: 'left', minWidth: 130, padding: '5px 8px', position: 'sticky', left: 0 }}>Conta</th>
+                    <th style={{ ...TH, textAlign: 'left', minWidth: 195, padding: '5px 6px' }}>Critério</th>
+                    {MESES.map(m => <th key={m} style={{ ...TH, minWidth: 55 }}>{m}</th>)}
+                    <th style={{ ...TH, background: COR.laranja, minWidth: 72, padding: '5px 8px' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contasPacote.map((c, ci) => {
+                    const config = getContaConfig(c.codigo);
+                    const compMes = MESES.map((_, m) => competenciaMesContas(c.codigo, m));
+                    const compTotal = compMes.reduce((a, v) => a + v, 0);
+                    const vals = config.valores || mesesVazios();
+                    const valsTotal = vals.reduce((a, v) => a + parseNum(v), 0);
+                    const bg = ci % 2 === 0 ? COR.branco : COR.claro;
+                    const TD = { padding: '3px 4px', borderBottom: `1px solid ${COR.borda}`, textAlign: 'right', background: bg };
+                    return (
+                      <tr key={c.codigo}>
+                        <td style={{ ...TD, textAlign: 'left', padding: '4px 8px', fontWeight: 500, color: COR.texto, position: 'sticky', left: 0 }}>{c.nome}</td>
+                        <td style={{ ...TD, textAlign: 'left', padding: '3px 6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <div style={{ minWidth: 168 }}>
+                              <Selecao value={config.tipo} onChange={v => updatePremissaConta(c.codigo, 'tipo', v)} opcoes={OPCOES_TIMING_PAGAMENTO} />
+                            </div>
+                            {config.tipo === 'percentual_mes' && (
+                              <>
+                                <div style={{ width: 48 }}>
+                                  <InputNumerico
+                                    value={config.pct || ''}
+                                    onChange={v => updatePremissaConta(c.codigo, 'pct', v)}
+                                    placeholder="100"
+                                    style={{ width: '100%', fontFamily: FONT, fontSize: 10.5, padding: '3px 4px', border: `1px solid ${COR.borda}`, borderRadius: 4, textAlign: 'right' }}
+                                  />
+                                </div>
+                                <span style={{ fontSize: 10, color: '#8A8F96' }}>%</span>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                        {MESES.map((_, m) => (
+                          <td key={m} style={TD}>
+                            {config.tipo === 'valor_direto' ? (
+                              <InputNumerico
+                                value={vals[m] ?? ''}
+                                onChange={v => updatePremissaConta(c.codigo, 'valores', atualizarArray(vals, m, v))}
+                                placeholder="0"
+                                style={{ width: 52, fontFamily: FONT, fontSize: 10, padding: '2px 3px', border: `1px solid ${COR.borda}`, borderRadius: 3, textAlign: 'right' }}
+                              />
+                            ) : (
+                              <span style={{ color: compMes[m] !== 0 ? COR.texto : '#C8CBD0' }}>
+                                {compMes[m] !== 0 ? formatBRL(compMes[m]) : '—'}
+                              </span>
+                            )}
+                          </td>
+                        ))}
+                        <td style={{ ...TD, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>
+                          {formatBRL(config.tipo === 'valor_direto' ? valsTotal : compTotal)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         );
       })}
