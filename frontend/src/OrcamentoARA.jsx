@@ -1299,7 +1299,7 @@ const PLANO_CONTAS_RESORTS = {
 };
 
 
-// Fonte oficial: Base_Corporativo.xlsx. A coluna de Centros de Custo é confiável (20 CCs).
+// Fonte oficial: Base_Corporativo.xlsx. A coluna de Centros de Custo é confiável (22 CCs).
 // A coluna de Contas Analíticas NÃO vem pareada por CC no arquivo-fonte (mesmo código de conta
 // repetido em todas as linhas, enquanto os nomes de despesa mudam) — tratada aqui como uma lista
 // de referência geral de despesas do Corporativo, não uma classificação C.C. × Conta. Pendência
@@ -1327,6 +1327,8 @@ export const CCS_CORPORATIVO = [
   { codigo: "0010118", nome: "FP&A", tipo: 'despesa' },
   { codigo: "0010119", nome: "SECRETARIA DE GOVERNANÇA", tipo: 'despesa' },
   { codigo: "0010120", nome: "INOVAÇÃO E TECNOLOGIA", tipo: 'despesa' },
+  { codigo: "0010121", nome: "GOVERNANÇA DE DADOS", tipo: 'despesa' },
+  { codigo: "102", nome: "CSC", tipo: 'despesa' },
   { codigo: "0020102", nome: "MARKETING", tipo: 'despesa' },
 ];
 
@@ -1361,7 +1363,7 @@ const CONTAS_REFERENCIA_CORPORATIVO = [
 // pareia conta × CC (mesmo código de conta repetido em toda linha — ver
 // nota acima de CCS_CORPORATIVO), a solução aqui é literal ao pedido: as 21
 // contas de CONTAS_REFERENCIA_CORPORATIVO (as únicas 21 reais, nenhuma
-// inventada) valem para todos os 20 CCs igualmente, agrupadas por pacote
+// inventada) valem para todos os 22 CCs igualmente, agrupadas por pacote
 // (agrupamento interpretado por mim — não vem da planilha, que não separa
 // por pacote). Códigos CORP01..CORP21 são sintéticos (a fonte não trazia
 // código de conta nenhum, só o nome) — servem só de identificador estável
@@ -1587,7 +1589,7 @@ const REFERENCIA_POR_UNIDADE = {
   resorts: { ccs: CCS_RESORTS, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
   samoa_beach: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('beach')), planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
   samoa_villa: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('villa')), planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
-  // Decisão de 2026-08-16: Corporativo usa os 20 CCs reais (CCS_CORPORATIVO,
+  // Decisão de 2026-08-16: Corporativo usa os 22 CCs reais (CCS_CORPORATIVO,
   // fonte confiável) — diferente de Agrícola/Resorts, que usam CC
   // placeholder. Todo CC recebe o mesmo plano de contas completo, ver nota
   // em PLANO_CONTAS_CORPORATIVO.
@@ -5503,7 +5505,7 @@ function PainelGovernancaCorporativo() {
         <div>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>Lançamento de orçamento ainda não disponível para o Corporativo</div>
           <div style={{ fontSize: 11.5, color: COR.texto }}>
-            Fonte oficial: Base_Corporativo.xlsx. A lista de Centros de Custo abaixo (20 CCs) é confiável e é a única fonte válida de CC para o Corporativo —
+            Fonte oficial: Base_Corporativo.xlsx. A lista de Centros de Custo abaixo (22 CCs) é confiável e é a única fonte válida de CC para o Corporativo —
             o sistema não deve aceitar CC fora desta lista. A lista de contas analíticas do arquivo, porém, não vem pareada por CC (o mesmo código de conta se repete
             em todas as linhas enquanto os nomes de despesa mudam), então trato-a apenas como uma referência geral de despesas do Corporativo, não como uma
             classificação CC × Conta. Sem esse De/Para, o fluxo completo de orçamento (como o da ARA Têxtil) fica pendente — evitando lançar dados como se a
