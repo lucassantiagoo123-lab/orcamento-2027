@@ -2077,10 +2077,10 @@ function receitaVazia(unidadeId) {
         vendaInterna: { pctTon: mesesVazios(), precoKg: mesesVazios() },
         vendaExterna: {
           pctTon: mesesVazios(),
-          volumeKg: mesesVazios(),
-          gbp: { pct: mesesVazios(), precoMoeda: mesesVazios() },
-          eur: { pct: mesesVazios(), precoMoeda: mesesVazios() },
-          usd: { pct: mesesVazios(), precoMoeda: mesesVazios() },
+          volumeKg: mesesVazios(), // total (mantido por compat; total real = soma gbp+eur+usd abaixo)
+          gbp: { pct: mesesVazios(), precoMoeda: mesesVazios(), volumeKg: mesesVazios() },
+          eur: { pct: mesesVazios(), precoMoeda: mesesVazios(), volumeKg: mesesVazios() },
+          usd: { pct: mesesVazios(), precoMoeda: mesesVazios(), volumeKg: mesesVazios() },
         },
         justificativa: '',
       },
@@ -2344,27 +2344,30 @@ function computeReceitaAgricola(agricola, cambios) {
   // vendaExterna.pctTon (campos do modelo anterior) ficam sem uso, não
   // apagados do documento por compatibilidade com dados já salvos.
   const ve = agricola?.vendaExterna || {};
-  const volumeExternoTotalKgMes = (ve.volumeKg || mesesVazios()).map(parseNum);
+  // Volume por moeda digitado direto (2026-09-14 — substitui % sobre o total
+  // do Externo, que não alimenta mais o cálculo). Total Externo = soma das 3.
+  // ve.volumeKg (campo anterior do total) e ve.*.pct ficam no modelo apenas
+  // para compatibilidade com dados já salvos; não são mais lidos aqui.
+  const gbpVolumeKgMes = (ve.gbp?.volumeKg || mesesVazios()).map(parseNum);
+  const eurVolumeKgMes = (ve.eur?.volumeKg || mesesVazios()).map(parseNum);
+  const usdVolumeKgMes = (ve.usd?.volumeKg || mesesVazios()).map(parseNum);
+  const volumeExternoTotalKgMes = MESES.map((_, m) => gbpVolumeKgMes[m] + eurVolumeKgMes[m] + usdVolumeKgMes[m]);
   const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => Math.max(0, v - volumeExternoTotalKgMes[m]));
 
   const vi = agricola?.vendaInterna || {};
   const receitaInternaMes = volumeInternoKgMes.map((v, m) => v * parseNum(vi.precoKg?.[m]));
 
-  // % de Ton. vendida em cada mercado (2026-09-11): deixam de ser digitados
-  // nos dois lados — viram 100% calculados a partir dos volumes acima
-  // (sempre somam 100% da Produção Total do mês, por construção).
   const pctInternoMes = producaoTotalKgMes.map((v, m) => v > 0 ? (volumeInternoKgMes[m] / v) * 100 : 0);
   const pctExternoMes = producaoTotalKgMes.map((v, m) => v > 0 ? (volumeExternoTotalKgMes[m] / v) * 100 : 0);
 
-  function porMoeda(moedaObj, chaveCambio) {
-    const volumeKgMes = volumeExternoTotalKgMes.map((v, m) => v * parseNum(moedaObj?.pct?.[m]) / 100);
+  function porMoeda(moedaObj, chaveCambio, volumeKgMes) {
     const taxa = parseNum(cambios?.[chaveCambio]);
     const receitaMes = volumeKgMes.map((v, m) => v * parseNum(moedaObj?.precoMoeda?.[m]) * taxa);
     return { volumeKgMes, receitaMes };
   }
-  const gbp = porMoeda(ve.gbp, 'gbp');
-  const eur = porMoeda(ve.eur, 'eur');
-  const usd = porMoeda(ve.usd, 'usd');
+  const gbp = porMoeda(ve.gbp, 'gbp', gbpVolumeKgMes);
+  const eur = porMoeda(ve.eur, 'eur', eurVolumeKgMes);
+  const usd = porMoeda(ve.usd, 'usd', usdVolumeKgMes);
   const receitaExternaMes = MESES.map((_, m) => gbp.receitaMes[m] + eur.receitaMes[m] + usd.receitaMes[m]);
 
   const receitaBrutaMes = MESES.map((_, m) => receitaInternaMes[m] + receitaExternaMes[m]);
@@ -3242,7 +3245,8 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
       // Volume Mercado Externo (2026-09-11) é o novo input que decide a
       // cascata (ver computeReceitaAgricola) — checar ele já cobre os dois
       // lados (Interno vira sempre o residual, nunca é digitado direto).
-      const vendaOk = somaMes(data.receita.agricola.vendaExterna?.volumeKg) > 0;
+      const veAud = data.receita.agricola.vendaExterna || {};
+      const vendaOk = (somaMes(veAud.gbp?.volumeKg) + somaMes(veAud.eur?.volumeKg) + somaMes(veAud.usd?.volumeKg)) > 0;
       checks.push({
         label: 'Receita: Produção (Embalada) e Vendas (Interno/Externo) com valor lançado',
         ok: embaladaOk && vendaOk,
@@ -3378,7 +3382,7 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     return algumNegativo(ag.embaladaKg) || parseNum(ag.refugoPct) < 0
       || algumNegativo(ag.vendaInterna?.pctTon) || algumNegativo(ag.vendaInterna?.precoKg)
       || algumNegativo(ve.pctTon) || algumNegativo(ve.volumeKg)
-      || ['gbp', 'eur', 'usd'].some(m => algumNegativo(ve[m]?.pct) || algumNegativo(ve[m]?.precoMoeda));
+      || ['gbp', 'eur', 'usd'].some(m => algumNegativo(ve[m]?.pct) || algumNegativo(ve[m]?.precoMoeda) || algumNegativo(ve[m]?.volumeKg));
   })();
   const valoresNegativos = agricolaTemNegativo
     || (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
@@ -7505,7 +7509,7 @@ function agricolaComPadroes(agricola) {
   const a = agricola || {};
   const vi = a.vendaInterna || {};
   const ve = a.vendaExterna || {};
-  function moeda(m) { return { pct: m?.pct || mesesVazios(), precoMoeda: m?.precoMoeda || mesesVazios() }; }
+  function moeda(m) { return { pct: m?.pct || mesesVazios(), precoMoeda: m?.precoMoeda || mesesVazios(), volumeKg: m?.volumeKg || mesesVazios() }; }
   return {
     embaladaKg: a.embaladaKg || mesesVazios(),
     refugoPct: a.refugoPct ?? '',
@@ -7528,28 +7532,19 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
     atualizar(['receita', 'agricola', ...caminho], valor);
   }
 
-  // Soma das 3 % de moeda, mês a mês — pedido: "precisam somar 100%" — só
-  // aviso visual (destaca em laranja o(s) mês(es) fora), não trava o campo.
-  const somaPctMoedaMes = MESES.map((_, m) =>
-    parseNum(ve.gbp?.pct?.[m]) + parseNum(ve.eur?.pct?.[m]) + parseNum(ve.usd?.pct?.[m])
-  );
-  const mesesForaDe100 = MESES.filter((_, m) => somaPctMoedaMes[m] !== 0 && Math.abs(somaPctMoedaMes[m] - 100) > 0.5);
-
+  // Volume por moeda digitado direto (2026-09-14): cada moeda tem suas
+  // próprias linhas de Volume (input) + Preço (input) + Câmbio (calculado)
+  // + Receita (calculada). % por moeda removidos da tabela.
   function linhasMoeda(chave, label, moedaSufixo) {
-    const obj = ve[chave] || { pct: mesesVazios(), precoMoeda: mesesVazios() };
+    const obj = ve[chave] || { precoMoeda: mesesVazios(), volumeKg: mesesVazios() };
     const dadosCalc = r[chave];
     const taxa = parseNum(cambios?.[chave]);
-    return {
-      linhas: [
-        { key: `${chave}_pct`, label: `% ${label} do volume Mercado Externo`, valores: obj.pct },
-        { key: `${chave}_preco`, label: `Preço (${moedaSufixo}/Kg)`, valores: obj.precoMoeda },
-      ],
-      calculadas: [
-        { key: `${chave}_vol`, label: `Volume ${label} (Kg)`, valoresMensal: dadosCalc.volumeKgMes, totalValor: somaMes(dadosCalc.volumeKgMes), cor: COR.texto, ...FMT_KG },
-        { key: `${chave}_cambio`, label: `Câmbio (R$/${moedaSufixo})`, valoresMensal: MESES.map(() => taxa), totalValor: taxa, cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) },
-        { key: `${chave}_receita`, label: `Receita ${label} (R$)`, valoresMensal: dadosCalc.receitaMes, totalValor: somaMes(dadosCalc.receitaMes), cor: COR.verde },
-      ],
-    };
+    return [
+      { key: `${chave}_volumeKg`, label: `Volume ${label} (Kg)`, valores: obj.volumeKg || mesesVazios(), ...FMT_KG },
+      { key: `${chave}_preco`, label: `Preço (${moedaSufixo}/Kg)`, valores: obj.precoMoeda },
+      { key: `${chave}_cambio`, calculada: true, label: `Câmbio (R$/${moedaSufixo})`, valoresMensal: MESES.map(() => taxa), totalValor: taxa, cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) },
+      { key: `${chave}_receita`, calculada: true, label: `Receita ${label} (R$)`, valoresMensal: dadosCalc.receitaMes, totalValor: somaMes(dadosCalc.receitaMes), cor: COR.verde },
+    ];
   }
   const gbpLinhas = linhasMoeda('gbp', 'GBP', 'GBP');
   const eurLinhas = linhasMoeda('eur', 'EUR', 'EUR');
@@ -7602,35 +7597,20 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.1 Vendas — Mercado Externo</h4>
       <TabelaMensal
         linhas={[
-          { key: 'volumeExterno', label: 'Volume vendido — Mercado Externo (Kg)', valores: ve.volumeKg || mesesVazios(), formatarTotal: FMT_KG.formatarTotal },
-          {
-            key: 'pctExterno', calculada: true, label: '% de Ton. vendida (Mercado Externo)', valoresMensal: r.pctExternoMes,
-            totalValor: r.pctExternoMes.reduce((a, v) => a + v, 0) / 12, cor: COR.texto,
-            formatarCelula: fmtPctVolume, formatarTotal: fmtPctVolumeTotal,
-          },
-          ...gbpLinhas.linhas, ...eurLinhas.linhas, ...usdLinhas.linhas,
+          ...gbpLinhas, ...eurLinhas, ...usdLinhas,
+          { key: 'volumeExterno', calculada: true, label: 'Volume Total Mercado Externo (Kg)', valoresMensal: r.volumeExternoTotalKgMes, totalValor: somaMes(r.volumeExternoTotalKgMes), cor: COR.texto, ...FMT_KG },
+          { key: 'pctExterno', calculada: true, label: '% de Ton. vendida (Mercado Externo)', valoresMensal: r.pctExternoMes, totalValor: r.pctExternoMes.reduce((a, v) => a + v, 0) / 12, cor: COR.texto, formatarCelula: fmtPctVolume, formatarTotal: fmtPctVolumeTotal },
         ]}
         onChangeCelula={(key, mi, v) => {
-          if (key === 'volumeExterno') {
-            atualizarAgricola(['vendaExterna', 'volumeKg'], atualizarArray(ve.volumeKg || mesesVazios(), mi, v));
-            return;
-          }
-          const [chave, campo] = key.split('_'); // ex.: 'gbp_pct' -> ['gbp','pct'], 'gbp_preco' -> ['gbp','preco']
-          const campoReal = campo === 'preco' ? 'precoMoeda' : 'pct';
-          const atual = ve[chave]?.[campoReal] || mesesVazios();
-          atualizarAgricola(['vendaExterna', chave, campoReal], atualizarArray(atual, mi, v));
+          const [chave, campo] = key.split('_'); // 'gbp_volumeKg', 'gbp_preco', etc.
+          const campoReal = campo === 'preco' ? 'precoMoeda' : 'volumeKg';
+          atualizarAgricola(['vendaExterna', chave, campoReal], atualizarArray(ve[chave]?.[campoReal] || mesesVazios(), mi, v));
         }}
         corTotal={COR.verde}
         linhasCalculadas={[
-          ...gbpLinhas.calculadas, ...eurLinhas.calculadas, ...usdLinhas.calculadas,
           { key: 'receitaExterna', label: 'Receita Total Mercado Externo (R$)', valoresMensal: r.receitaExternaMes, totalValor: somaMes(r.receitaExternaMes), cor: COR.verde },
         ]}
       />
-      <p style={{ fontSize: 10, color: mesesForaDe100.length > 0 ? COR.laranja : '#8A8F96', marginTop: -4, marginBottom: 18, fontWeight: mesesForaDe100.length > 0 ? 700 : 400 }}>
-        {mesesForaDe100.length > 0
-          ? `Atenção: % de GBP + EUR + USD não soma 100% do volume do Mercado Externo em ${mesesForaDe100.join(', ')}.`
-          : 'As 3 % (GBP/EUR/USD) devem somar 100% do volume do Mercado Externo em cada mês.'}
-      </p>
 
       {/* Pedido de 2026-09-11: Mercado Interno passa a ser a 2.2 (era 2.2,
           continua) — Volume e %Volume viram calculados (residual da
