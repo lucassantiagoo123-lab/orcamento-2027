@@ -2056,7 +2056,8 @@ function receitaVazia(unidadeId) {
       produtos: PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
       // Movimentação de estoque em volume (2026-09-13) — só Têxtil.
-      estoqueProducao: { saldoInicialJan: '' },
+      // producaoMes: volume produzido em cada mês, adiciona ao estoque (2026-09-14).
+      estoqueProducao: { saldoInicialJan: '', producaoMes: mesesVazios() },
     };
   }
   if (unidadeId === 'agricola' || unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') {
@@ -7244,10 +7245,11 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
   if (unidadeId === 'textil') {
     const est = estoqueProducao || {};
     const saldoInicialJanV = parseNum(est.saldoInicialJan || '');
+    const producaoMes = (est.producaoMes || mesesVazios()).map(parseNum);
     const saldoFinalMes = [];
     for (let m = 0; m < 12; m++) {
       const si = m === 0 ? saldoInicialJanV : saldoFinalMes[m - 1];
-      saldoFinalMes.push(si - volumeTotalMes[m]);
+      saldoFinalMes.push(si + producaoMes[m] - volumeTotalMes[m]);
     }
     const saldoInicialMes = MESES.map((_, m) => m === 0 ? saldoInicialJanV : saldoFinalMes[m - 1]);
     estoqueSection = (
@@ -7255,7 +7257,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
         <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 6 }}>1. Produção — Movimentação de Estoque (t)</h4>
         <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 12 }}>
           Saldo inicial de janeiro digitado manualmente; dos meses seguintes, o saldo inicial é o saldo final do mês anterior.
-          Vendas = soma dos volumes de todos os produtos abaixo (automático).
+          Produção digitada mês a mês — adiciona ao estoque. Vendas = soma dos volumes de todos os produtos abaixo (automático).
         </p>
         <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11.5, color: COR.texto }}>Saldo Inicial em Janeiro (t):</span>
@@ -7269,8 +7271,14 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
           </div>
         </div>
         <TabelaMensal
-          linhas={[]}
-          onChangeCelula={() => {}}
+          linhas={[
+            { key: 'producao', label: '(+) Produção (t)', valores: est.producaoMes || mesesVazios() },
+          ]}
+          onChangeCelula={(_, mesIdx, valor) => {
+            const novos = atualizarArray(est.producaoMes || mesesVazios(), mesIdx, valor);
+            atualizar(['receita', 'estoqueProducao', 'producaoMes'], novos);
+          }}
+          corTotal={COR.verde}
           linhasCalculadas={[
             { key: 'saldoInicial', label: 'Saldo Inicial (t)', valoresMensal: saldoInicialMes, totalValor: saldoInicialJanV, cor: COR.texto },
             { key: 'vendas', label: '(-) Vendas (t)', valoresMensal: volumeTotalMes.map(v => -v), totalValor: -volumeTotalAnual, cor: COR.vermelho },
