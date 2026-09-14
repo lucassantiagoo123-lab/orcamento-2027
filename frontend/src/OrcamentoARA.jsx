@@ -523,10 +523,11 @@ const PACOTES_TEXTIL = [
   // Nomenclatura padronizada em 2026-08-31 (pedido: "padronizar as
   // nomenclaturas dos pacotes") para bater com Agrícola/Resorts — só
   // troca de id/nome, nenhuma conta muda de pacote.
-  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Matriz_Governanca_OBZ_2027_4 (17 contas)' },
+  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Matriz_Governanca_OBZ_2027_4 (14 contas)' },
   { id: 'depreciacao', nome: "Depreciação e Amortização", ref: 'Matriz_Governanca_OBZ_2027_4 (10 contas)' },
   { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Matriz_Governanca_OBZ_2027_4 (43 contas)' },
   { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Matriz_Governanca_OBZ_2027_4 (5 contas)' },
+  { id: 'tecnologia', nome: "Tecnologia e Inovação", ref: 'Matriz_Governanca_OBZ_2027_4 (3 contas)' },
 ];
 
 // De-para oficial conta contábil -> Pacote (Matriz_Governanca_OBZ_2027_4)
@@ -658,13 +659,15 @@ const PLANO_CONTAS = {
     { codigo: '34202019', nome: "ALUGUEL A PESSOA FISICA", origem: 'Despesa' },
     { codigo: '34202025', nome: "LOCACAO DE MAQ E EQUIPAMENTOS", origem: 'Despesa' },
     { codigo: '71102001', nome: "ENERGIA ELETRICA", origem: 'Custo' },
-    { codigo: '71102002', nome: "TELEFONE", origem: 'Custo' },
     { codigo: '71102034', nome: "DESPESAS COM GAS", origem: 'Custo' },
     { codigo: '34104005', nome: "ENERGIA ELETRICA", origem: 'Despesa' },
     { codigo: '34104006', nome: "AGUA E ESGOTO", origem: 'Despesa' },
-    { codigo: '34104007', nome: "TELEFONE E INTERNET", origem: 'Despesa' },
     { codigo: '34202001', nome: "ENERGIA ELETRICA", origem: 'Despesa' },
     { codigo: '34202002', nome: "AGUA E ESGOTO", origem: 'Despesa' },
+  ],
+  tecnologia: [
+    { codigo: '71102002', nome: "TELEFONE", origem: 'Custo' },
+    { codigo: '34104007', nome: "TELEFONE E INTERNET", origem: 'Despesa' },
     { codigo: '34202003', nome: "TELEFONE E INTERNET", origem: 'Despesa' },
   ],
   depreciacao: [
@@ -1372,12 +1375,13 @@ export const PACOTES_CORPORATIVO = [
   { id: 'pessoal', nome: "Pessoal", ref: 'Base_Corporativo.xlsx (3 contas)' },
   { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Base_Corporativo.xlsx (3 contas)' },
   // Nomenclatura padronizada em 2026-08-31 — ver nota igual em PACOTES_TEXTIL.
-  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Base_Corporativo.xlsx (4 contas)' },
-  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Base_Corporativo.xlsx (6 contas)' },
+  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Base_Corporativo.xlsx (1 conta)' },
+  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Base_Corporativo.xlsx (5 contas)' },
   { id: 'manutencao', nome: "Manutenção", ref: 'Base_Corporativo.xlsx (1 conta)' },
   { id: 'comercial', nome: "Comercial e Marketing", ref: 'Base_Corporativo.xlsx (1 conta)' },
   { id: 'viagens', nome: "Viagens", ref: 'Base_Corporativo.xlsx (2 contas)' },
   { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Base_Corporativo.xlsx (1 conta)' },
+  { id: 'tecnologia', nome: "Tecnologia e Inovação", ref: 'Base_Corporativo.xlsx (3 contas)' },
 ];
 
 export const PLANO_CONTAS_CORPORATIVO = {
@@ -1412,17 +1416,19 @@ export const PLANO_CONTAS_CORPORATIVO = {
   ],
   locacao: [
     { codigo: 'CORP05', nome: "Aluguel e Condomínio", origem: 'Despesa' },
-    { codigo: 'CORP09', nome: "Telefonia e Internet", origem: 'Despesa' },
-    { codigo: 'CORP10', nome: "Locação de Software", origem: 'Despesa' },
     { codigo: 'CORP20', nome: "Locação de equipamentos", origem: 'Despesa' },
   ],
   administrativo_utilidades: [
     { codigo: 'CORP06', nome: "Material de expediente", origem: 'Despesa' },
-    { codigo: 'CORP11', nome: "Material de Informática", origem: 'Despesa' },
     { codigo: 'CORP15', nome: "Eventos e Confraternizações", origem: 'Despesa' },
     { codigo: 'CORP16', nome: "Caixa Fundo fixo", origem: 'Despesa' },
     { codigo: 'CORP17', nome: "Despesas Diversas", origem: 'Despesa' },
     { codigo: 'CORP19', nome: "Material de Copa/Cozinha e limpeza", origem: 'Despesa' },
+  ],
+  tecnologia: [
+    { codigo: 'CORP09', nome: "Telefonia e Internet", origem: 'Despesa' },
+    { codigo: 'CORP10', nome: "Locação de Software", origem: 'Despesa' },
+    { codigo: 'CORP11', nome: "Material de Informática", origem: 'Despesa' },
   ],
   manutencao: [
     { codigo: 'CORP07', nome: "Reformas e Manutenção", origem: 'Despesa' },
