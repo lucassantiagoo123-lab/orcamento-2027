@@ -7275,6 +7275,9 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
           </div>
         </div>
         <TabelaMensal
+          linhasCalculadasAntes={[
+            { key: 'saldoInicial', label: 'Saldo Inicial (t)', valoresMensal: saldoInicialMes, totalValor: saldoInicialJanV, cor: COR.texto },
+          ]}
           linhas={[
             { key: 'producao', label: '(+) Produção (t)', valores: est.producaoMes || mesesVazios() },
           ]}
@@ -7284,7 +7287,6 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
           }}
           corTotal={COR.verde}
           linhasCalculadas={[
-            { key: 'saldoInicial', label: 'Saldo Inicial (t)', valoresMensal: saldoInicialMes, totalValor: saldoInicialJanV, cor: COR.texto },
             { key: 'vendas', label: '(-) Vendas (t)', valoresMensal: volumeTotalMes.map(v => -v), totalValor: -volumeTotalAnual, cor: COR.vermelho },
             { key: 'saldoFinal', label: '(=) Saldo Final (t)', valoresMensal: saldoFinalMes, totalValor: saldoFinalMes[11], cor: COR.azul },
           ]}
@@ -8956,7 +8958,7 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
                         ))}
                         {ccsConsolidado.map(cc => (
                           <Linha
-                            key={cc.codigo} label={`${cc.nome} — Folha CLT (Novo HC)`} indent={2} cor="#8A8F96" bg={COR.claro}
+                            key={cc.codigo} label={`${cc.nome} — Folha CLT`} indent={2} cor="#8A8F96" bg={COR.claro}
                             valoresMensal={MESES.map((_, m) => folhaCC(cc.codigo).mensal[m]?.total || 0)}
                             total={folhaCC(cc.codigo).totalAnual}
                           />
