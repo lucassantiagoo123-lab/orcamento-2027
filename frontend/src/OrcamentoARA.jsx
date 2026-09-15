@@ -4357,8 +4357,8 @@ export default function OrcamentoARA({ usuario }) {
   // desembolsos: mesesVazios() (2026-09-09) — grade mensal do investimento,
   // ver desembolsosDoProjeto. `valor`/`mes` somem dos projetos novos (só
   // continuam existindo em projetos antigos, lidos pelo fallback de compat).
-  function addProjeto(categoria) {
-    atualizar(['capex', 'projetos'], [...dados.capex.projetos, { id: uid(), nome: '', desembolsos: mesesVazios(), justificativa: '', categoria: categoria || 'melhoria_interna' }]);
+  function addProjeto(categoria, ccCodigo) {
+    atualizar(['capex', 'projetos'], [...dados.capex.projetos, { id: uid(), nome: '', desembolsos: mesesVazios(), justificativa: '', categoria: categoria || 'melhoria_interna', ccCodigo: ccCodigo || '' }]);
   }
   function updateProjeto(id, campo, valor) {
     atualizar(['capex', 'projetos'], dados.capex.projetos.map(p => p.id === id ? { ...p, [campo]: valor } : p));
@@ -5871,7 +5871,14 @@ function VisaoGerente(props) {
           />
         )}
         {aba === 'capex' && (
-          <AbaCapex projetos={dados.capex.projetos} addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} updateDesembolsoProjeto={updateDesembolsoProjeto} />
+          <AbaCapex
+            projetos={dados.capex.projetos}
+            addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} updateDesembolsoProjeto={updateDesembolsoProjeto}
+            usuario={usuario}
+            ccsDisponiveis={usuario.perfil === 'gerente_cc_corporativo'
+              ? referenciaDaUnidade(unidadeAtual).ccs.filter(cc => (usuario.ccsPermitidos || []).some(p => p.unidadeId === unidadeAtual && p.codigo === cc.codigo))
+              : referenciaDaUnidade(unidadeAtual).ccs}
+          />
         )}
         {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={referenciaDaUnidade(unidadeAtual)} ipcaAnualPct={ipcaAnualPct} unidadeId={unidadeAtual} />}
         {aba === 'provisoes' && <AbaProvisoes provisoes={dados.provisoes} resultado={dados.resultado} atualizar={atualizar} />}
@@ -9812,16 +9819,26 @@ const CATEGORIAS_CAPEX = [
 // investimento" — cada projeto ganha uma TabelaMensal de 1 linha (o mesmo
 // padrão usado em todo o resto do app), em vez do valor único + mês único
 // de antes. Ver desembolsosDoProjeto (compat com dado antigo).
-function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDesembolsoProjeto }) {
+function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDesembolsoProjeto, usuario, ccsDisponiveis }) {
+  const isGerenteCc = usuario?.perfil === 'gerente_cc_corporativo';
+  // Gestor de CC vê só os projetos dos próprios CCs; admin/gerente de unidade vê todos.
+  const projetosFiltrados = isGerenteCc
+    ? projetos.filter(p => !p.ccCodigo || (ccsDisponiveis || []).some(cc => cc.codigo === p.ccCodigo))
+    : projetos;
+
+  function handleAddProjeto(catId) {
+    // Gestor de CC com 1 único CC: auto-atribui. Com vários: cria sem CC (gestor escolhe).
+    const ccAuto = isGerenteCc && ccsDisponiveis?.length === 1 ? ccsDisponiveis[0].codigo : '';
+    addProjeto(catId, ccAuto);
+  }
+
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>6. CAPEX</h3>
       <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>Investimentos por projeto (inclui o CC Investimentos do Protheus), com desembolso mês a mês e justificativa — agrupados por categoria.</p>
 
       {CATEGORIAS_CAPEX.map(cat => {
-        // Projetos criados antes desta categorização caem em 'melhoria_interna'
-        // por padrão (mesmo fallback do addProjeto) — nada some da lista.
-        const projetosCategoria = projetos.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
+        const projetosCategoria = projetosFiltrados.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
         const totalCategoria = projetosCategoria.reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
         return (
           <div key={cat.id} style={{ marginBottom: 22 }}>
@@ -9837,6 +9854,26 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
                   <CampoTexto value={p.nome} onChange={v => updateProjeto(p.id, 'nome', v)} placeholder="Nome do projeto" />
                   <button onClick={() => removeProjeto(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={14} /></button>
                 </div>
+                {/* Seletor de CC — auto-preenchido para gestor de CC com 1 CC; editável quando há vários */}
+                {ccsDisponiveis?.length > 0 && !(isGerenteCc && ccsDisponiveis.length === 1) && (
+                  <div style={{ marginBottom: 8 }}>
+                    <select
+                      value={p.ccCodigo || ''}
+                      onChange={e => updateProjeto(p.id, 'ccCodigo', e.target.value)}
+                      style={{ fontSize: 11.5, padding: '5px 8px', border: `1px solid ${COR.borda}`, borderRadius: 6, fontFamily: FONT, color: p.ccCodigo ? COR.texto : '#8A8F96', width: '100%', marginBottom: 4 }}
+                    >
+                      <option value="">Centro de Custo (opcional)</option>
+                      {(ccsDisponiveis || []).map(cc => (
+                        <option key={cc.codigo} value={cc.codigo}>{cc.codigo} — {cc.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {isGerenteCc && ccsDisponiveis?.length === 1 && (
+                  <div style={{ fontSize: 11, color: '#8A8F96', marginBottom: 6 }}>
+                    CC: <strong style={{ color: COR.texto }}>{ccsDisponiveis[0].codigo} — {ccsDisponiveis[0].nome}</strong>
+                  </div>
+                )}
                 <CampoTexto value={p.justificativa} onChange={v => updateProjeto(p.id, 'justificativa', v)} placeholder="Justificativa de viabilidade" />
                 <div style={{ marginTop: 8 }}>
                   <TabelaMensal
@@ -9847,7 +9884,7 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
                 </div>
               </div>
             ))}
-            <Botao variante="fantasma" icone={Plus} onClick={() => addProjeto(cat.id)}>Adicionar projeto — {cat.nome}</Botao>
+            <Botao variante="fantasma" icone={Plus} onClick={() => handleAddProjeto(cat.id)}>Adicionar projeto — {cat.nome}</Botao>
           </div>
         );
       })}
