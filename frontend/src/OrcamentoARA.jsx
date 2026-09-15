@@ -9365,6 +9365,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
           (Pacote > Conta analítica > Centro de Custo, todos os CCs), não
           faz sentido pro Gestor de Unidade nem pro Gestor de CC. */}
       {usuario?.perfil === 'admin_fpa' && (
+        <React.Fragment>
         <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
           <button
             onClick={() => setMostrarConsolidado(prev => !prev)}
@@ -9413,6 +9414,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             </div>
           )}
         </div>
+        </React.Fragment>
       )}
 
       {ccAtual.obs && (
