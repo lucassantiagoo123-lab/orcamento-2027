@@ -2360,13 +2360,17 @@ function computeReceitaAgricola(agricola, cambios) {
   const eurVolumeKgMes = (ve.eur?.volumeKg || mesesVazios()).map(parseNum);
   const usdVolumeKgMes = (ve.usd?.volumeKg || mesesVazios()).map(parseNum);
   const volumeExternoTotalKgMes = MESES.map((_, m) => gbpVolumeKgMes[m] + eurVolumeKgMes[m] + usdVolumeKgMes[m]);
-  const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => Math.max(0, v - volumeExternoTotalKgMes[m]));
+  // Volume interno = embalada − externo (não inclui refugo, que tem
+  // preço próprio). Refugo é vendido separadamente via precoRefugoKg.
+  const volumeInternoKgMes = embaladaKgMes.map((v, m) => Math.max(0, v - volumeExternoTotalKgMes[m]));
 
   const vi = agricola?.vendaInterna || {};
   const receitaInternaMes = volumeInternoKgMes.map((v, m) => v * parseNum(vi.precoKg?.[m]));
+  const precoRefugoKgMes = (vi.precoRefugoKg || mesesVazios()).map(parseNum);
+  const receitaRefugoMes = refugoKgMes.map((v, m) => v * precoRefugoKgMes[m]);
 
-  const pctInternoMes = producaoTotalKgMes.map((v, m) => v > 0 ? (volumeInternoKgMes[m] / v) * 100 : 0);
-  const pctExternoMes = producaoTotalKgMes.map((v, m) => v > 0 ? (volumeExternoTotalKgMes[m] / v) * 100 : 0);
+  const pctInternoMes = embaladaKgMes.map((v, m) => v > 0 ? (volumeInternoKgMes[m] / v) * 100 : 0);
+  const pctExternoMes = embaladaKgMes.map((v, m) => v > 0 ? (volumeExternoTotalKgMes[m] / v) * 100 : 0);
 
   function porMoeda(moedaObj, chaveCambio, volumeKgMes) {
     const taxa = parseNum(cambios?.[chaveCambio]);
@@ -2378,12 +2382,12 @@ function computeReceitaAgricola(agricola, cambios) {
   const usd = porMoeda(ve.usd, 'usd', usdVolumeKgMes);
   const receitaExternaMes = MESES.map((_, m) => gbp.receitaMes[m] + eur.receitaMes[m] + usd.receitaMes[m]);
 
-  const receitaBrutaMes = MESES.map((_, m) => receitaInternaMes[m] + receitaExternaMes[m]);
+  const receitaBrutaMes = MESES.map((_, m) => receitaInternaMes[m] + receitaExternaMes[m] + receitaRefugoMes[m]);
 
   return {
     embaladaKgMes, refugoKgMes, producaoTotalKgMes,
-    volumeInternoKgMes, receitaInternaMes, pctInternoMes,
-    pctExternoMes, volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
+    volumeInternoKgMes, receitaInternaMes, precoRefugoKgMes, receitaRefugoMes,
+    pctInternoMes, pctExternoMes, volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
     receitaBrutaMes,
   };
 }
@@ -5790,7 +5794,7 @@ function VisaoGerente(props) {
             envio (ver podeEnviar em AbaRevisao); o envio/histórico da
             Agrícola/Resorts continua só no Consolidado (ver
             ConsolidadoAgricola/ConsolidadoResorts). */}
-        {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos' || a.id === 'revisao')
+        {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos' || a.id === 'revisao' || a.id === 'capex')
           : ABAS).map(a => (
           <button
             key={a.id} onClick={() => setAba(a.id)}
@@ -6059,7 +6063,11 @@ function LinhaContaViagensLeitura({ conta, viagens, total }) {
 function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }) {
   const [ccSel, setCcSel] = useState(refUnidade.ccs?.[0]?.codigo);
   const [pacotesAbertos, setPacotesAbertos] = useState({});
-  const [contaAberta, setContaAberta] = useState(null);
+  const [contaAberta, setContaAberta] = useState(() => {
+    const hc = (refUnidade?.planoContas?.['pessoal'] || []).find(c => c.nome === 'Headcount Existente');
+    const cc0 = refUnidade?.ccs?.[0]?.codigo;
+    return hc && cc0 ? `${cc0}|${hc.codigo}` : null;
+  });
   const linhas = dados.custos?.linhas || {};
   const funcionarios = dados.custos?.funcionarios || [];
   const premissasPessoal = dados.custos?.premissasPessoal;
@@ -6133,7 +6141,6 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
                     <FolhaPessoalLeitura funcionarios={funcionariosCC} premissasPessoal={premissasPessoal} />
                     {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
                       <div key={c.codigo} style={{ marginTop: 14 }}>
-                        <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Consultórias PJs — conta analítica</h5>
                         <LinhaContaLeitura
                           conta={c}
                           linha={linhas[chaveLinha(c.codigo)] || novaLinhaVazia()}
@@ -7553,9 +7560,11 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
     const obj = ve[chave] || { precoMoeda: mesesVazios(), volumeKg: mesesVazios() };
     const dadosCalc = r[chave];
     const taxa = parseNum(cambios?.[chave]);
+    const volTotal = somaMes(dadosCalc.volumeKgMes);
+    const precoPonderado = taxa > 0 && volTotal > 0 ? somaMes(dadosCalc.receitaMes) / (taxa * volTotal) : 0;
     return [
       { key: `${chave}_volumeKg`, label: `Volume ${label} (Kg)`, valores: obj.volumeKg || mesesVazios(), ...FMT_KG },
-      { key: `${chave}_preco`, label: `Preço (${moedaSufixo}/Kg)`, valores: obj.precoMoeda },
+      { key: `${chave}_preco`, label: `Preço (${moedaSufixo}/Kg)`, valores: obj.precoMoeda, totalValor: precoPonderado },
       { key: `${chave}_cambio`, calculada: true, label: `Câmbio (R$/${moedaSufixo})`, valoresMensal: MESES.map(() => taxa), totalValor: taxa, cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) },
       { key: `${chave}_receita`, calculada: true, label: `Receita ${label} (R$)`, valoresMensal: dadosCalc.receitaMes, totalValor: somaMes(dadosCalc.receitaMes), cor: COR.verde },
     ];
@@ -7574,9 +7583,9 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>2. Premissas de receita — ARA Agrícola</h3>
       <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
-        Cascata Produção → Vendas: a Produção Total da Fazenda (Embalada + Refugo) é a referência de cada mês; o volume vendido no Mercado
-        Externo é digitado diretamente (em Kg, ainda separado em 3 moedas — GBP/EUR/USD, cada uma convertida pelo câmbio da Premissa Macro) e o
-        volume do Mercado Interno é sempre a diferença até completar a Produção Total daquele mês (e do ano).
+        Cascata Produção → Vendas: a Produção Embalada é a referência do volume vendável (Mercado Interno + Externo); o Refugo é vendido
+        separadamente com preço próprio. O volume do Mercado Externo é digitado diretamente (em Kg, separado em 3 moedas — GBP/EUR/USD, convertido
+        pelo câmbio da Premissa Macro) e o Mercado Interno é a diferença (Embalada − Externo) de cada mês.
       </p>
 
       {/* Pedido de 2026-09-11: "deixe apenas Produção Total da Fazenda" —
@@ -7639,12 +7648,21 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
             totalValor: r.pctInternoMes.reduce((a, v) => a + v, 0) / 12, cor: COR.texto,
             formatarCelula: fmtPctVolume, formatarTotal: fmtPctVolumeTotal,
           },
-          { key: 'precoKg', label: 'Preço (R$/Kg)', valores: ag.vendaInterna?.precoKg || mesesVazios() },
+          {
+            key: 'precoKg', label: 'Preço MI (R$/Kg)', valores: ag.vendaInterna?.precoKg || mesesVazios(),
+            totalValor: somaMes(r.volumeInternoKgMes) > 0 ? somaMes(r.receitaInternaMes) / somaMes(r.volumeInternoKgMes) : 0,
+          },
+          { key: 'volumeRefugo', calculada: true, label: 'Volume — Refugo (Kg)', valoresMensal: r.refugoKgMes, totalValor: somaMes(r.refugoKgMes), cor: COR.texto, ...FMT_KG },
+          {
+            key: 'precoRefugoKg', label: 'Preço Refugo (R$/Kg)', valores: ag.vendaInterna?.precoRefugoKg || mesesVazios(),
+            totalValor: somaMes(r.refugoKgMes) > 0 ? somaMes(r.receitaRefugoMes) / somaMes(r.refugoKgMes) : 0,
+          },
         ]}
         onChangeCelula={(key, mi, v) => atualizarAgricola(['vendaInterna', key], atualizarArray(ag.vendaInterna?.[key] || mesesVazios(), mi, v))}
         corTotal={COR.verde}
         linhasCalculadas={[
           { key: 'receitaInterna', label: 'Receita Total Mercado Interno (R$)', valoresMensal: r.receitaInternaMes, totalValor: somaMes(r.receitaInternaMes), cor: COR.verde },
+          { key: 'receitaRefugo', label: 'Receita Refugo (R$)', valoresMensal: r.receitaRefugoMes, totalValor: somaMes(r.receitaRefugoMes), cor: COR.verde },
         ]}
       />
 
@@ -8634,7 +8652,7 @@ function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBruta
 // folhaCC) | 'novo' (Adicionar funcionário manual, único grupo calculado).
 function ehExistente(f) { return f.origem !== 'novo'; }
 
-function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, folha }) {
+function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, folha, hcExistenteMes }) {
   const novos = funcionarios.filter(f => !ehExistente(f));
   const folhaNovo = computeFolhaPessoalAnual(novos, premissasPessoal);
 
@@ -8728,18 +8746,19 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
         </div>
       </div>
 
-      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>CLT — Folha calculada — {ccCodigo}, mês a mês (Novo Headcount)</h5>
-      {/* Encargos/13º/Meritocracia/Benefícios saem da tabela (2026-09-08,
-          fase 2) — sempre R$0 agora que os campos de premissa não são mais
-          editáveis, então só Salários e Total têm valor (e são iguais).
-          computeFolhaPessoalMes continua calculando as duas coisas por
-          baixo — reativar a fase 2 devolve essas linhas com valor de novo. */}
+      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>CLT — Pessoal — {ccCodigo}, mês a mês</h5>
       <TabelaMensal
         linhas={[]}
         onChangeCelula={() => {}}
         linhasCalculadas={[
-          { key: 'salarios', label: 'Salários (CLT, já com dissídio se houver)', valoresMensal: folha.mensal.map(m => m.salarios), totalValor: folha.mensal.reduce((a, m) => a + m.salarios, 0), cor: COR.texto },
-          { key: 'total', label: 'Total da folha CLT', valoresMensal: folha.mensal.map(m => m.total), totalValor: folha.totalAnual, cor: COR.azul },
+          ...(hcExistenteMes ? [{ key: 'hcExistente', label: 'Headcount Existente', valoresMensal: hcExistenteMes, totalValor: hcExistenteMes.reduce((a, v) => a + v, 0), cor: COR.azul }] : []),
+          { key: 'novoHC', label: 'Novo Headcount', valoresMensal: folha.mensal.map(m => m.total), totalValor: folha.totalAnual, cor: COR.azul },
+          {
+            key: 'totalPessoal', label: 'Total Pessoal CLT',
+            valoresMensal: folha.mensal.map((m, i) => m.total + (hcExistenteMes?.[i] || 0)),
+            totalValor: folha.totalAnual + (hcExistenteMes?.reduce((a, v) => a + v, 0) || 0),
+            cor: COR.laranja,
+          },
         ]}
       />
     </div>
@@ -9165,7 +9184,11 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
 
   const [ccSel, setCcSel] = useState(ccsVisiveis[0]?.codigo);
   const [pacotesAbertos, setPacotesAbertos] = useState({});
-  const [contaAberta, setContaAberta] = useState(null);
+  const [contaAberta, setContaAberta] = useState(() => {
+    const hc = (refUnidade?.planoContas?.['pessoal'] || []).find(c => c.nome === 'Headcount Existente');
+    const cc0 = ccsVisiveis[0]?.codigo;
+    return hc && cc0 ? `${cc0}|${hc.codigo}` : null;
+  });
   const [filtroConta, setFiltroConta] = useState('');
   const [filtroPacoteId, setFiltroPacoteId] = useState('todos');
   // Consolidado por pacote (2026-08-23, item 1: "incluir uma visão
@@ -9510,14 +9533,21 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                     linhas={[]}
                     onChangeCelula={() => {}}
                     linhasCalculadas={[
+                      ...contasCC.filter(c => c.nome === 'Headcount Existente').map(c => ({
+                        key: `${cc.codigo}_${c.codigo}`,
+                        label: `${c.codigo} — ${c.nome}`,
+                        valoresMensal: MESES.map((_, m) => totalContaMesCC(cc.codigo, c.codigo, m)),
+                        totalValor: totalContaAnualCC(cc.codigo, c.codigo),
+                        cor: COR.azul,
+                      })),
                       ...(folhaCCAtual.totalAnual > 0 ? [{
                         key: `${cc.codigo}__folha`,
-                        label: 'Folha CLT (calculada)',
+                        label: 'Novo Headcount',
                         valoresMensal: MESES.map((_, m) => folhaCCAtual.mensal[m]?.total || 0),
                         totalValor: folhaCCAtual.totalAnual,
                         cor: COR.azul,
                       }] : []),
-                      ...contasCC.map(c => ({
+                      ...contasCC.filter(c => c.nome !== 'Headcount Existente').map(c => ({
                         key: `${cc.codigo}_${c.codigo}`,
                         label: `${c.codigo} — ${c.nome}`,
                         valoresMensal: MESES.map((_, m) => totalContaMesCC(cc.codigo, c.codigo, m)),
@@ -9627,6 +9657,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                       removeFuncionario={removeFuncionario}
                       premissasPessoal={premissasPessoal}
                       folha={folhaAtual}
+                      hcExistenteMes={MESES.map((_, m) => (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente').reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0))}
                     />
                     {/* Consultórias PJs (2026-08-23) — 2ª conta analítica do
                         pacote Pessoal, só Corporativo (ver CONTA_CONSULTORIA_PJ/
@@ -9634,7 +9665,6 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                         qualquer outra conta — sem premissa nenhuma dedicada. */}
                     {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
                       <div key={c.codigo} style={{ marginTop: 18 }}>
-                        <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Consultórias PJs — conta analítica</h5>
                         <LinhaConta
                           conta={c}
                           linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}

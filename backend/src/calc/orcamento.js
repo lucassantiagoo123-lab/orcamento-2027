@@ -440,34 +440,39 @@ function computeReceitaAgricola(agricola, cambios) {
   // (Produção Total − Externo do mesmo mês, nunca negativo). pctTon (dos
   // dois lados) fica sem uso, não apagado do documento por compatibilidade.
   const ve = agricola?.vendaExterna || {};
-  const volumeExternoTotalKgMes = (ve.volumeKg || mesesVazios()).map(parseNum);
-  const volumeInternoKgMes = producaoTotalKgMes.map((v, m) => Math.max(0, v - volumeExternoTotalKgMes[m]));
+  // Volume por moeda digitado direto (espelho do frontend 2026-09-14).
+  // ve.volumeKg (campo anterior do total) fica no modelo para compat.
+  const gbpVolumeKgMes = (ve.gbp?.volumeKg || mesesVazios()).map(parseNum);
+  const eurVolumeKgMes = (ve.eur?.volumeKg || mesesVazios()).map(parseNum);
+  const usdVolumeKgMes = (ve.usd?.volumeKg || mesesVazios()).map(parseNum);
+  const volumeExternoTotalKgMes = MESES.map((_, m) => gbpVolumeKgMes[m] + eurVolumeKgMes[m] + usdVolumeKgMes[m]);
+  // Volume interno = embalada − externo (refugo é vendido separadamente).
+  const volumeInternoKgMes = embaladaKgMes.map((v, m) => Math.max(0, v - volumeExternoTotalKgMes[m]));
 
   const vi = agricola?.vendaInterna || {};
   const receitaInternaMes = volumeInternoKgMes.map((v, m) => v * parseNum(vi.precoKg?.[m]));
+  const precoRefugoKgMes = (vi.precoRefugoKg || mesesVazios()).map(parseNum);
+  const receitaRefugoMes = refugoKgMes.map((v, m) => v * precoRefugoKgMes[m]);
 
-  // % de Ton. vendida em cada mercado — 100% calculadas a partir dos
-  // volumes acima (não mais digitadas nos dois lados).
-  const pctInternoMes = producaoTotalKgMes.map((v, m) => v > 0 ? (volumeInternoKgMes[m] / v) * 100 : 0);
-  const pctExternoMes = producaoTotalKgMes.map((v, m) => v > 0 ? (volumeExternoTotalKgMes[m] / v) * 100 : 0);
+  const pctInternoMes = embaladaKgMes.map((v, m) => v > 0 ? (volumeInternoKgMes[m] / v) * 100 : 0);
+  const pctExternoMes = embaladaKgMes.map((v, m) => v > 0 ? (volumeExternoTotalKgMes[m] / v) * 100 : 0);
 
-  function porMoeda(moedaObj, chaveCambio) {
-    const volumeKgMes = volumeExternoTotalKgMes.map((v, m) => v * parseNum(moedaObj?.pct?.[m]) / 100);
+  function porMoeda(moedaObj, chaveCambio, volumeKgMes) {
     const taxa = parseNum(cambios?.[chaveCambio]);
     const receitaMes = volumeKgMes.map((v, m) => v * parseNum(moedaObj?.precoMoeda?.[m]) * taxa);
     return { volumeKgMes, receitaMes };
   }
-  const gbp = porMoeda(ve.gbp, 'gbp');
-  const eur = porMoeda(ve.eur, 'eur');
-  const usd = porMoeda(ve.usd, 'usd');
+  const gbp = porMoeda(ve.gbp, 'gbp', gbpVolumeKgMes);
+  const eur = porMoeda(ve.eur, 'eur', eurVolumeKgMes);
+  const usd = porMoeda(ve.usd, 'usd', usdVolumeKgMes);
   const receitaExternaMes = MESES.map((_, m) => gbp.receitaMes[m] + eur.receitaMes[m] + usd.receitaMes[m]);
 
-  const receitaBrutaMes = MESES.map((_, m) => receitaInternaMes[m] + receitaExternaMes[m]);
+  const receitaBrutaMes = MESES.map((_, m) => receitaInternaMes[m] + receitaExternaMes[m] + receitaRefugoMes[m]);
 
   return {
     embaladaKgMes, refugoKgMes, producaoTotalKgMes,
-    volumeInternoKgMes, receitaInternaMes, pctInternoMes,
-    pctExternoMes, volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
+    volumeInternoKgMes, receitaInternaMes, precoRefugoKgMes, receitaRefugoMes,
+    pctInternoMes, pctExternoMes, volumeExternoTotalKgMes, gbp, eur, usd, receitaExternaMes,
     receitaBrutaMes,
   };
 }
