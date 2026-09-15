@@ -9015,6 +9015,138 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
   );
 }
 
+function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, folhaCC }) {
+  const [ccsAbertos, setCcsAbertos] = useState({});
+  const [pacotesAbertos, setPacotesAbertos] = useState({});
+
+  function totalContaMesPorCC(ccCodigo, contaCodigo, m) {
+    return totalContaMesCC(ccCodigo, contaCodigo, m);
+  }
+  const contasHCPessoal = (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente');
+  function totalFolhaCCMes(ccCodigo, m) {
+    const folhaNovo = folhaCC(ccCodigo).mensal[m]?.total || 0;
+    const hcExistente = contasHCPessoal.reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0);
+    return folhaNovo + hcExistente;
+  }
+  function totalPacoteCCMes(ccCodigo, pacoteId, m) {
+    const contas = (refUnidade.planoContas[pacoteId] || []).filter(c => c.nome !== 'Headcount Existente');
+    const totalContas = contas.reduce((acc, c) => acc + totalContaMesPorCC(ccCodigo, c.codigo, m), 0);
+    return totalContas + (pacoteId === 'pessoal' ? totalFolhaCCMes(ccCodigo, m) : 0);
+  }
+  function totalCCMes(ccCodigo, m) {
+    return refUnidade.pacotes.reduce((acc, p) => acc + totalPacoteCCMes(ccCodigo, p.id, m), 0);
+  }
+  function totalCCAnual(ccCodigo) {
+    return MESES.reduce((acc, _, m) => acc + totalCCMes(ccCodigo, m), 0);
+  }
+  function totalPacoteCCAnual(ccCodigo, pacoteId) {
+    return MESES.reduce((acc, _, m) => acc + totalPacoteCCMes(ccCodigo, pacoteId, m), 0);
+  }
+  function totalContaCCAnual(ccCodigo, contaCodigo) {
+    return MESES.reduce((acc, _, m) => acc + totalContaMesPorCC(ccCodigo, contaCodigo, m), 0);
+  }
+  const totalUnidadeMes = MESES.map((_, m) => ccsConsolidado.reduce((acc, cc) => acc + totalCCMes(cc.codigo, m), 0));
+  const totalUnidadeAnual = totalUnidadeMes.reduce((a, v) => a + v, 0);
+
+  function Linha({ label, valoresMensal, total, indent, onClick, aberto, temFilhos, cor, bold, bg }) {
+    return (
+      <tr style={{ background: bg || COR.branco }}>
+        <td
+          onClick={onClick}
+          style={{
+            fontWeight: bold ? 700 : 400, fontSize: 11.5, padding: '6px 10px', paddingLeft: 10 + (indent || 0) * 18,
+            border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: bg || COR.branco,
+            color: cor || COR.texto, cursor: onClick ? 'pointer' : 'default',
+          }}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {temFilhos && (aberto ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
+            {label}
+          </span>
+        </td>
+        {valoresMensal.map((v, mi) => (
+          <td key={mi} style={{ padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right', color: cor || COR.texto, fontWeight: bold ? 700 : 400 }}>
+            {formatBRL(v)}
+          </td>
+        ))}
+        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontWeight: 700, fontSize: 11, color: cor || COR.azul, textAlign: 'right' }}>
+          {formatBRL(total)}
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table>
+        <thead>
+          <tr>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 10px', textAlign: 'left', minWidth: 230, position: 'sticky', left: 0 }}>CC / Conta sintética / Conta analítica</th>
+            {MESES.map(m => <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '7px 4px', minWidth: 58 }}>{m}</th>)}
+            <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10, padding: '7px 8px', minWidth: 84 }}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ccsConsolidado.map(cc => {
+            const ccAberto = !!ccsAbertos[cc.codigo];
+            return (
+              <React.Fragment key={cc.codigo}>
+                <Linha
+                  label={cc.nome}
+                  valoresMensal={MESES.map((_, m) => totalCCMes(cc.codigo, m))}
+                  total={totalCCAnual(cc.codigo)}
+                  onClick={() => setCcsAbertos(prev => ({ ...prev, [cc.codigo]: !prev[cc.codigo] }))}
+                  aberto={ccAberto} temFilhos bold cor={COR.azul}
+                />
+                {ccAberto && refUnidade.pacotes.map(p => {
+                  const chave = `${cc.codigo}|${p.id}`;
+                  const pAberto = !!pacotesAbertos[chave];
+                  const contas = (refUnidade.planoContas[p.id] || []).filter(c => c.nome !== 'Headcount Existente');
+                  const temLancamento = MESES.some((_, m) => totalPacoteCCMes(cc.codigo, p.id, m) !== 0);
+                  if (!temLancamento) return null;
+                  return (
+                    <React.Fragment key={p.id}>
+                      <Linha
+                        label={p.nome}
+                        valoresMensal={MESES.map((_, m) => totalPacoteCCMes(cc.codigo, p.id, m))}
+                        total={totalPacoteCCAnual(cc.codigo, p.id)}
+                        indent={1}
+                        onClick={() => setPacotesAbertos(prev => ({ ...prev, [chave]: !prev[chave] }))}
+                        aberto={pAberto} temFilhos
+                      />
+                      {pAberto && p.id === 'pessoal' && (
+                        <Linha
+                          label="CLT — Headcount Existente + Novo Headcount"
+                          valoresMensal={MESES.map((_, m) => totalFolhaCCMes(cc.codigo, m))}
+                          total={MESES.reduce((acc, _, m) => acc + totalFolhaCCMes(cc.codigo, m), 0)}
+                          indent={2} cor="#8A8F96" bg={COR.claro}
+                        />
+                      )}
+                      {pAberto && contas
+                        .filter(c => MESES.some((_, m) => totalContaMesPorCC(cc.codigo, c.codigo, m) !== 0))
+                        .map(c => (
+                          <Linha
+                            key={c.codigo}
+                            label={`${c.codigo} — ${c.nome}`}
+                            valoresMensal={MESES.map((_, m) => totalContaMesPorCC(cc.codigo, c.codigo, m))}
+                            total={totalContaCCAnual(cc.codigo, c.codigo)}
+                            indent={2} cor="#8A8F96" bg={COR.claro}
+                          />
+                        ))
+                      }
+                    </React.Fragment>
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
+          <Linha label="Total da unidade" valoresMensal={totalUnidadeMes} total={totalUnidadeAnual} bold cor={COR.laranja} />
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, viagens, atualizar, premissasMacro, cambios }) {
   // Sincronização de dissídio com a Premissa Macro "Reajuste salarial/
   // dissídio" (2026-09-07) removida em 2026-09-08 — ver nota em QuadroPessoal
@@ -9040,6 +9172,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   // consolidada dos CCs por pacote") — fechado por padrão, some abaixo do
   // seletor de CC.
   const [mostrarConsolidado, setMostrarConsolidado] = useState(false);
+  const [mostrarConsolidadoCC, setMostrarConsolidadoCC] = useState(false);
   const [ccsAbertosMacro, setCcsAbertosMacro] = useState({});
 
   if (ccsVisiveis.length === 0) {
@@ -9253,6 +9386,30 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                 clique numa linha com seta para abrir a quebra. Só visível para Admin FP&A.
               </p>
               <VisaoConsolidadaPorPacote refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} />
+            </div>
+          )}
+        </div>
+        <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
+          <button
+            onClick={() => setMostrarConsolidadoCC(prev => !prev)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 7, justifyContent: 'space-between',
+              padding: '9px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT,
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, color: COR.azul }}>
+              {mostrarConsolidadoCC ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              Visão consolidada — todos os CCs, por CC e conta sintética
+            </span>
+            <span style={{ fontSize: 10.5, color: '#8A8F96', fontWeight: 400 }}>{ccsConsolidado.length} CC(s)</span>
+          </button>
+          {mostrarConsolidadoCC && (
+            <div style={{ padding: 8 }}>
+              <p style={{ fontSize: 11, color: '#7A8088', margin: '2px 2px 8px' }}>
+                Soma de todos os Centros de Custo desta unidade, agrupada por CC → Conta sintética (Pacote) → Conta analítica —
+                clique numa linha com seta para abrir a quebra. Só visível para Admin FP&A.
+              </p>
+              <VisaoConsolidadaPorCC refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} />
             </div>
           )}
         </div>
