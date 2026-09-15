@@ -3371,14 +3371,18 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   // Pedido de 2026-08-16: deixou de bloquear o envio — aparece como
   // pendência informativa na Auditoria, mas obrigatorio:false (mesmo padrão
   // do Balanço/FC Financiamentos abaixo).
-  const cg = data.capitalGiro;
-  const cgCompleto = ['prazoRecebimento', 'prazoPagamento', 'giroEstoque'].every(k => (cg[k] || []).some(v => v !== ''));
-  checks.push({
-    label: 'Capital de giro: três prazos com ao menos um mês preenchido (dias corridos)',
-    ok: cgCompleto,
-    detalhe: cgCompleto ? 'Recebimento, pagamento e giro de estoque informados' : 'Faltam prazos a preencher',
-    obrigatorio: false,
-  });
+  // Corporativo não tem seção Kgiro/FC Operacional — não faz sentido cobrar
+  // os prazos lá (pedido de 2026-09-15).
+  if (unidadeId !== 'corporativo') {
+    const cg = data.capitalGiro;
+    const cgCompleto = ['prazoRecebimento', 'prazoPagamento', 'giroEstoque'].every(k => (cg[k] || []).some(v => v !== ''));
+    checks.push({
+      label: 'Capital de giro: três prazos com ao menos um mês preenchido (dias corridos)',
+      ok: cgCompleto,
+      detalhe: cgCompleto ? 'Recebimento, pagamento e giro de estoque informados' : 'Faltam prazos a preencher',
+      obrigatorio: false,
+    });
+  }
 
   // ARA Agrícola (2026-09-07): checa negativo em todos os arrays mensais da
   // cascata (embaladaKg, refugoPct é um único valor — checado à parte).
@@ -9036,6 +9040,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   // consolidada dos CCs por pacote") — fechado por padrão, some abaixo do
   // seletor de CC.
   const [mostrarConsolidado, setMostrarConsolidado] = useState(false);
+  const [ccsAbertosMacro, setCcsAbertosMacro] = useState({});
 
   if (ccsVisiveis.length === 0) {
     return (
@@ -9305,6 +9310,81 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             },
           ]}
         />
+      </div>
+
+      <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Totais sintéticos — todos os CCs, por Centro de Custo e conta analítica</h4>
+      <div style={{ marginBottom: 18 }}>
+        <TabelaMensal
+          linhas={[]}
+          onChangeCelula={() => {}}
+          linhasCalculadas={[
+            ...ccsConsolidado.map(cc => ({
+              key: `macro_${cc.codigo}`,
+              label: cc.nome,
+              valoresMensal: MESES.map((_, m) => totalCcMes(cc.codigo, m)),
+              totalValor: totalCcAnual(cc.codigo),
+              cor: COR.azul,
+            })),
+            {
+              key: '__total_macro__',
+              label: 'Total geral',
+              valoresMensal: MESES.map((_, m) => ccsConsolidado.reduce((acc, cc) => acc + totalCcMes(cc.codigo, m), 0)),
+              totalValor: ccsConsolidado.reduce((acc, cc) => acc + totalCcAnual(cc.codigo), 0),
+              cor: COR.laranja,
+            },
+          ]}
+        />
+        {ccsConsolidado.map(cc => {
+          const contasCC = contasDoCc(cc);
+          const folhaCCAtual = folhaCC(cc.codigo);
+          const aberto = !!ccsAbertosMacro[cc.codigo];
+          const totalCcAno = totalCcAnual(cc.codigo);
+          return (
+            <div key={cc.codigo} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 6, overflow: 'hidden' }}>
+              <button
+                onClick={() => setCcsAbertosMacro(p => ({ ...p, [cc.codigo]: !p[cc.codigo] }))}
+                style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, color: COR.azul }}>
+                  {aberto ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  {cc.nome}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: totalCcAno > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(totalCcAno)}</span>
+              </button>
+              {aberto && (
+                <div style={{ padding: 8 }}>
+                  <TabelaMensal
+                    linhas={[]}
+                    onChangeCelula={() => {}}
+                    linhasCalculadas={[
+                      ...(folhaCCAtual.totalAnual > 0 ? [{
+                        key: `${cc.codigo}__folha`,
+                        label: 'Folha CLT (calculada)',
+                        valoresMensal: MESES.map((_, m) => folhaCCAtual.mensal[m]?.total || 0),
+                        totalValor: folhaCCAtual.totalAnual,
+                        cor: COR.azul,
+                      }] : []),
+                      ...contasCC.map(c => ({
+                        key: `${cc.codigo}_${c.codigo}`,
+                        label: `${c.codigo} — ${c.nome}`,
+                        valoresMensal: MESES.map((_, m) => totalContaMesCC(cc.codigo, c.codigo, m)),
+                        totalValor: totalContaAnualCC(cc.codigo, c.codigo),
+                        cor: COR.texto,
+                      })),
+                      {
+                        key: `${cc.codigo}__total`,
+                        label: `Total ${cc.nome}`,
+                        valoresMensal: MESES.map((_, m) => totalCcMes(cc.codigo, m)),
+                        totalValor: totalCcAno,
+                        cor: COR.laranja,
+                      },
+                    ]}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
