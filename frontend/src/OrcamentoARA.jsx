@@ -5794,7 +5794,7 @@ function VisaoGerente(props) {
             envio (ver podeEnviar em AbaRevisao); o envio/histórico da
             Agrícola/Resorts continua só no Consolidado (ver
             ConsolidadoAgricola/ConsolidadoResorts). */}
-        {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos' || a.id === 'revisao' || a.id === 'capex')
+        {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos' || a.id === 'capex')
           : ABAS).map(a => (
           <button
             key={a.id} onClick={() => setAba(a.id)}
