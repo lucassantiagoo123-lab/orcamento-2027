@@ -7541,7 +7541,7 @@ function agricolaComPadroes(agricola) {
   return {
     embaladaKg: a.embaladaKg || mesesVazios(),
     refugoPct: a.refugoPct ?? '',
-    vendaInterna: { pctTon: vi.pctTon || mesesVazios(), precoKg: vi.precoKg || mesesVazios() },
+    vendaInterna: { pctTon: vi.pctTon || mesesVazios(), precoKg: vi.precoKg || mesesVazios(), precoRefugoKg: vi.precoRefugoKg || mesesVazios() },
     vendaExterna: {
       pctTon: ve.pctTon || mesesVazios(),
       volumeKg: ve.volumeKg || mesesVazios(),
