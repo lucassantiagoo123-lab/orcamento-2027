@@ -9469,8 +9469,22 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
         />
       </div>
 
-      <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Totais sintéticos — todos os CCs, por Centro de Custo e conta analítica</h4>
-      <div style={{ marginBottom: 18 }}>
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
+        <button
+          onClick={() => setCcsAbertosMacro(p => ({ ...p, __secao__: !p.__secao__ }))}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 7, justifyContent: 'space-between',
+            padding: '9px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT,
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, color: COR.azul }}>
+            {ccsAbertosMacro.__secao__ ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            Totais sintéticos — todos os CCs, por Centro de Custo e conta analítica
+          </span>
+          <span style={{ fontSize: 10.5, color: '#8A8F96', fontWeight: 400 }}>{ccsConsolidado.length} CC(s)</span>
+        </button>
+        {ccsAbertosMacro.__secao__ && (
+        <div style={{ padding: 8 }}>
         {ccsConsolidado.map(cc => {
           const contasCC = contasDoCc(cc);
           const folhaCCAtual = folhaCC(cc.codigo);
@@ -9522,6 +9536,8 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             </div>
           );
         })}
+        </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
