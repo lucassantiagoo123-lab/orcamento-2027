@@ -9863,9 +9863,9 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
                     <select
                       value={p.ccCodigo || ''}
                       onChange={e => updateProjeto(p.id, 'ccCodigo', e.target.value)}
-                      style={{ fontSize: 11.5, padding: '5px 8px', border: `1px solid ${COR.borda}`, borderRadius: 6, fontFamily: FONT, color: p.ccCodigo ? COR.texto : '#8A8F96', width: '100%', marginBottom: 4 }}
+                      style={{ fontSize: 11.5, padding: '5px 8px', border: `1px solid ${p.ccCodigo ? COR.borda : COR.vermelho}`, borderRadius: 6, fontFamily: FONT, color: p.ccCodigo ? COR.texto : '#8A8F96', width: '100%', marginBottom: 4 }}
                     >
-                      <option value="">Centro de Custo (opcional)</option>
+                      <option value="" disabled>Selecione o Centro de Custo *</option>
                       {(ccsDisponiveis || []).map(cc => (
                         <option key={cc.codigo} value={cc.codigo}>{cc.codigo} — {cc.nome}</option>
                       ))}
