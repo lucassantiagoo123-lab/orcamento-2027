@@ -9314,26 +9314,6 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
 
       <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Totais sintéticos — todos os CCs, por Centro de Custo e conta analítica</h4>
       <div style={{ marginBottom: 18 }}>
-        <TabelaMensal
-          linhas={[]}
-          onChangeCelula={() => {}}
-          linhasCalculadas={[
-            ...ccsConsolidado.map(cc => ({
-              key: `macro_${cc.codigo}`,
-              label: cc.nome,
-              valoresMensal: MESES.map((_, m) => totalCcMes(cc.codigo, m)),
-              totalValor: totalCcAnual(cc.codigo),
-              cor: COR.azul,
-            })),
-            {
-              key: '__total_macro__',
-              label: 'Total geral',
-              valoresMensal: MESES.map((_, m) => ccsConsolidado.reduce((acc, cc) => acc + totalCcMes(cc.codigo, m), 0)),
-              totalValor: ccsConsolidado.reduce((acc, cc) => acc + totalCcAnual(cc.codigo), 0),
-              cor: COR.laranja,
-            },
-          ]}
-        />
         {ccsConsolidado.map(cc => {
           const contasCC = contasDoCc(cc);
           const folhaCCAtual = folhaCC(cc.codigo);
