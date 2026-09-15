@@ -7524,7 +7524,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
 // Reaproveita computeReceitaAgricola (a mesma função que
 // receitaBrutaPorMes/computeDRE já chamam) — esta tela só espelha esses
 // números, nunca recalcula em paralelo.
-const FMT_KG = { formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg', formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg' };
+const FMT_KG = { formatarCelula: v => v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' kg', formatarTotal: v => v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' kg' };
 
 // `atualizar(caminho, valor)` é um setter genérico por caminho: ao editar UM
 // campo isolado (ex.: refugoPct), ele reescreve `receita.agricola` inteiro só
