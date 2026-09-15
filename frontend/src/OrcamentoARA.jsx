@@ -9240,7 +9240,10 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     return valorLinhaMes(linhas[`${ccCodigo}|${contaCodigo}`], m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
   }
   function contasDoCc(cc) {
-    return refUnidade.pacotes.flatMap(p => contasDoPacoteNoCc(refUnidade.planoContas, p.id, cc, unidadeId));
+    const mapeadas = (unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') ? CONTAS_POR_CC_AGRICOLA[cc.codigo] : undefined;
+    const rawContas = refUnidade.pacotes.flatMap(p => contasDoPacoteNoCc(refUnidade.planoContas, p.id, cc, unidadeId));
+    // HC Existente é conta sintética — não está em CONTAS_POR_CC_AGRICOLA mas deve sempre aparecer
+    return mapeadas ? rawContas.filter(c => c.nome === 'Headcount Existente' || mapeadas.includes(c.codigo)) : rawContas;
   }
   function totalCcAnual(ccCodigo) {
     const cc = refUnidade.ccs.find(c => c.codigo === ccCodigo);
