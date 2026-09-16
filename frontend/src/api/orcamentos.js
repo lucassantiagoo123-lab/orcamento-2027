@@ -13,10 +13,10 @@ export function getOrcamento(unidadeId) {
  * do que está no banco no instante do PUT, em vez de sobrescrever o bloco
  * inteiro e apagar edição simultânea de outro usuário. Opcional — sem isso
  * o backend cai no comportamento de sempre (sobrescreve tudo). */
-export function putOrcamento(unidadeId, dados, motivo, custosBase) {
+export function putOrcamento(unidadeId, dados, motivo, custosBase, capexBase) {
   return apiFetch(`/api/orcamentos/${unidadeId}`, {
     method: 'PUT',
-    body: { dados, motivo, custosBase },
+    body: { dados, motivo, custosBase, capexBase },
   });
 }
 

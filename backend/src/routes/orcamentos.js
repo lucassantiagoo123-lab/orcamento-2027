@@ -7,6 +7,19 @@ import { exigirUnidade, exigirPerfil, exigirAcessoNaoExpirado } from '../middlew
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
 import { mesclarCustos } from '../db/mesclarCustos.js';
+
+// Merge 3-way de projetos CapEx por ID: preserva projetos adicionados por
+// outro usuário entre o carregamento e o salvamento deste cliente.
+function mesclarCapex(capexBase, capexAntes, capexNovo) {
+  const projetosBase  = (capexBase?.projetos  || []);
+  const projetosAntes = (capexAntes?.projetos || []);
+  const projetosNovo  = (capexNovo?.projetos  || []);
+  const idsBase = new Set(projetosBase.map(p => p.id));
+  const idsNovo = new Set(projetosNovo.map(p => p.id));
+  // Projetos adicionados por outro usuário após este carregou a página
+  const concorrentes = projetosAntes.filter(p => !idsBase.has(p.id) && !idsNovo.has(p.id));
+  return { ...capexNovo, projetos: [...projetosNovo, ...concorrentes] };
+}
 import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade, ehSnapshotConsolidado } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
 import { notificarEnvioParaFpa } from '../email/notificacoes.js';
@@ -207,7 +220,7 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
 
 orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoExpirado, exigirLancamentoHabilitado, async (req, res, next) => {
   try {
-    const { dados, motivo, custosBase } = req.body;
+    const { dados, motivo, custosBase, capexBase } = req.body;
     if (!dados) return res.status(400).json({ erro: 'dados_obrigatorio' });
 
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
@@ -236,13 +249,13 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoE
       }
     }
 
-    // Escopo confirmado com o usuário: só Custos e Despesas ganha merge por
-    // enquanto — Receita/CAPEX/etc. continuam substituindo a seção inteira
-    // (não têm granularidade por CC no modelo hoje, ver nota em
-    // validarEscritaCcCustos). custosBase ausente = comportamento de sempre.
-    const dadosParaSalvar = custosBase
-      ? { ...dados, custos: mesclarCustos(custosBase, atual.dados.custos, dados.custos) }
-      : dados;
+    // Merge por seção: custosBase → mesclarCustos; capexBase → mesclarCapex.
+    // Sem base enviado cai no comportamento de sempre (substitui a seção).
+    const dadosParaSalvar = {
+      ...dados,
+      ...(custosBase ? { custos: mesclarCustos(custosBase, atual.dados.custos, dados.custos) } : {}),
+      ...(capexBase  ? { capex:  mesclarCapex(capexBase,  atual.dados.capex,  dados.capex)  } : {}),
+    };
 
     // Seção 3.3 — dados e log de alteração gravados na mesma transação:
     // ou os dois efeitos acontecem, ou nenhum (ver db/orcamentos.js).

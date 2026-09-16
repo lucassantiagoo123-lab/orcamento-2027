@@ -3959,6 +3959,7 @@ export default function OrcamentoARA({ usuario }) {
   // edits locais do dia a dia (atualizar()) — é isso que faz a diferença
   // entre "o que já estava salvo" e "o que estou editando agora".
   const custosBaseRef = useRef(null);
+  const capexBaseRef = useRef(null);
 
   const carregarUnidade = useCallback(async (idUnidade) => {
     setCarregando(true);
@@ -3967,11 +3968,13 @@ export default function OrcamentoARA({ usuario }) {
       const r = await getOrcamento(idUnidade);
       setDados(r.orcamento.dados);
       custosBaseRef.current = r.orcamento.dados.custos;
+      capexBaseRef.current = r.orcamento.dados.capex;
       setAguardandoLiberacao(r.orcamento.aguardando_liberacao || false);
     } catch (e) {
       const vazio = emptyFormData();
       setDados(vazio);
       custosBaseRef.current = vazio.custos;
+      capexBaseRef.current = vazio.capex;
       setAguardandoLiberacao(false);
     }
     try {
@@ -4126,13 +4129,14 @@ export default function OrcamentoARA({ usuario }) {
       const dadosAtuais = dadosRef.current;
       const unidade = unidadeAtualRef.current;
       const custosBaseAoEnviar = custosBaseRef.current;
+      const capexBaseAoEnviar = capexBaseRef.current;
       try {
         const status = dadosAtuais.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
         // comRetentativa (2026-09-10, pedido: "como faço pra evitar isso" —
         // falha de rede genuína, ex.: backend reiniciando alguns segundos
         // num deploy) — reintenta sozinho antes de incomodar o gestor com um
         // erro; PUT de rascunho é idempotente, seguro repetir.
-        const resultado = await comRetentativa(() => putOrcamento(unidade, { ...dadosAtuais, meta: { ...dadosAtuais.meta, status, atualizadoEm: new Date().toISOString() } }, undefined, custosBaseAoEnviar));
+        const resultado = await comRetentativa(() => putOrcamento(unidade, { ...dadosAtuais, meta: { ...dadosAtuais.meta, status, atualizadoEm: new Date().toISOString() } }, undefined, custosBaseAoEnviar, capexBaseAoEnviar));
         // Merge de edições simultâneas (2026-09-10, ver mesclarCustos no
         // backend): o servidor pode ter mesclado mudança de outro usuário
         // junto — atualiza a tela e a base de comparação com o resultado de
@@ -4147,6 +4151,13 @@ export default function OrcamentoARA({ usuario }) {
           custosBaseRef.current = custosMesclado;
           if (JSON.stringify(custosMesclado) !== JSON.stringify(dadosAtuais.custos)) {
             setDados(prev => ({ ...prev, custos: custosMesclado }));
+          }
+        }
+        if (resultado?.orcamento?.dados?.capex) {
+          const capexMesclado = resultado.orcamento.dados.capex;
+          capexBaseRef.current = capexMesclado;
+          if (JSON.stringify(capexMesclado) !== JSON.stringify(dadosAtuais.capex)) {
+            setDados(prev => ({ ...prev, capex: capexMesclado }));
           }
         }
         setUltimoSalvoEm(new Date());
@@ -4202,13 +4213,21 @@ export default function OrcamentoARA({ usuario }) {
     try {
       const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
       const custosBaseAoEnviar = custosBaseRef.current;
-      const resultado = await comRetentativa(() => putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } }, motivo, custosBaseAoEnviar));
+      const capexBaseAoEnviar = capexBaseRef.current;
+      const resultado = await comRetentativa(() => putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } }, motivo, custosBaseAoEnviar, capexBaseAoEnviar));
       // Merge de edições simultâneas — ver nota completa em salvar() acima.
       if (resultado?.orcamento?.dados?.custos) {
         const custosMesclado = resultado.orcamento.dados.custos;
         custosBaseRef.current = custosMesclado;
         if (JSON.stringify(custosMesclado) !== JSON.stringify(dados.custos)) {
           setDados(prev => ({ ...prev, custos: custosMesclado }));
+        }
+      }
+      if (resultado?.orcamento?.dados?.capex) {
+        const capexMesclado = resultado.orcamento.dados.capex;
+        capexBaseRef.current = capexMesclado;
+        if (JSON.stringify(capexMesclado) !== JSON.stringify(dados.capex)) {
+          setDados(prev => ({ ...prev, capex: capexMesclado }));
         }
       }
       setUltimoSalvoEm(new Date());
