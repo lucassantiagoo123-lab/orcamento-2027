@@ -9851,19 +9851,33 @@ const CATEGORIAS_CAPEX = [
 // de antes. Ver desembolsosDoProjeto (compat com dado antigo).
 function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDesembolsoProjeto, usuario, ccsDisponiveis }) {
   const isGerenteCc = usuario?.perfil === 'gerente_cc_corporativo';
+  // Escopo de visibilidade: gestor de CC vê só seus CCs; demais veem tudo
   const projetosFiltrados = isGerenteCc
     ? projetos.filter(p => !p.ccCodigo || (ccsDisponiveis || []).some(cc => cc.codigo === p.ccCodigo))
     : projetos;
 
+  // Pill de CC: gestor de CC com 1 CC arranca já nele; demais em 'todos'
+  const ccInicial = isGerenteCc && (ccsDisponiveis || []).length === 1 ? ccsDisponiveis[0].codigo : 'todos';
+  const [ccFiltro, setCcFiltro] = useState(ccInicial);
   const [projetosAbertos, setProjetosAbertos] = useState(() => new Set());
   const [resumoAberto, setResumoAberto] = useState({});
+
+  // CCs que aparecem em projetos já lançados (para mostrar pills relevantes)
+  const ccsNoProjeto = (ccsDisponiveis || []).filter(cc =>
+    projetosFiltrados.some(p => p.ccCodigo === cc.codigo)
+  );
+  // Projetos exibidos na área de edição conforme pill selecionado
+  const projetosVisiveis = ccFiltro === 'todos'
+    ? projetosFiltrados
+    : projetosFiltrados.filter(p => p.ccCodigo === ccFiltro);
 
   function toggleProjeto(id) {
     setProjetosAbertos(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
 
   function handleAddProjeto(catId) {
-    const ccAuto = isGerenteCc && ccsDisponiveis?.length === 1 ? ccsDisponiveis[0].codigo : '';
+    const ccAuto = ccFiltro !== 'todos' ? ccFiltro
+      : isGerenteCc && ccsDisponiveis?.length === 1 ? ccsDisponiveis[0].codigo : '';
     const novoId = uid();
     addProjeto(catId, ccAuto, novoId);
     setProjetosAbertos(prev => new Set([...prev, novoId]));
@@ -9874,11 +9888,27 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>6. CAPEX</h3>
-      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>Investimentos por projeto (inclui o CC Investimentos do Protheus), com desembolso mês a mês e justificativa — agrupados por categoria.</p>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: (ccsDisponiveis || []).length > 1 ? 8 : 14 }}>Investimentos por projeto (inclui o CC Investimentos do Protheus), com desembolso mês a mês e justificativa — agrupados por categoria.</p>
+
+      {/* Pills de CC — só aparece se há mais de 1 CC disponível */}
+      {(ccsDisponiveis || []).length > 1 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+          <button
+            onClick={() => setCcFiltro('todos')}
+            style={{ fontFamily: FONT, fontSize: 11, fontWeight: 700, padding: '6px 11px', borderRadius: 14, cursor: 'pointer', border: `1.5px solid ${ccFiltro === 'todos' ? COR.azul : COR.borda}`, background: ccFiltro === 'todos' ? COR.azul : COR.branco, color: ccFiltro === 'todos' ? COR.branco : COR.texto }}
+          >Todos</button>
+          {(ccsDisponiveis || []).map(cc => (
+            <button key={cc.codigo} onClick={() => setCcFiltro(cc.codigo)}
+              style={{ fontFamily: FONT, fontSize: 11, fontWeight: 700, padding: '6px 11px', borderRadius: 14, cursor: 'pointer', border: `1.5px solid ${ccFiltro === cc.codigo ? COR.azul : COR.borda}`, background: ccFiltro === cc.codigo ? COR.azul : COR.branco, color: ccFiltro === cc.codigo ? COR.branco : COR.texto }}
+            >{cc.nome} · {cc.tipo || 'CC'}</button>
+          ))}
+        </div>
+      )}
 
       {CATEGORIAS_CAPEX.map(cat => {
-        const projetosCategoria = projetosFiltrados.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
-        const totalCategoria = projetosCategoria.reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
+        // Cards: respeita o filtro de CC; total do cabeçalho: todos os projetos da categoria (independente do filtro)
+        const projetosCategoria = projetosVisiveis.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
+        const totalCategoria = projetosFiltrados.filter(p => (p.categoria || 'melhoria_interna') === cat.id).reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
         return (
           <div key={cat.id} style={{ marginBottom: 22 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
