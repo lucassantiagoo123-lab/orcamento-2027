@@ -153,10 +153,11 @@ function validarEscritaCcCustos(usuario, unidadeId, dadosAntes, dadosNovos) {
  * onde a maioria dos Gestores de CC atua. */
 function validarSoCustosAlterado(usuario, dadosAntes, dadosNovos) {
   if (usuario.perfil !== 'gerente_cc_corporativo') return null;
-  const chaves = new Set([...Object.keys(dadosAntes || {}), ...Object.keys(dadosNovos || {})]);
-  for (const chave of chaves) {
+  // Itera apenas sobre as chaves que o frontend enviou: se o payload omite
+  // uma seção (receita, pessoal…), não interpreta como "zerou a seção".
+  for (const chave of Object.keys(dadosNovos || {})) {
     if (chave === 'custos' || chave === 'meta' || chave === 'capex') continue;
-    if (JSON.stringify(dadosAntes?.[chave]) !== JSON.stringify(dadosNovos?.[chave])) {
+    if (JSON.stringify(dadosAntes?.[chave]) !== JSON.stringify(dadosNovos[chave])) {
       return `Gestor de CC só pode alterar a seção Custos e Despesas (tentativa de mudar "${chave}").`;
     }
   }
