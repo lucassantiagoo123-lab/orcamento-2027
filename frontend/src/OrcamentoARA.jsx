@@ -3490,8 +3490,15 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
   }
   function linhaCalculadaRow(linha) {
     return (
-      <tr key={linha.key} style={{ background: COR.branco }}>
-        <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco, color: linha.cor || COR.azul }}>{linha.label}</td>
+      <tr key={linha.key} onClick={linha.onClick} style={{ background: COR.branco, cursor: linha.onClick ? 'pointer' : 'default' }}>
+        <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco, color: linha.cor || COR.azul }}>
+          {linha.onClick ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              {linha.aberto ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              {linha.label}
+            </span>
+          ) : linha.label}
+        </td>
         {colunaExtra && celulaExtra(linha, 0)}
         {linha.valoresMensal.map((v, mi) => (
           <td key={mi} style={{ padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right', color: linha.cor || COR.texto, fontWeight: 700 }}>
@@ -4357,8 +4364,9 @@ export default function OrcamentoARA({ usuario }) {
   // desembolsos: mesesVazios() (2026-09-09) — grade mensal do investimento,
   // ver desembolsosDoProjeto. `valor`/`mes` somem dos projetos novos (só
   // continuam existindo em projetos antigos, lidos pelo fallback de compat).
-  function addProjeto(categoria, ccCodigo) {
-    atualizar(['capex', 'projetos'], [...dados.capex.projetos, { id: uid(), nome: '', desembolsos: mesesVazios(), justificativa: '', categoria: categoria || 'melhoria_interna', ccCodigo: ccCodigo || '' }]);
+  function addProjeto(categoria, ccCodigo, id) {
+    const novoId = id || uid();
+    atualizar(['capex', 'projetos'], [...dados.capex.projetos, { id: novoId, nome: '', desembolsos: mesesVazios(), justificativa: '', categoria: categoria || 'melhoria_interna', ccCodigo: ccCodigo || '' }]);
   }
   function updateProjeto(id, campo, valor) {
     atualizar(['capex', 'projetos'], dados.capex.projetos.map(p => p.id === id ? { ...p, [campo]: valor } : p));
@@ -9824,16 +9832,25 @@ const CATEGORIAS_CAPEX = [
 // de antes. Ver desembolsosDoProjeto (compat com dado antigo).
 function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDesembolsoProjeto, usuario, ccsDisponiveis }) {
   const isGerenteCc = usuario?.perfil === 'gerente_cc_corporativo';
-  // Gestor de CC vê só os projetos dos próprios CCs; admin/gerente de unidade vê todos.
   const projetosFiltrados = isGerenteCc
     ? projetos.filter(p => !p.ccCodigo || (ccsDisponiveis || []).some(cc => cc.codigo === p.ccCodigo))
     : projetos;
 
-  function handleAddProjeto(catId) {
-    // Gestor de CC com 1 único CC: auto-atribui. Com vários: cria sem CC (gestor escolhe).
-    const ccAuto = isGerenteCc && ccsDisponiveis?.length === 1 ? ccsDisponiveis[0].codigo : '';
-    addProjeto(catId, ccAuto);
+  const [projetosAbertos, setProjetosAbertos] = useState(() => new Set());
+  const [resumoAberto, setResumoAberto] = useState({});
+
+  function toggleProjeto(id) {
+    setProjetosAbertos(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
+
+  function handleAddProjeto(catId) {
+    const ccAuto = isGerenteCc && ccsDisponiveis?.length === 1 ? ccsDisponiveis[0].codigo : '';
+    const novoId = uid();
+    addProjeto(catId, ccAuto, novoId);
+    setProjetosAbertos(prev => new Set([...prev, novoId]));
+  }
+
+  const totalCapex = projetosFiltrados.reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
 
   return (
     <div>
@@ -9851,46 +9868,112 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
             </div>
             {cat.descricao && <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>{cat.descricao}</p>}
 
-            {projetosCategoria.map(p => (
-              <div key={p.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, marginBottom: 10, background: COR.claro }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                  <CampoTexto value={p.nome} onChange={v => updateProjeto(p.id, 'nome', v)} placeholder="Nome do projeto" />
-                  <button onClick={() => removeProjeto(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho }}><Trash2 size={14} /></button>
-                </div>
-                {/* Seletor de CC — auto-preenchido para gestor de CC com 1 CC; editável quando há vários */}
-                {ccsDisponiveis?.length > 0 && !(isGerenteCc && ccsDisponiveis.length === 1) && (
-                  <div style={{ marginBottom: 8 }}>
-                    <select
-                      value={p.ccCodigo || ''}
-                      onChange={e => updateProjeto(p.id, 'ccCodigo', e.target.value)}
-                      style={{ fontSize: 11.5, padding: '5px 8px', border: `1px solid ${p.ccCodigo ? COR.borda : COR.vermelho}`, borderRadius: 6, fontFamily: FONT, color: p.ccCodigo ? COR.texto : '#8A8F96', width: '100%', marginBottom: 4 }}
-                    >
-                      <option value="" disabled>Selecione o Centro de Custo *</option>
-                      {(ccsDisponiveis || []).map(cc => (
-                        <option key={cc.codigo} value={cc.codigo}>{cc.codigo} — {cc.nome}</option>
-                      ))}
-                    </select>
+            {projetosCategoria.map(p => {
+              const aberto = projetosAbertos.has(p.id);
+              const total = somaMes(desembolsosDoProjeto(p));
+              const ccInfo = (ccsDisponiveis || []).find(c => c.codigo === p.ccCodigo);
+              return (
+                <div key={p.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 10, background: COR.claro, overflow: 'hidden' }}>
+                  {/* Cabeçalho colapsável */}
+                  <div onClick={() => toggleProjeto(p.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {aberto ? <ChevronDown size={14} color={COR.azul} /> : <ChevronRight size={14} color={COR.azul} />}
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: p.nome ? COR.texto : '#8A8F96' }}>{p.nome || 'Sem nome'}</span>
+                      {p.ccCodigo && <span style={{ fontSize: 11, color: '#8A8F96' }}>{p.ccCodigo}{ccInfo ? ` — ${ccInfo.nome}` : ''}</span>}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: total > 0 ? COR.azul : '#B5B9BE' }}>{formatBRL(total)}</span>
+                      <button onClick={e => { e.stopPropagation(); removeProjeto(p.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho, padding: 2 }}><Trash2 size={14} /></button>
+                    </div>
                   </div>
-                )}
-                {isGerenteCc && ccsDisponiveis?.length === 1 && (
-                  <div style={{ fontSize: 11, color: '#8A8F96', marginBottom: 6 }}>
-                    CC: <strong style={{ color: COR.texto }}>{ccsDisponiveis[0].codigo} — {ccsDisponiveis[0].nome}</strong>
-                  </div>
-                )}
-                <CampoTexto value={p.justificativa} onChange={v => updateProjeto(p.id, 'justificativa', v)} placeholder="Justificativa de viabilidade" />
-                <div style={{ marginTop: 8 }}>
-                  <TabelaMensal
-                    linhas={[{ key: 'desembolso', label: 'Desembolso (R$)', valores: desembolsosDoProjeto(p) }]}
-                    onChangeCelula={(_, mi, v) => updateDesembolsoProjeto(p.id, mi, v)}
-                    corTotal={COR.azul}
-                  />
+
+                  {/* Formulário expandido */}
+                  {aberto && (
+                    <div style={{ padding: '0 12px 12px 12px', borderTop: `1px solid ${COR.borda}` }}>
+                      <div style={{ marginTop: 8, marginBottom: 8 }}>
+                        <CampoTexto value={p.nome} onChange={v => updateProjeto(p.id, 'nome', v)} placeholder="Nome do projeto" />
+                      </div>
+                      {ccsDisponiveis?.length > 0 && !(isGerenteCc && ccsDisponiveis.length === 1) && (
+                        <div style={{ marginBottom: 8 }}>
+                          <select
+                            value={p.ccCodigo || ''}
+                            onChange={e => updateProjeto(p.id, 'ccCodigo', e.target.value)}
+                            style={{ fontSize: 11.5, padding: '5px 8px', border: `1px solid ${p.ccCodigo ? COR.borda : COR.vermelho}`, borderRadius: 6, fontFamily: FONT, color: p.ccCodigo ? COR.texto : '#8A8F96', width: '100%' }}
+                          >
+                            <option value="" disabled>Selecione o Centro de Custo *</option>
+                            {(ccsDisponiveis || []).map(cc => (
+                              <option key={cc.codigo} value={cc.codigo}>{cc.codigo} — {cc.nome}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      {isGerenteCc && ccsDisponiveis?.length === 1 && (
+                        <div style={{ fontSize: 11, color: '#8A8F96', marginBottom: 6 }}>
+                          CC: <strong style={{ color: COR.texto }}>{ccsDisponiveis[0].codigo} — {ccsDisponiveis[0].nome}</strong>
+                        </div>
+                      )}
+                      <CampoTexto value={p.justificativa} onChange={v => updateProjeto(p.id, 'justificativa', v)} placeholder="Justificativa de viabilidade" />
+                      <div style={{ marginTop: 8 }}>
+                        <TabelaMensal
+                          linhas={[{ key: 'desembolso', label: 'Desembolso (R$)', valores: desembolsosDoProjeto(p) }]}
+                          onChangeCelula={(_, mi, v) => updateDesembolsoProjeto(p.id, mi, v)}
+                          corTotal={COR.azul}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
+
             <Botao variante="fantasma" icone={Plus} onClick={() => handleAddProjeto(cat.id)}>Adicionar projeto — {cat.nome}</Botao>
           </div>
         );
       })}
+
+      {/* Resumo mensal por categoria — expansível por grupo */}
+      <div style={{ marginTop: 24 }}>
+        <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>Resumo CapEx — projeção mensal</h4>
+        <TabelaMensal
+          linhas={[]}
+          onChangeCelula={() => {}}
+          linhasCalculadas={[
+            ...CATEGORIAS_CAPEX.flatMap(cat => {
+              const projetosCat = projetosFiltrados.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
+              const mensais = MESES.map((_, m) => projetosCat.reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0));
+              const aberto = resumoAberto[cat.id];
+              return [
+                {
+                  key: cat.id,
+                  label: cat.nome,
+                  valoresMensal: mensais,
+                  totalValor: mensais.reduce((a, v) => a + v, 0),
+                  cor: COR.azul,
+                  onClick: () => setResumoAberto(prev => ({ ...prev, [cat.id]: !prev[cat.id] })),
+                  aberto,
+                },
+                ...(aberto ? projetosCat.map(p => {
+                  const des = desembolsosDoProjeto(p).map(parseNum);
+                  return {
+                    key: `${cat.id}_${p.id}`,
+                    label: `    ${p.nome || '(sem nome)'}`,
+                    valoresMensal: des,
+                    totalValor: des.reduce((a, v) => a + v, 0),
+                    cor: COR.texto,
+                  };
+                }) : []),
+              ];
+            }),
+            {
+              key: '__total_capex__',
+              label: 'Total CapEx',
+              valoresMensal: MESES.map((_, m) => projetosFiltrados.reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0)),
+              totalValor: totalCapex,
+              cor: COR.laranja,
+            },
+          ]}
+        />
+      </div>
     </div>
   );
 }
