@@ -9820,9 +9820,9 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
 
 // Pedido de 2026-08-09: CAPEX separado em 3 grupos.
 const CATEGORIAS_CAPEX = [
-  { id: 'carryover', nome: '1. Carryover / Comprometido', descricao: 'Investimento realizado em anos anteriores, a pagar em 2027' },
-  { id: 'melhoria_interna', nome: '2. Melhoria Interna', descricao: 'Regulatório / Manutenção' },
-  { id: 'desenvolvimento_expansao', nome: '3. Desenvolvimento e Expansão', descricao: '' },
+  { id: 'carryover', nome: '1. Carryover / Comprometido', descricao: 'Projetos contratados ou iniciados em exercícios anteriores cujos desembolsos se estendem para 2027. O comprometimento já existe — o lançamento reflete apenas o cronograma de pagamento restante.' },
+  { id: 'melhoria_interna', nome: '2. Melhoria Interna', descricao: 'Investimentos para manter a operação em conformidade legal, preservar a capacidade instalada ou elevar a eficiência dentro da estrutura atual, sem ampliar volume ou mercado. Pressupõem análise de viabilidade e aprovação de rentabilidade.' },
+  { id: 'desenvolvimento_expansao', nome: '3. Desenvolvimento e Expansão', descricao: 'Projetos que criam nova capacidade produtiva, abrem novos mercados ou desenvolvem produtos e serviços que não existem na operação atual. Pressupõem análise de viabilidade e aprovação de rentabilidade.' },
 ];
 
 // Pedido de 2026-09-09: "precisa conter a tabela de preenchimento mensal
