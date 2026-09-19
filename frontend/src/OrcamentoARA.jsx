@@ -12328,11 +12328,6 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
             </table>
           </div>
 
-          <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 10 }}>Cronograma do processo orçamentário</h3>
-          <div style={{ marginBottom: 26 }}>
-            <GanttEtapas etapas={etapasProcesso} onChangeEtapa={atualizarEtapa} />
-          </div>
-
           {/* Premissas de Pessoal — Corporativo (2026-09-19): editáveis aqui, somente leitura nas unidades */}
           <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Premissas de Pessoal — Corporativo</h3>
           <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Editáveis apenas aqui — as unidades exibem esses valores como somente leitura.</p>
@@ -12382,6 +12377,11 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
               </div>
             );
           })()}
+
+          <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 10 }}>Cronograma do processo orçamentário</h3>
+          <div style={{ marginBottom: 26 }}>
+            <GanttEtapas etapas={etapasProcesso} onChangeEtapa={atualizarEtapa} />
+          </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
             <h3 style={{ fontSize: 14, color: COR.azul, margin: 0 }}>Status por unidade</h3>
