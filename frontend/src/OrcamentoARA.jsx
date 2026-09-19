@@ -4089,6 +4089,29 @@ export default function OrcamentoARA({ usuario }) {
     }
   }
 
+  // Edição de premissas de pessoal do Corporativo — disponível apenas em
+  // Gestão do Orçamento (VisaoFPA). Atualização otimista local + PUT best-effort.
+  async function updatePremissasPessoalCorporativo(campo, valor) {
+    setStatusUnidades(prev => {
+      const u = prev.corporativo || {};
+      return {
+        ...prev,
+        corporativo: {
+          ...u,
+          custos: { ...u.custos, premissasPessoal: { ...(u.custos?.premissasPessoal || {}), [campo]: valor } },
+        },
+      };
+    });
+    try {
+      const current = statusUnidades.corporativo || {};
+      const novosDados = {
+        ...current,
+        custos: { ...current.custos, premissasPessoal: { ...(current.custos?.premissasPessoal || {}), [campo]: valor } },
+      };
+      await putOrcamento('corporativo', novosDados);
+    } catch (_) {}
+  }
+
   // O antigo buscarBoletimFocus (fetch direto na API do BCB a partir do
   // navegador) nunca funcionava de verdade neste ambiente — substituído em
   // 2026-09-07 por upload manual do PDF, só como referência (ver
@@ -5447,6 +5470,7 @@ export default function OrcamentoARA({ usuario }) {
           versoesDrill={versoesDrill} exportarExcel={exportarExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
           etapasProcesso={etapasProcesso} atualizarEtapa={atualizarEtapa}
           premissasMacro={premissasMacro} updatePremissaMacroGlobal={updatePremissaMacroGlobal} updateFontePremissaMacroGlobal={updateFontePremissaMacroGlobal}
+          updatePremissasPessoalCorporativo={updatePremissasPessoalCorporativo}
           abrirVersao={abrirVersao}
         />
       )}
@@ -9686,61 +9710,41 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                         original (LinhaConta + QuadroPessoal). */}
                     {unidadeId === 'corporativo' ? (
                       <>
-                        {/* Premissas — editáveis por Admin FP&A, só leitura para Gestor */}
+                        {/* Premissas — somente leitura na unidade; editáveis em Gestão do Orçamento (VisaoFPA) */}
                         {(usuario?.perfil === 'admin_fpa' || usuario?.perfil === 'gerente_unidade') && (
                           <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
                             <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>Premissas — Pessoal (Corporativo)</div>
                             <div style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 10 }}>
-                              {usuario?.perfil === 'admin_fpa'
-                                ? 'Parâmetros por unidade — aplicados automaticamente nas linhas calculadas abaixo.'
-                                : 'Parâmetros definidos pelo FP&A — somente leitura.'}
+                              Parâmetros definidos pelo FP&A — somente leitura. Editar em <em>Gestão do Orçamento</em>.
                             </div>
                             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                              {/* Dissídio */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Dissídio — mês</label>
-                                {usuario?.perfil === 'admin_fpa'
-                                  ? <Selecao value={_ppC.dissidioMes || ''} onChange={v => updatePremissaPessoal('dissidioMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
-                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.dissidioMes || '—'}</span>}
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.dissidioMes || '—'}</span>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Dissídio — %</label>
-                                {usuario?.perfil === 'admin_fpa'
-                                  ? <CampoNumero value={_ppC.dissidioPct} onChange={v => updatePremissaPessoal('dissidioPct', v)} sufixo="%" placeholder="0,00" />
-                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.dissidioPct || '—'}%</span>}
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.dissidioPct ? `${_ppC.dissidioPct}%` : '—'}</span>
                               </div>
-                              {/* Meritocracia */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Meritocracia — mês</label>
-                                {usuario?.perfil === 'admin_fpa'
-                                  ? <Selecao value={_ppC.meritocraciaMes || ''} onChange={v => updatePremissaPessoal('meritocraciaMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
-                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.meritocraciaMes || '—'}</span>}
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.meritocraciaMes || '—'}</span>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Meritocracia — %</label>
-                                {usuario?.perfil === 'admin_fpa'
-                                  ? <CampoNumero value={_ppC.meritocraciaPct} onChange={v => updatePremissaPessoal('meritocraciaPct', v)} sufixo="%" placeholder="0,00" />
-                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.meritocraciaPct || '—'}%</span>}
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.meritocraciaPct ? `${_ppC.meritocraciaPct}%` : '—'}</span>
                               </div>
-                              {/* Bônus */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus — mês</label>
-                                {usuario?.perfil === 'admin_fpa'
-                                  ? <Selecao value={_ppC.bonusMes || ''} onChange={v => updatePremissaPessoal('bonusMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
-                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusMes || '—'}</span>}
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusMes || '—'}</span>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus — % do mês</label>
-                                {usuario?.perfil === 'admin_fpa'
-                                  ? <CampoNumero value={_ppC.bonusPct} onChange={v => updatePremissaPessoal('bonusPct', v)} sufixo="%" placeholder="0,00" />
-                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPct || '—'}%</span>}
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPct ? `${_ppC.bonusPct}%` : '—'}</span>
                               </div>
-                              {/* Encargos Novo HC */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Encargos — Novo HC (%)</label>
-                                {usuario?.perfil === 'admin_fpa'
-                                  ? <CampoNumero value={_ppC.encargosNovoHcPct} onChange={v => updatePremissaPessoal('encargosNovoHcPct', v)} sufixo="%" placeholder="0,00" />
-                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.encargosNovoHcPct || '—'}%</span>}
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.encargosNovoHcPct ? `${_ppC.encargosNovoHcPct}%` : '—'}</span>
                               </div>
                             </div>
                           </div>
@@ -12182,7 +12186,7 @@ const CAMPO_LOG_LABEL = {
   sensibilidades: 'Sensibilidades',
 };
 
-function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, updateFontePremissaMacroGlobal, abrirVersao }) {
+function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, updateFontePremissaMacroGlobal, updatePremissasPessoalCorporativo, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   // Mesmo racional do ipcaAnualPct no componente App — recalculado aqui
@@ -12269,6 +12273,47 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
           <div style={{ marginBottom: 26 }}>
             <GanttEtapas etapas={etapasProcesso} onChangeEtapa={atualizarEtapa} />
           </div>
+
+          {/* Premissas de Pessoal — Corporativo (2026-09-19): editáveis aqui, somente leitura nas unidades */}
+          <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Premissas de Pessoal — Corporativo</h3>
+          <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Editáveis apenas aqui — as unidades exibem esses valores como somente leitura.</p>
+          {(() => {
+            const _pp = statusUnidades['corporativo']?.custos?.premissasPessoal || {};
+            return (
+              <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 14, marginBottom: 24 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio — mês</label>
+                    <Selecao value={_pp.dissidioMes || ''} onChange={v => updatePremissasPessoalCorporativo('dissidioMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio — %</label>
+                    <CampoNumero value={_pp.dissidioPct} onChange={v => updatePremissasPessoalCorporativo('dissidioPct', v)} sufixo="%" placeholder="0,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — mês</label>
+                    <Selecao value={_pp.meritocraciaMes || ''} onChange={v => updatePremissasPessoalCorporativo('meritocraciaMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — %</label>
+                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => updatePremissasPessoalCorporativo('meritocraciaPct', v)} sufixo="%" placeholder="0,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus — mês</label>
+                    <Selecao value={_pp.bonusMes || ''} onChange={v => updatePremissasPessoalCorporativo('bonusMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus — % do mês</label>
+                    <CampoNumero value={_pp.bonusPct} onChange={v => updatePremissasPessoalCorporativo('bonusPct', v)} sufixo="%" placeholder="0,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos — Novo HC (%)</label>
+                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => updatePremissasPessoalCorporativo('encargosNovoHcPct', v)} sufixo="%" placeholder="0,00" />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
             <h3 style={{ fontSize: 14, color: COR.azul, margin: 0 }}>Status por unidade</h3>
