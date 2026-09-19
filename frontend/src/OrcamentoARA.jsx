@@ -9480,7 +9480,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const licencaSoftwareNovoHcRowCorp = novoHcPorMesCorp
     ? MESES.map((_, m) => novoHcPorMesCorp[m] * parseNum(_ppC.licencaSoftwareNovoHcValor || '2700'))
     : null;
-  const totalCalculadosCorp = _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp) + _somaRow(encargosNovoHcRowCorp) + _somaRow(bonusPjRowCorp) + _somaRow(licencaSoftwareNovoHcRowCorp);
+  const totalCalculadosCorp = _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp) + _somaRow(encargosNovoHcRowCorp) + _somaRow(bonusPjRowCorp);
 
   const termoBusca = filtroConta.trim().toLowerCase();
   const gruposPacoteExibidos = gruposPacote
@@ -9716,7 +9716,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
         const totalPacote = g.id === 'pessoal'
           ? folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
             + (unidadeId === 'corporativo' ? totalCalculadosCorp : 0)
-          : g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0);
+          : g.contas.reduce((acc, c) => acc + totalConta(c.codigo) + (c.codigo === 'CORP10' && unidadeId === 'corporativo' ? _somaRow(licencaSoftwareNovoHcRowCorp) : 0), 0);
         const pacoteAberto = !!pacotesAbertos[g.id];
         return (
           <div key={g.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
@@ -9875,7 +9875,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               <span style={{ fontWeight: 400, color: '#8A8F96', fontSize: 11 }}>({(funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo').length} funcionários)</span>
                             </span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>
-                              {formatBRL(folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp) + _somaRow(licencaSoftwareNovoHcRowCorp))}
+                              {formatBRL(folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp))}
                             </span>
                           </button>
                           {novoHcAberto && (
@@ -9893,11 +9893,10 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                   linhasCalculadas={[
                                     { key: 'folhaNovo', label: 'Folha — Novo Headcount', valoresMensal: folhaAtual.mensal.map(m => m.total), totalValor: folhaAtual.totalAnual, cor: COR.texto },
                                     ...(encargosNovoHcRowCorp ? [{ key: 'encargosNovo', label: `Encargos e Benefícios${_ppC.encargosNovoHcPct ? ` — ${_ppC.encargosNovoHcPct}%` : ''}`, valoresMensal: encargosNovoHcRowCorp, totalValor: _somaRow(encargosNovoHcRowCorp), cor: COR.texto }] : []),
-                                    ...(licencaSoftwareNovoHcRowCorp && _somaRow(licencaSoftwareNovoHcRowCorp) > 0 ? [{ key: 'licencaSoftware', label: `Licença de Software — Novo HC (R$ ${_ppC.licencaSoftwareNovoHcValor || '2.700'}/pessoa)`, valoresMensal: licencaSoftwareNovoHcRowCorp, totalValor: _somaRow(licencaSoftwareNovoHcRowCorp), cor: COR.texto }] : []),
                                     {
                                       key: 'totalNovoHc', label: 'Total — Novo HC',
-                                      valoresMensal: folhaAtual.mensal.map((m, i) => m.total + (encargosNovoHcRowCorp?.[i] || 0) + (licencaSoftwareNovoHcRowCorp?.[i] || 0)),
-                                      totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp) + _somaRow(licencaSoftwareNovoHcRowCorp),
+                                      valoresMensal: folhaAtual.mensal.map((m, i) => m.total + (encargosNovoHcRowCorp?.[i] || 0)),
+                                      totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp),
                                       cor: COR.laranja,
                                     },
                                   ]}
@@ -10046,8 +10045,9 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                 ) : g.contas.length === 0 ? (
                   <div style={{ fontSize: 11.5, color: '#8A8F96', padding: '6px 2px' }}>Nenhuma conta encontrada para o filtro atual.</div>
                 ) : (
-                  g.contas.map(c => (
-                    c.codigo === CONTA_VIAGENS_CALCULADORA && unidadeId === 'corporativo' ? (
+                  g.contas.map(c => {
+                    const isCorp10Calc = c.codigo === 'CORP10' && unidadeId === 'corporativo' && licencaSoftwareNovoHcRowCorp && _somaRow(licencaSoftwareNovoHcRowCorp) > 0;
+                    return c.codigo === CONTA_VIAGENS_CALCULADORA && unidadeId === 'corporativo' ? (
                       <LinhaContaViagens
                         key={c.codigo} conta={c}
                         viagens={viagens?.[ccSel] || []}
@@ -10066,13 +10066,29 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                         onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
                         onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
                         onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
-                        total={totalConta(c.codigo)}
+                        total={isCorp10Calc ? totalConta(c.codigo) + _somaRow(licencaSoftwareNovoHcRowCorp) : totalConta(c.codigo)}
                         receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                         ocultarClassificacao={unidadeId === 'corporativo'}
                         unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                        linhasCalculadas={isCorp10Calc ? [
+                          {
+                            key: 'licencaNovoHc',
+                            label: `Licença Software — Novo HC (R$ ${_ppC.licencaSoftwareNovoHcValor || '2.700'}/pessoa)`,
+                            valoresMensal: licencaSoftwareNovoHcRowCorp,
+                            totalValor: _somaRow(licencaSoftwareNovoHcRowCorp),
+                            cor: '#8A8F96',
+                          },
+                          {
+                            key: 'totalCorp10',
+                            label: 'Total CORP10 (Lançado + Novo HC)',
+                            valoresMensal: MESES.map((_, m) => totalContaMes(c.codigo, m) + (licencaSoftwareNovoHcRowCorp?.[m] || 0)),
+                            totalValor: totalConta(c.codigo) + _somaRow(licencaSoftwareNovoHcRowCorp),
+                            cor: COR.laranja,
+                          },
+                        ] : undefined}
                       />
-                    )
-                  ))
+                    );
+                  }))
                 )}
               </div>
             )}
