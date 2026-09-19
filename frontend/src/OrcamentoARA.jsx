@@ -9609,7 +9609,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             ...gruposPacote.map(g => g.id === 'pessoal' ? {
               key: g.id,
               label: unidadeId === 'corporativo'
-                ? `${g.nome} (HC Existente + Novo Headcount + Calculados + PJs)`
+                ? `${g.nome} (HC Existente + Novo Headcount + PJs)`
                 : `${g.nome} (CLT — folha calculada + Consultórias PJs)`,
               valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + totalPacoteMes(g.contas, m)
                 + (unidadeId === 'corporativo' ? (dissidioRowCorp?.[m] || 0) + (meritocraciaRowCorp?.[m] || 0) + (bonusRowCorp?.[m] || 0) + (encargosNovoHcRowCorp?.[m] || 0) + (bonusPjRowCorp?.[m] || 0) + (licencaSoftwareNovoHcRowCorp?.[m] || 0) : 0)),
