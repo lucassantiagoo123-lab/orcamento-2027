@@ -9877,33 +9877,15 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                           )}
                         </div>
 
-                        {/* Consultórias PJs (CORP03) — descrição + bônus calculado */}
+                        {/* Consultórias PJs (CORP03) — observação + bônus calculado */}
                         {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
                           <div key={c.codigo} style={{ marginTop: 18 }}>
-                            <h5 style={{ fontSize: 13, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>Prestadores PJ</h5>
-                            <div style={{ display: 'inline-block', background: '#F5A623', color: '#FFF', fontWeight: 700, fontSize: 11, borderRadius: 5, padding: '2px 10px', marginBottom: 10 }}>2. PJs</div>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 14, fontSize: 11.5 }}>
-                              <thead>
-                                <tr style={{ background: COR.azul, color: '#FFF' }}>
-                                  <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>Premissa</th>
-                                  <th style={{ padding: '6px 12px', textAlign: 'center', fontWeight: 600 }}>Aplicação na plataforma</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                <tr style={{ borderBottom: `1px solid ${COR.borda}` }}>
-                                  <td style={{ padding: '6px 12px', color: '#444' }}>Reajuste de inflação</td>
-                                  <td style={{ padding: '6px 12px', color: '#7A8088', textAlign: 'center' }}>Lançado direto na plataforma pelo gestor</td>
-                                </tr>
-                                <tr>
-                                  <td style={{ padding: '6px 12px', color: '#444' }}>Bônus</td>
-                                  <td style={{ padding: '6px 12px', color: '#7A8088', textAlign: 'center' }}>
-                                    {_ppC.bonusPjMes ? `Pagamento em ${_ppC.bonusPjMes}` : 'Mês não definido'}
-                                    {_ppC.bonusPjAtendimentoPct ? ` · premissa de atingimento ${_ppC.bonusPjAtendimentoPct}%` : ''}
-                                    {' · calculado diretamente pela plataforma'}
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
+                            <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, marginBottom: 12, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                              <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+                              <div style={{ fontSize: 11, color: COR.texto }}>
+                                Incluir apenas a remuneração considerando a premissa de Reajuste de Inflação (IPCA). O bônus será calculado diretamente pela plataforma.
+                              </div>
+                            </div>
                             <LinhaConta
                               conta={c}
                               linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
