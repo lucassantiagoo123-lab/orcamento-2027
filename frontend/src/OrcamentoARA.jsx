@@ -10461,7 +10461,7 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
                   />
                 </td>
               ))}
-              <td style={{ ...TD, background: COR.claro, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>{fmtBRL(totalFlat)}</td>
+              <td style={{ ...TD, background: COR.claro, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>{formatBRL(totalFlat)}</td>
               <td style={{ ...TD, background: COR.claro }}></td>
             </tr>
             {/* linhas por conta */}
@@ -10488,7 +10488,7 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
                       />
                     </td>
                   ))}
-                  <td style={{ ...TD, background: COR.branco, fontWeight: 600, color: COR.laranja, padding: '2px 8px' }}>{fmtBRL(tot)}</td>
+                  <td style={{ ...TD, background: COR.branco, fontWeight: 600, color: COR.laranja, padding: '2px 8px' }}>{formatBRL(tot)}</td>
                   <td style={{ ...TD, background: COR.branco, textAlign: 'center' }}>
                     <button
                       onClick={() => onRemove(idx)}
@@ -10503,9 +10503,9 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
               <td style={{ ...TD, textAlign: 'left', padding: '3px 8px', fontWeight: 700, color: COR.vermelho, background: '#FFF0F0', position: 'sticky', left: 0 }}>Total {titulo}</td>
               {MESES.map((_, m) => {
                 const v = parseNum((flatValores || [])[m]) + (linhas || []).reduce((a, l) => a + parseNum((l.valores || [])[m]), 0);
-                return <td key={m} style={{ ...TD, background: '#FFF0F0', fontWeight: 600, color: COR.vermelho }}>{fmtBRL(v)}</td>;
+                return <td key={m} style={{ ...TD, background: '#FFF0F0', fontWeight: 600, color: COR.vermelho }}>{formatBRL(v)}</td>;
               })}
-              <td style={{ ...TD, background: '#FFF0F0', fontWeight: 700, color: COR.vermelho, padding: '3px 8px' }}>{fmtBRL(totalFlat + totalLinhas)}</td>
+              <td style={{ ...TD, background: '#FFF0F0', fontWeight: 700, color: COR.vermelho, padding: '3px 8px' }}>{formatBRL(totalFlat + totalLinhas)}</td>
               <td style={{ ...TD, background: '#FFF0F0' }}></td>
             </tr>
           </tbody>
