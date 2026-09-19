@@ -9470,7 +9470,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     ? MESES.map((_, m) => totalContaMes(CONTA_CONSULTORIA_PJ, m))
     : null;
   const bonusPjRowCorp = corp03MesCorp && _bonusPjMesIdxC >= 0
-    ? MESES.map((_, m) => m === _bonusPjMesIdxC ? _somaRow(corp03MesCorp) * parseNum(_ppC.bonusPjAtendimentoPct) / 100 : 0)
+    ? MESES.map((_, m) => m === _bonusPjMesIdxC ? (corp03MesCorp[_bonusPjMesIdxC] || 0) * parseNum(_ppC.bonusPjAtendimentoPct) / 100 : 0)
     : null;
   // Licença de software e CAPEX por novo headcount (2026-09-19): one-shot no
   // mês de admissão. Conta novos HCs do CC selecionado por mês de entrada.
