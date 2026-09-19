@@ -2147,6 +2147,11 @@ function emptyFormData(unidadeId = 'textil') {
         // PJs (CORP03, Corporativo) — calculado pela plataforma, editável apenas
         // em Gestão do Orçamento, visível como linha somente leitura na conta.
         bonusPjMes: '', bonusPjAtendimentoPct: '',
+        // licencaSoftwareNovoHcValor/capexEquipNovoHcValor (2026-09-19):
+        // custo unitário por novo headcount admitido — licença Microsoft
+        // (despesa, pacote Tecnologia, Locação de Software) e equipamento
+        // (CAPEX, Melhoria Interna), ambos one-shot no mês de contratação.
+        licencaSoftwareNovoHcValor: '2700', capexEquipNovoHcValor: '13460',
       },
       // Só Corporativo, conta CORP18 "Passagem e Hospedagem" (decisão de
       // 2026-08-19) — { [ccCodigo]: [viagem, ...] }, ver
@@ -5938,6 +5943,9 @@ function VisaoGerente(props) {
             ccsDisponiveis={usuario.perfil === 'gerente_cc_corporativo'
               ? referenciaDaUnidade(unidadeAtual).ccs.filter(cc => (usuario.ccsPermitidos || []).some(p => p.unidadeId === unidadeAtual && p.codigo === cc.codigo))
               : referenciaDaUnidade(unidadeAtual).ccs}
+            funcionarios={dados.custos.funcionarios}
+            premissasPessoal={dados.custos.premissasPessoal}
+            unidadeId={unidadeAtual}
           />
         )}
         {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={referenciaDaUnidade(unidadeAtual)} ipcaAnualPct={ipcaAnualPct} unidadeId={unidadeAtual} />}
@@ -9459,7 +9467,15 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const bonusPjRowCorp = corp03MesCorp && _bonusPjMesIdxC >= 0
     ? MESES.map((_, m) => m === _bonusPjMesIdxC ? _somaRow(corp03MesCorp) * parseNum(_ppC.bonusPjAtendimentoPct) / 100 : 0)
     : null;
-  const totalCalculadosCorp = _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp) + _somaRow(encargosNovoHcRowCorp) + _somaRow(bonusPjRowCorp);
+  // Licença de software e CAPEX por novo headcount (2026-09-19): one-shot no
+  // mês de admissão. Conta novos HCs do CC selecionado por mês de entrada.
+  const novoHcPorMesCorp = unidadeId === 'corporativo'
+    ? MESES.map(mes => (funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo' && f.mesAdmissao === mes).length)
+    : null;
+  const licencaSoftwareNovoHcRowCorp = novoHcPorMesCorp
+    ? MESES.map((_, m) => novoHcPorMesCorp[m] * parseNum(_ppC.licencaSoftwareNovoHcValor || '2700'))
+    : null;
+  const totalCalculadosCorp = _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp) + _somaRow(encargosNovoHcRowCorp) + _somaRow(bonusPjRowCorp) + _somaRow(licencaSoftwareNovoHcRowCorp);
 
   const termoBusca = filtroConta.trim().toLowerCase();
   const gruposPacoteExibidos = gruposPacote
@@ -9567,7 +9583,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                 ? `${g.nome} (HC Existente + Calculados + Novo HC + PJs)`
                 : `${g.nome} (CLT — folha calculada + Consultórias PJs)`,
               valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + totalPacoteMes(g.contas, m)
-                + (unidadeId === 'corporativo' ? (dissidioRowCorp?.[m] || 0) + (meritocraciaRowCorp?.[m] || 0) + (bonusRowCorp?.[m] || 0) + (encargosNovoHcRowCorp?.[m] || 0) + (bonusPjRowCorp?.[m] || 0) : 0)),
+                + (unidadeId === 'corporativo' ? (dissidioRowCorp?.[m] || 0) + (meritocraciaRowCorp?.[m] || 0) + (bonusRowCorp?.[m] || 0) + (encargosNovoHcRowCorp?.[m] || 0) + (bonusPjRowCorp?.[m] || 0) + (licencaSoftwareNovoHcRowCorp?.[m] || 0) : 0)),
               totalValor: folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
                 + (unidadeId === 'corporativo' ? totalCalculadosCorp : 0),
               cor: COR.azul,
@@ -9767,6 +9783,14 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus PJs — atingimento (%)</label>
                                 <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPjAtendimentoPct ? `${_ppC.bonusPjAtendimentoPct}%` : '—'}</span>
                               </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Licença Software — Novo HC (R$)</label>
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.licencaSoftwareNovoHcValor || '2.700'}</span>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>CapEx Equip. — Novo HC (R$)</label>
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.capexEquipNovoHcValor || '13.460'}</span>
+                              </div>
                             </div>
                           </div>
                         )}
@@ -9846,7 +9870,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               <span style={{ fontWeight: 400, color: '#8A8F96', fontSize: 11 }}>({(funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo').length} funcionários)</span>
                             </span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>
-                              {formatBRL(folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp))}
+                              {formatBRL(folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp) + _somaRow(licencaSoftwareNovoHcRowCorp))}
                             </span>
                           </button>
                           {novoHcAberto && (
@@ -9864,10 +9888,11 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                   linhasCalculadas={[
                                     { key: 'folhaNovo', label: 'Folha — Novo Headcount', valoresMensal: folhaAtual.mensal.map(m => m.total), totalValor: folhaAtual.totalAnual, cor: COR.texto },
                                     ...(encargosNovoHcRowCorp ? [{ key: 'encargosNovo', label: `Encargos e Benefícios${_ppC.encargosNovoHcPct ? ` — ${_ppC.encargosNovoHcPct}%` : ''}`, valoresMensal: encargosNovoHcRowCorp, totalValor: _somaRow(encargosNovoHcRowCorp), cor: COR.texto }] : []),
+                                    ...(licencaSoftwareNovoHcRowCorp && _somaRow(licencaSoftwareNovoHcRowCorp) > 0 ? [{ key: 'licencaSoftware', label: `Licença de Software — Novo HC (R$ ${_ppC.licencaSoftwareNovoHcValor || '2.700'}/pessoa)`, valoresMensal: licencaSoftwareNovoHcRowCorp, totalValor: _somaRow(licencaSoftwareNovoHcRowCorp), cor: COR.texto }] : []),
                                     {
                                       key: 'totalNovoHc', label: 'Total — Novo HC',
-                                      valoresMensal: folhaAtual.mensal.map((m, i) => m.total + (encargosNovoHcRowCorp?.[i] || 0)),
-                                      totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp),
+                                      valoresMensal: folhaAtual.mensal.map((m, i) => m.total + (encargosNovoHcRowCorp?.[i] || 0) + (licencaSoftwareNovoHcRowCorp?.[i] || 0)),
+                                      totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp) + _somaRow(licencaSoftwareNovoHcRowCorp),
                                       cor: COR.laranja,
                                     },
                                   ]}
@@ -10112,7 +10137,7 @@ const CATEGORIAS_CAPEX = [
 // investimento" — cada projeto ganha uma TabelaMensal de 1 linha (o mesmo
 // padrão usado em todo o resto do app), em vez do valor único + mês único
 // de antes. Ver desembolsosDoProjeto (compat com dado antigo).
-function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDesembolsoProjeto, usuario, ccsDisponiveis }) {
+function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDesembolsoProjeto, usuario, ccsDisponiveis, funcionarios, premissasPessoal, unidadeId }) {
   const isGerenteCc = usuario?.perfil === 'gerente_cc_corporativo';
   // Escopo de visibilidade: gestor de CC vê só seus CCs; demais veem tudo
   const projetosFiltrados = isGerenteCc
@@ -10147,6 +10172,14 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
   }
 
   const totalCapex = projetosFiltrados.reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
+
+  // Equipamentos por novo headcount — Corporativo only (2026-09-19): one-shot
+  // no mês de admissão, soma todos os CCs (CAPEX é investimento da unidade).
+  const capexEquipNovoHcRowCorp = unidadeId === 'corporativo' && funcionarios
+    ? MESES.map(mes => (funcionarios || []).filter(f => f.origem === 'novo' && f.mesAdmissao === mes).length
+        * parseNum((premissasPessoal || {}).capexEquipNovoHcValor || '13460'))
+    : null;
+  const _somaCapexEquip = capexEquipNovoHcRowCorp ? capexEquipNovoHcRowCorp.reduce((a, v) => a + v, 0) : 0;
 
   return (
     <div>
@@ -10252,7 +10285,11 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
           linhasCalculadas={[
             ...CATEGORIAS_CAPEX.flatMap(cat => {
               const projetosCat = projetosFiltrados.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
-              const mensais = MESES.map((_, m) => projetosCat.reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0));
+              const mensaisLancados = MESES.map((_, m) => projetosCat.reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0));
+              const equipRow = cat.id === 'melhoria_interna' && capexEquipNovoHcRowCorp;
+              const mensais = equipRow
+                ? mensaisLancados.map((v, m) => v + capexEquipNovoHcRowCorp[m])
+                : mensaisLancados;
               const aberto = resumoAberto[cat.id];
               return [
                 {
@@ -10264,23 +10301,32 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
                   onClick: () => setResumoAberto(prev => ({ ...prev, [cat.id]: !prev[cat.id] })),
                   aberto,
                 },
-                ...(aberto ? projetosCat.map(p => {
-                  const des = desembolsosDoProjeto(p).map(parseNum);
-                  return {
-                    key: `${cat.id}_${p.id}`,
-                    label: `    ${p.nome || '(sem nome)'}`,
-                    valoresMensal: des,
-                    totalValor: des.reduce((a, v) => a + v, 0),
+                ...(aberto ? [
+                  ...projetosCat.map(p => {
+                    const des = desembolsosDoProjeto(p).map(parseNum);
+                    return {
+                      key: `${cat.id}_${p.id}`,
+                      label: `    ${p.nome || '(sem nome)'}`,
+                      valoresMensal: des,
+                      totalValor: des.reduce((a, v) => a + v, 0),
+                      cor: COR.texto,
+                    };
+                  }),
+                  ...(equipRow && _somaCapexEquip > 0 ? [{
+                    key: '__equip_novo_hc__',
+                    label: `    Equipamentos — Novo HC (R$ ${(premissasPessoal || {}).capexEquipNovoHcValor || '13.460'}/pessoa)`,
+                    valoresMensal: capexEquipNovoHcRowCorp,
+                    totalValor: _somaCapexEquip,
                     cor: COR.texto,
-                  };
-                }) : []),
+                  }] : []),
+                ] : []),
               ];
             }),
             {
               key: '__total_capex__',
               label: 'Total CapEx',
-              valoresMensal: MESES.map((_, m) => projetosFiltrados.reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0)),
-              totalValor: totalCapex,
+              valoresMensal: MESES.map((_, m) => projetosFiltrados.reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0) + (capexEquipNovoHcRowCorp?.[m] || 0)),
+              totalValor: totalCapex + _somaCapexEquip,
               cor: COR.laranja,
             },
           ]}
@@ -12354,6 +12400,15 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus PJs — atingimento (%)</label>
                     <CampoNumero value={_pp.bonusPjAtendimentoPct} onChange={v => updatePremissasPessoalCorporativo('bonusPjAtendimentoPct', v)} sufixo="%" placeholder="0,00" />
+                  </div>
+                  <div style={{ width: '100%', borderTop: `1px solid ${COR.borda}`, margin: '8px 0' }} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Licença Software — Novo HC (R$/pessoa)</label>
+                    <CampoNumero value={_pp.licencaSoftwareNovoHcValor} onChange={v => updatePremissasPessoalCorporativo('licencaSoftwareNovoHcValor', v)} prefixo="R$" placeholder="2.700" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>CapEx Equip. — Novo HC (R$/pessoa)</label>
+                    <CampoNumero value={_pp.capexEquipNovoHcValor} onChange={v => updatePremissasPessoalCorporativo('capexEquipNovoHcValor', v)} prefixo="R$" placeholder="13.460" />
                   </div>
                 </div>
               </div>
