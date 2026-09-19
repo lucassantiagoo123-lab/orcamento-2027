@@ -2143,6 +2143,10 @@ function emptyFormData(unidadeId = 'textil') {
         // Corporativo — dissídio e meritocracia % já existiam, agora ganha
         // mês de meritocracia, mês+% de bônus e % de encargos Novo HC.
         meritocraciaMes: '', bonusMes: '', bonusPct: '', encargosNovoHcPct: '',
+        // bonusPjMes/bonusPjAtendimentoPct (2026-09-19): bônus de Consultórias
+        // PJs (CORP03, Corporativo) — calculado pela plataforma, editável apenas
+        // em Gestão do Orçamento, visível como linha somente leitura na conta.
+        bonusPjMes: '', bonusPjAtendimentoPct: '',
       },
       // Só Corporativo, conta CORP18 "Passagem e Hospedagem" (decisão de
       // 2026-08-19) — { [ccCodigo]: [viagem, ...] }, ver
@@ -9433,6 +9437,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const _dissidioMesIdxC = _ppC.dissidioMes ? MESES.indexOf(_ppC.dissidioMes) : -1;
   const _meritMesIdxC = _ppC.meritocraciaMes ? MESES.indexOf(_ppC.meritocraciaMes) : -1;
   const _bonusMesIdxC = _ppC.bonusMes ? MESES.indexOf(_ppC.bonusMes) : -1;
+  const _bonusPjMesIdxC = _ppC.bonusPjMes ? MESES.indexOf(_ppC.bonusPjMes) : -1;
   const dissidioRowCorp = hcExistenteMesCorp
     ? MESES.map((_, m) => _dissidioMesIdxC >= 0 && m >= _dissidioMesIdxC ? hcExistenteMesCorp[m] * parseNum(_ppC.dissidioPct) / 100 : 0)
     : null;
@@ -9446,7 +9451,15 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     ? MESES.map((_, m) => folhaAtual.mensal[m].total * parseNum(_ppC.encargosNovoHcPct) / 100)
     : null;
   const _somaRow = (row) => row ? row.reduce((a, v) => a + v, 0) : 0;
-  const totalCalculadosCorp = _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp) + _somaRow(encargosNovoHcRowCorp);
+  // Bônus PJs (CORP03, Corporativo): % de atingimento aplicado sobre o total
+  // anual lançado pelo gestor, pago no mês definido em Gestão do Orçamento.
+  const corp03MesCorp = unidadeId === 'corporativo'
+    ? MESES.map((_, m) => totalContaMes(CONTA_CONSULTORIA_PJ, m))
+    : null;
+  const bonusPjRowCorp = corp03MesCorp && _bonusPjMesIdxC >= 0
+    ? MESES.map((_, m) => m === _bonusPjMesIdxC ? _somaRow(corp03MesCorp) * parseNum(_ppC.bonusPjAtendimentoPct) / 100 : 0)
+    : null;
+  const totalCalculadosCorp = _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp) + _somaRow(encargosNovoHcRowCorp) + _somaRow(bonusPjRowCorp);
 
   const termoBusca = filtroConta.trim().toLowerCase();
   const gruposPacoteExibidos = gruposPacote
@@ -9554,7 +9567,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                 ? `${g.nome} (HC Existente + Calculados + Novo HC + PJs)`
                 : `${g.nome} (CLT — folha calculada + Consultórias PJs)`,
               valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + totalPacoteMes(g.contas, m)
-                + (unidadeId === 'corporativo' ? (dissidioRowCorp?.[m] || 0) + (meritocraciaRowCorp?.[m] || 0) + (bonusRowCorp?.[m] || 0) + (encargosNovoHcRowCorp?.[m] || 0) : 0)),
+                + (unidadeId === 'corporativo' ? (dissidioRowCorp?.[m] || 0) + (meritocraciaRowCorp?.[m] || 0) + (bonusRowCorp?.[m] || 0) + (encargosNovoHcRowCorp?.[m] || 0) + (bonusPjRowCorp?.[m] || 0) : 0)),
               totalValor: folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
                 + (unidadeId === 'corporativo' ? totalCalculadosCorp : 0),
               cor: COR.azul,
@@ -9746,6 +9759,14 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Encargos — Novo HC (%)</label>
                                 <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.encargosNovoHcPct ? `${_ppC.encargosNovoHcPct}%` : '—'}</span>
                               </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus PJs — mês</label>
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPjMes || '—'}</span>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus PJs — atingimento (%)</label>
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPjAtendimentoPct ? `${_ppC.bonusPjAtendimentoPct}%` : '—'}</span>
+                              </div>
                             </div>
                           </div>
                         )}
@@ -9856,9 +9877,33 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                           )}
                         </div>
 
-                        {/* Consultórias PJs (CORP03) */}
+                        {/* Consultórias PJs (CORP03) — descrição + bônus calculado */}
                         {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
-                          <div key={c.codigo} style={{ marginTop: 14 }}>
+                          <div key={c.codigo} style={{ marginTop: 18 }}>
+                            <h5 style={{ fontSize: 13, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>Prestadores PJ</h5>
+                            <div style={{ display: 'inline-block', background: '#F5A623', color: '#FFF', fontWeight: 700, fontSize: 11, borderRadius: 5, padding: '2px 10px', marginBottom: 10 }}>2. PJs</div>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 14, fontSize: 11.5 }}>
+                              <thead>
+                                <tr style={{ background: COR.azul, color: '#FFF' }}>
+                                  <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>Premissa</th>
+                                  <th style={{ padding: '6px 12px', textAlign: 'center', fontWeight: 600 }}>Aplicação na plataforma</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr style={{ borderBottom: `1px solid ${COR.borda}` }}>
+                                  <td style={{ padding: '6px 12px', color: '#444' }}>Reajuste de inflação</td>
+                                  <td style={{ padding: '6px 12px', color: '#7A8088', textAlign: 'center' }}>Lançado direto na plataforma pelo gestor</td>
+                                </tr>
+                                <tr>
+                                  <td style={{ padding: '6px 12px', color: '#444' }}>Bônus</td>
+                                  <td style={{ padding: '6px 12px', color: '#7A8088', textAlign: 'center' }}>
+                                    {_ppC.bonusPjMes ? `Pagamento em ${_ppC.bonusPjMes}` : 'Mês não definido'}
+                                    {_ppC.bonusPjAtendimentoPct ? ` · premissa de atingimento ${_ppC.bonusPjAtendimentoPct}%` : ''}
+                                    {' · calculado diretamente pela plataforma'}
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
                             <LinhaConta
                               conta={c}
                               linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
@@ -9873,6 +9918,20 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               ocultarClassificacao
                               unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
                             />
+                            {bonusPjRowCorp && _somaRow(bonusPjRowCorp) > 0 && (
+                              <div style={{ marginTop: 8 }}>
+                                <TabelaMensal
+                                  linhas={[]} onChangeCelula={() => {}}
+                                  linhasCalculadas={[{
+                                    key: 'bonusPj',
+                                    label: `Bônus PJs${_ppC.bonusPjMes ? ` — ${_ppC.bonusPjMes}, ${_ppC.bonusPjAtendimentoPct || '0'}% atingimento` : ''}`,
+                                    valoresMensal: bonusPjRowCorp,
+                                    totalValor: _somaRow(bonusPjRowCorp),
+                                    cor: COR.texto,
+                                  }]}
+                                />
+                              </div>
+                            )}
                           </div>
                         ))}
                         {/* Cursos (CORP13, individual: true) e demais contas individual */}
@@ -12309,6 +12368,15 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos — Novo HC (%)</label>
                     <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => updatePremissasPessoalCorporativo('encargosNovoHcPct', v)} sufixo="%" placeholder="0,00" />
+                  </div>
+                  <div style={{ width: '100%', borderTop: `1px solid ${COR.borda}`, margin: '8px 0' }} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus PJs — mês de pagamento</label>
+                    <Selecao value={_pp.bonusPjMes || ''} onChange={v => updatePremissasPessoalCorporativo('bonusPjMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus PJs — atingimento (%)</label>
+                    <CampoNumero value={_pp.bonusPjAtendimentoPct} onChange={v => updatePremissasPessoalCorporativo('bonusPjAtendimentoPct', v)} sufixo="%" placeholder="0,00" />
                   </div>
                 </div>
               </div>
