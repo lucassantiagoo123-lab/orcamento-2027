@@ -2138,6 +2138,10 @@ function emptyFormData(unidadeId = 'textil') {
         inssPct: '', fgtsPct: '', feriasPct: '', decimoTerceiroPct: '', meritocraciaPct: '',
         valeTransporteValor: '', cestaBasicaValor: '', planoSaudeValor: '', outrosBeneficiosValor: '',
         dissidioMes: '', dissidioPct: '',
+        // dissidioMes2/dissidioPct2 (2026-09-19): segundo ciclo de dissídio
+        // — usado por Têxtil (Jan 4,5% + Ago 7%) e Resorts (Jan 1% + Ago 5%).
+        // Fator composto: (1+d1%) × (1+d2%) a partir do segundo mês.
+        dissidioMes2: '', dissidioPct2: '',
         // meritocraciaMes/bonusMes/bonusPct/encargosNovoHcPct (2026-09-19):
         // parâmetros por unidade para linhas calculadas do pacote Pessoal
         // Corporativo — dissídio e meritocracia % já existiam, agora ganha
@@ -2177,6 +2181,11 @@ function emptyFormData(unidadeId = 'textil') {
         premissasPagamento2: {
           carteira: mesesVazios(),
           competenciaNovDez: mesesVazios(),
+          // carteiraLinhas/competenciaNovDezLinhas (2026-09-19): detalhamento
+          // por conta analítica [{id,conta,valores}] — somados ao flat array
+          // para cálculo do FC Direto; flat arrays mantidos para compat.
+          carteiraLinhas: [],
+          competenciaNovDezLinhas: [],
           porConta: {},
         },
       } : {}),
@@ -2187,6 +2196,8 @@ function emptyFormData(unidadeId = 'textil') {
         premissasPagamento2: {
           carteira: mesesVazios(),
           competenciaNovDez: mesesVazios(),
+          carteiraLinhas: [],
+          competenciaNovDezLinhas: [],
           porConta: {},
         },
       } : {}),
@@ -2293,7 +2304,10 @@ function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
   });
 
   const idxDissidio = premissas?.dissidioMes ? MESES.indexOf(premissas.dissidioMes) : -1;
-  const fatorDissidio = (idxDissidio >= 0 && mIdx >= idxDissidio) ? (1 + parseNum(premissas?.dissidioPct) / 100) : 1;
+  const idxDissidio2 = premissas?.dissidioMes2 ? MESES.indexOf(premissas.dissidioMes2) : -1;
+  const fatorDissidio =
+    (idxDissidio >= 0 && mIdx >= idxDissidio ? (1 + parseNum(premissas?.dissidioPct) / 100) : 1) *
+    (idxDissidio2 >= 0 && mIdx >= idxDissidio2 ? (1 + parseNum(premissas?.dissidioPct2) / 100) : 1);
   const salarios = ativos.reduce((acc, f) => acc + parseNum(f.salario) * fatorDissidio, 0);
   const inss = salarios * (parseNum(premissas?.inssPct) / 100);
   const fgts = salarios * (parseNum(premissas?.fgtsPct) / 100);
@@ -3128,8 +3142,14 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   // ainda usa a composição de CPV + despesas diretas (pagamentosFornecedoresMes
   // + despesasCaixaSemPessoalMes) — o wiring fino por conta será na próxima fase.
   const premPag2 = cg.premissasPagamento2 || {};
-  const pagamentosCarteiraMes = (premPag2.carteira || mesesVazios()).map(parseNum);
-  const pagamentosNovDezMes = (premPag2.competenciaNovDez || mesesVazios()).map(parseNum);
+  const pagamentosCarteiraMes = MESES.map((_, m) =>
+    parseNum((premPag2.carteira || mesesVazios())[m]) +
+    (premPag2.carteiraLinhas || []).reduce((a, l) => a + parseNum((l.valores || [])[m]), 0)
+  );
+  const pagamentosNovDezMes = MESES.map((_, m) =>
+    parseNum((premPag2.competenciaNovDez || mesesVazios())[m]) +
+    (premPag2.competenciaNovDezLinhas || []).reduce((a, l) => a + parseNum((l.valores || [])[m]), 0)
+  );
 
   const fcOperacionalDiretoMes = MESES.map((_, m) =>
     recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m] - pagamentosCarteiraMes[m] - pagamentosNovDezMes[m]
@@ -4098,27 +4118,30 @@ export default function OrcamentoARA({ usuario }) {
     }
   }
 
-  // Edição de premissas de pessoal do Corporativo — disponível apenas em
-  // Gestão do Orçamento (VisaoFPA). Atualização otimista local + PUT best-effort.
-  async function updatePremissasPessoalCorporativo(campo, valor) {
+  // Edição de premissas de pessoal por unidade — disponível apenas em
+  // Gestão do Orçamento (VisaoFPA). Aceita array de unidadeIds para
+  // atualizar Resorts (beach+villa) e Agrícola (tds+fds) em bloco.
+  async function updatePremissasPessoalUnidade(unidadeIds, campo, valor) {
+    const ids = Array.isArray(unidadeIds) ? unidadeIds : [unidadeIds];
     setStatusUnidades(prev => {
-      const u = prev.corporativo || {};
-      return {
-        ...prev,
-        corporativo: {
-          ...u,
-          custos: { ...u.custos, premissasPessoal: { ...(u.custos?.premissasPessoal || {}), [campo]: valor } },
-        },
-      };
+      const next = { ...prev };
+      ids.forEach(uid => {
+        const u = prev[uid] || {};
+        next[uid] = { ...u, custos: { ...u.custos, premissasPessoal: { ...(u.custos?.premissasPessoal || {}), [campo]: valor } } };
+      });
+      return next;
     });
-    try {
-      const current = statusUnidades.corporativo || {};
-      const novosDados = {
-        ...current,
-        custos: { ...current.custos, premissasPessoal: { ...(current.custos?.premissasPessoal || {}), [campo]: valor } },
-      };
-      await putOrcamento('corporativo', novosDados);
-    } catch (_) {}
+    for (const uid of ids) {
+      try {
+        const current = statusUnidades[uid] || {};
+        const novosDados = { ...current, custos: { ...current.custos, premissasPessoal: { ...(current.custos?.premissasPessoal || {}), [campo]: valor } } };
+        await putOrcamento(uid, novosDados);
+      } catch (_) {}
+    }
+  }
+  // Atalho para Corporativo (retrocompatibilidade com call sites já existentes)
+  function updatePremissasPessoalCorporativo(campo, valor) {
+    return updatePremissasPessoalUnidade('corporativo', campo, valor);
   }
 
   // O antigo buscarBoletimFocus (fetch direto na API do BCB a partir do
@@ -5480,6 +5503,7 @@ export default function OrcamentoARA({ usuario }) {
           etapasProcesso={etapasProcesso} atualizarEtapa={atualizarEtapa}
           premissasMacro={premissasMacro} updatePremissaMacroGlobal={updatePremissaMacroGlobal} updateFontePremissaMacroGlobal={updateFontePremissaMacroGlobal}
           updatePremissasPessoalCorporativo={updatePremissasPessoalCorporativo}
+          updatePremissasPessoalUnidade={updatePremissasPessoalUnidade}
           abrirVersao={abrirVersao}
         />
       )}
@@ -10396,6 +10420,101 @@ function AbaGiro({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct,
   );
 }
 
+// Bloco expansível de linhas por conta analítica para Pagamentos em Carteira ou Competência Nov/Dez.
+// Preserva o flat array existente (sempre editável) e exibe as novas linhas por conta lado a lado.
+function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onRemove, onChangeLinha }) {
+  const totalFlat = (flatValores || []).reduce((a, v) => a + parseNum(v), 0);
+  const totalLinhas = (linhas || []).reduce((acc, l) => acc + (l.valores || []).reduce((a, v) => a + parseNum(v), 0), 0);
+  const TH = { background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '4px 4px', textAlign: 'right', fontWeight: 700 };
+  const TD = { padding: '2px 3px', borderBottom: `1px solid ${COR.borda}`, textAlign: 'right', fontSize: 10.5, fontFamily: FONT };
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: COR.texto, fontFamily: FONT }}>{titulo}</span>
+        <button
+          onClick={onAdd}
+          style={{ fontSize: 10, padding: '2px 8px', background: COR.azul, color: COR.branco, border: 'none', borderRadius: 4, cursor: 'pointer', fontFamily: FONT }}>
+          + Adicionar conta
+        </button>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT, fontSize: 10.5 }}>
+          <thead>
+            <tr>
+              <th style={{ ...TH, textAlign: 'left', minWidth: 160, padding: '4px 8px', position: 'sticky', left: 0 }}>Conta</th>
+              {MESES.map(m => <th key={m} style={{ ...TH, minWidth: 54 }}>{m}</th>)}
+              <th style={{ ...TH, background: COR.laranja, minWidth: 72, padding: '4px 8px' }}>Total</th>
+              <th style={{ ...TH, background: '#7A8088', minWidth: 28 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {/* linha flat — sempre presente, backward compat */}
+            <tr>
+              <td style={{ ...TD, textAlign: 'left', padding: '3px 8px', color: '#7A8088', fontStyle: 'italic', position: 'sticky', left: 0, background: COR.claro }}>Total geral (flat)</td>
+              {(flatValores || mesesVazios()).map((v, m) => (
+                <td key={m} style={{ ...TD, background: COR.claro }}>
+                  <InputNumerico
+                    value={v ?? ''}
+                    onChange={val => onChangeFlat(m, val)}
+                    placeholder="0"
+                    style={{ width: 50, fontFamily: FONT, fontSize: 10, padding: '2px 3px', border: `1px solid ${COR.borda}`, borderRadius: 3, textAlign: 'right' }}
+                  />
+                </td>
+              ))}
+              <td style={{ ...TD, background: COR.claro, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>{fmtBRL(totalFlat)}</td>
+              <td style={{ ...TD, background: COR.claro }}></td>
+            </tr>
+            {/* linhas por conta */}
+            {(linhas || []).map((l, idx) => {
+              const tot = (l.valores || []).reduce((a, v) => a + parseNum(v), 0);
+              return (
+                <tr key={l.id || idx}>
+                  <td style={{ ...TD, textAlign: 'left', padding: '2px 8px', position: 'sticky', left: 0, background: COR.branco }}>
+                    <input
+                      type="text"
+                      value={l.conta || ''}
+                      onChange={e => onChangeLinha(idx, 'conta', e.target.value)}
+                      placeholder="Nome da conta"
+                      style={{ width: '100%', fontFamily: FONT, fontSize: 10.5, padding: '2px 4px', border: `1px solid ${COR.borda}`, borderRadius: 3 }}
+                    />
+                  </td>
+                  {(l.valores || mesesVazios()).map((v, m) => (
+                    <td key={m} style={{ ...TD, background: COR.branco }}>
+                      <InputNumerico
+                        value={v ?? ''}
+                        onChange={val => onChangeLinha(idx, 'valores', atualizarArray(l.valores || mesesVazios(), m, val))}
+                        placeholder="0"
+                        style={{ width: 50, fontFamily: FONT, fontSize: 10, padding: '2px 3px', border: `1px solid ${COR.borda}`, borderRadius: 3, textAlign: 'right' }}
+                      />
+                    </td>
+                  ))}
+                  <td style={{ ...TD, background: COR.branco, fontWeight: 600, color: COR.laranja, padding: '2px 8px' }}>{fmtBRL(tot)}</td>
+                  <td style={{ ...TD, background: COR.branco, textAlign: 'center' }}>
+                    <button
+                      onClick={() => onRemove(idx)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho, fontSize: 13, padding: '0 2px', lineHeight: 1 }}
+                      title="Remover linha">×</button>
+                  </td>
+                </tr>
+              );
+            })}
+            {/* linha de total combinado */}
+            <tr>
+              <td style={{ ...TD, textAlign: 'left', padding: '3px 8px', fontWeight: 700, color: COR.vermelho, background: '#FFF0F0', position: 'sticky', left: 0 }}>Total {titulo}</td>
+              {MESES.map((_, m) => {
+                const v = parseNum((flatValores || [])[m]) + (linhas || []).reduce((a, l) => a + parseNum((l.valores || [])[m]), 0);
+                return <td key={m} style={{ ...TD, background: '#FFF0F0', fontWeight: 600, color: COR.vermelho }}>{fmtBRL(v)}</td>;
+              })}
+              <td style={{ ...TD, background: '#FFF0F0', fontWeight: 700, color: COR.vermelho, padding: '3px 8px' }}>{fmtBRL(totalFlat + totalLinhas)}</td>
+              <td style={{ ...TD, background: '#FFF0F0' }}></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // Agrícola (TDS/FDS) e Resorts (Beach/Villa) — 5.1 placeholder + 5.2 premissas de pagamento
 // com o mesmo racional da AbaGiroTextil: carteira + Nov/Dez + tabela compacta por conta.
 // 5.1 (recebimentos) ainda não construída para essas unidades.
@@ -10406,6 +10525,18 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
   function updatePagamento2(chave, mesIdx, valor) {
     const novoArray = atualizarArray(premPag2[chave] || mesesVazios(), mesIdx, valor);
     atualizar(['capitalGiro', 'premissasPagamento2', chave], novoArray);
+  }
+  function addLinhaPorConta(chaveLinhas) {
+    const novas = [...(premPag2[chaveLinhas] || []), { id: uid(), conta: '', valores: mesesVazios() }];
+    atualizar(['capitalGiro', 'premissasPagamento2', chaveLinhas], novas);
+  }
+  function removeLinhaPorConta(chaveLinhas, idx) {
+    const novas = (premPag2[chaveLinhas] || []).filter((_, i) => i !== idx);
+    atualizar(['capitalGiro', 'premissasPagamento2', chaveLinhas], novas);
+  }
+  function updateLinhaPorConta(chaveLinhas, idx, campo, valor) {
+    const novas = (premPag2[chaveLinhas] || []).map((l, i) => i === idx ? { ...l, [campo]: valor } : l);
+    atualizar(['capitalGiro', 'premissasPagamento2', chaveLinhas], novas);
   }
   function getContaConfig(codigo) {
     const raw = (premPag2.porConta || {})[codigo];
@@ -10454,13 +10585,23 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
         Custos e Despesas, defina o critério de timing por conta. Pessoal: competência = caixa (fixo).
       </p>
 
-      <TabelaMensal
-        linhas={[
-          { key: 'carteira', label: 'Pagamentos em carteira', valores: premPag2.carteira || mesesVazios() },
-          { key: 'competenciaNovDez', label: 'Pagamentos Competência Nov e Dez', valores: premPag2.competenciaNovDez || mesesVazios() },
-        ]}
-        onChangeCelula={(chave, mesIdx, valor) => updatePagamento2(chave, mesIdx, valor)}
-        corTotal={COR.vermelho}
+      <BlocoLinhasGiro
+        titulo="Pagamentos em carteira"
+        flatValores={premPag2.carteira || mesesVazios()}
+        onChangeFlat={(m, v) => updatePagamento2('carteira', m, v)}
+        linhas={premPag2.carteiraLinhas || []}
+        onAdd={() => addLinhaPorConta('carteiraLinhas')}
+        onRemove={idx => removeLinhaPorConta('carteiraLinhas', idx)}
+        onChangeLinha={(idx, campo, valor) => updateLinhaPorConta('carteiraLinhas', idx, campo, valor)}
+      />
+      <BlocoLinhasGiro
+        titulo="Pagamentos Competência Nov e Dez"
+        flatValores={premPag2.competenciaNovDez || mesesVazios()}
+        onChangeFlat={(m, v) => updatePagamento2('competenciaNovDez', m, v)}
+        linhas={premPag2.competenciaNovDezLinhas || []}
+        onAdd={() => addLinhaPorConta('competenciaNovDezLinhas')}
+        onRemove={idx => removeLinhaPorConta('competenciaNovDezLinhas', idx)}
+        onChangeLinha={(idx, campo, valor) => updateLinhaPorConta('competenciaNovDezLinhas', idx, campo, valor)}
       />
 
       {/* Contas analíticas por pacote — tabela compacta */}
@@ -10599,6 +10740,18 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
     const novoArray = atualizarArray(premPag2[chave] || mesesVazios(), mesIdx, valor);
     atualizar(['capitalGiro', 'premissasPagamento2', chave], novoArray);
   }
+  function addLinhaPorConta(chaveLinhas) {
+    const novas = [...(premPag2[chaveLinhas] || []), { id: uid(), conta: '', valores: mesesVazios() }];
+    atualizar(['capitalGiro', 'premissasPagamento2', chaveLinhas], novas);
+  }
+  function removeLinhaPorConta(chaveLinhas, idx) {
+    const novas = (premPag2[chaveLinhas] || []).filter((_, i) => i !== idx);
+    atualizar(['capitalGiro', 'premissasPagamento2', chaveLinhas], novas);
+  }
+  function updateLinhaPorConta(chaveLinhas, idx, campo, valor) {
+    const novas = (premPag2[chaveLinhas] || []).map((l, i) => i === idx ? { ...l, [campo]: valor } : l);
+    atualizar(['capitalGiro', 'premissasPagamento2', chaveLinhas], novas);
+  }
   // Lê config de timing de uma conta, com backward compat (string antiga = percentual_mes).
   function getContaConfig(codigo) {
     const raw = (premPag2.porConta || {})[codigo];
@@ -10693,13 +10846,23 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
         vai pro mês seguinte. Pessoal: competência = caixa no mesmo mês (fixo).
       </p>
 
-      <TabelaMensal
-        linhas={[
-          { key: 'carteira', label: 'Pagamentos em carteira', valores: premPag2.carteira || mesesVazios() },
-          { key: 'competenciaNovDez', label: 'Pagamentos Competência Nov e Dez', valores: premPag2.competenciaNovDez || mesesVazios() },
-        ]}
-        onChangeCelula={(chave, mesIdx, valor) => updatePagamento2(chave, mesIdx, valor)}
-        corTotal={COR.vermelho}
+      <BlocoLinhasGiro
+        titulo="Pagamentos em carteira"
+        flatValores={premPag2.carteira || mesesVazios()}
+        onChangeFlat={(m, v) => updatePagamento2('carteira', m, v)}
+        linhas={premPag2.carteiraLinhas || []}
+        onAdd={() => addLinhaPorConta('carteiraLinhas')}
+        onRemove={idx => removeLinhaPorConta('carteiraLinhas', idx)}
+        onChangeLinha={(idx, campo, valor) => updateLinhaPorConta('carteiraLinhas', idx, campo, valor)}
+      />
+      <BlocoLinhasGiro
+        titulo="Pagamentos Competência Nov e Dez"
+        flatValores={premPag2.competenciaNovDez || mesesVazios()}
+        onChangeFlat={(m, v) => updatePagamento2('competenciaNovDez', m, v)}
+        linhas={premPag2.competenciaNovDezLinhas || []}
+        onAdd={() => addLinhaPorConta('competenciaNovDezLinhas')}
+        onRemove={idx => removeLinhaPorConta('competenciaNovDezLinhas', idx)}
+        onChangeLinha={(idx, campo, valor) => updateLinhaPorConta('competenciaNovDezLinhas', idx, campo, valor)}
       />
 
       {/* Contas analíticas de C&D por pacote — tabela compacta, critério por conta */}
@@ -12296,7 +12459,7 @@ const CAMPO_LOG_LABEL = {
   sensibilidades: 'Sensibilidades',
 };
 
-function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, updateFontePremissaMacroGlobal, updatePremissasPessoalCorporativo, abrirVersao }) {
+function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, updateFontePremissaMacroGlobal, updatePremissasPessoalCorporativo, updatePremissasPessoalUnidade, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   // Mesmo racional do ipcaAnualPct no componente App — recalculado aqui
@@ -12432,6 +12595,136 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>CapEx Equip. — Novo HC (R$/pessoa)</label>
                     <CampoNumero value={_pp.capexEquipNovoHcValor} onChange={v => updatePremissasPessoalCorporativo('capexEquipNovoHcValor', v)} prefixo="R$" placeholder="13.460" />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Premissas de Pessoal — ARA Têxtil */}
+          <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Premissas de Pessoal — ARA Têxtil</h3>
+          <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Dissídio: 4,5% em Janeiro + 7% em Agosto. Meritocracia e Bônus idênticos ao Corporativo.</p>
+          {(() => {
+            const _pp = statusUnidades['textil']?.custos?.premissasPessoal || {};
+            const upd = (c, v) => updatePremissasPessoalUnidade('textil', c, v);
+            return (
+              <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 14, marginBottom: 24 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 1 — mês</label>
+                    <Selecao value={_pp.dissidioMes || ''} onChange={v => upd('dissidioMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 1 — %</label>
+                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="4,50" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — mês</label>
+                    <Selecao value={_pp.dissidioMes2 || ''} onChange={v => upd('dissidioMes2', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — %</label>
+                    <CampoNumero value={_pp.dissidioPct2} onChange={v => upd('dissidioPct2', v)} sufixo="%" placeholder="7,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — mês</label>
+                    <Selecao value={_pp.meritocraciaMes || ''} onChange={v => upd('meritocraciaMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — %</label>
+                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — mês</label>
+                    <Selecao value={_pp.bonusMes || ''} onChange={v => upd('bonusMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
+                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Premissas de Pessoal — ARA Resorts */}
+          <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Premissas de Pessoal — ARA Resorts</h3>
+          <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Aplica às duas unidades (Samoa Beach + Samoa Villa). Dissídio: 1% em Janeiro + 5% em Agosto.</p>
+          {(() => {
+            const _pp = statusUnidades['samoa_beach']?.custos?.premissasPessoal || {};
+            const upd = (c, v) => updatePremissasPessoalUnidade(['samoa_beach', 'samoa_villa'], c, v);
+            return (
+              <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 14, marginBottom: 24 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 1 — mês</label>
+                    <Selecao value={_pp.dissidioMes || ''} onChange={v => upd('dissidioMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 1 — %</label>
+                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="1,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — mês</label>
+                    <Selecao value={_pp.dissidioMes2 || ''} onChange={v => upd('dissidioMes2', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — %</label>
+                    <CampoNumero value={_pp.dissidioPct2} onChange={v => upd('dissidioPct2', v)} sufixo="%" placeholder="5,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — mês</label>
+                    <Selecao value={_pp.meritocraciaMes || ''} onChange={v => upd('meritocraciaMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — %</label>
+                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — mês</label>
+                    <Selecao value={_pp.bonusMes || ''} onChange={v => upd('bonusMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
+                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Premissas de Pessoal — ARA Agrícola */}
+          <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Premissas de Pessoal — ARA Agrícola</h3>
+          <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Aplica às duas fazendas (Terra do Sol + Frutos do Sol). Dissídio único: 7% em Janeiro.</p>
+          {(() => {
+            const _pp = statusUnidades['agricola_tds']?.custos?.premissasPessoal || {};
+            const upd = (c, v) => updatePremissasPessoalUnidade(['agricola_tds', 'agricola_fds'], c, v);
+            return (
+              <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 14, marginBottom: 24 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio — mês</label>
+                    <Selecao value={_pp.dissidioMes || ''} onChange={v => upd('dissidioMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio — %</label>
+                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="7,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — mês</label>
+                    <Selecao value={_pp.meritocraciaMes || ''} onChange={v => upd('meritocraciaMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — %</label>
+                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — mês</label>
+                    <Selecao value={_pp.bonusMes || ''} onChange={v => upd('bonusMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
+                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
                   </div>
                 </div>
               </div>
