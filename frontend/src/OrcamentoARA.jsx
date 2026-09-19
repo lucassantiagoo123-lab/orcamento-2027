@@ -2138,6 +2138,11 @@ function emptyFormData(unidadeId = 'textil') {
         inssPct: '', fgtsPct: '', feriasPct: '', decimoTerceiroPct: '', meritocraciaPct: '',
         valeTransporteValor: '', cestaBasicaValor: '', planoSaudeValor: '', outrosBeneficiosValor: '',
         dissidioMes: '', dissidioPct: '',
+        // meritocraciaMes/bonusMes/bonusPct/encargosNovoHcPct (2026-09-19):
+        // parâmetros por unidade para linhas calculadas do pacote Pessoal
+        // Corporativo — dissídio e meritocracia % já existiam, agora ganha
+        // mês de meritocracia, mês+% de bônus e % de encargos Novo HC.
+        meritocraciaMes: '', bonusMes: '', bonusPct: '', encargosNovoHcPct: '',
       },
       // Só Corporativo, conta CORP18 "Passagem e Hospedagem" (decisão de
       // 2026-08-19) — { [ccCodigo]: [viagem, ...] }, ver
@@ -8686,7 +8691,7 @@ function LinhaContaLeitura({ conta, linha, aberta, onToggle, total, receitaBruta
 // folhaCC) | 'novo' (Adicionar funcionário manual, único grupo calculado).
 function ehExistente(f) { return f.origem !== 'novo'; }
 
-function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, folha, hcExistenteMes }) {
+function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, folha, hcExistenteMes, semCabecalho, semSumario }) {
   const novos = funcionarios.filter(f => !ehExistente(f));
   const folhaNovo = computeFolhaPessoalAnual(novos, premissasPessoal);
 
@@ -8717,11 +8722,9 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
 
   return (
     <div>
-      {/* Headcount Existente (2026-09-08) — virou a conta analítica "Headcount
-          Existente" do pacote Pessoal, renderizada pelo AbaCustos logo ACIMA
-          deste quadro (mesmo tratamento de Consultórias PJs) — o disclaimer
-          pedido fica junto dela, não aqui. */}
-      <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 4 }}>1.2 Novo Headcount</h5>
+      {/* semCabecalho: quando Corporativo chama QuadroPessoal dentro do
+          grupo colapsável "1.2 Novo Headcount", o cabeçalho já vem de fora */}
+      {!semCabecalho && <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 4 }}>1.2 Novo Headcount</h5>}
       <div style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
         Contratações planejadas para 2027, lançadas manualmente — com mês de admissão (define os meses em que entram na folha) e justificativa da necessidade.
       </div>
@@ -8745,6 +8748,11 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
         <Botao variante="fantasma" icone={Plus} onClick={() => addFuncionario(ccCodigo)}>Adicionar Novo Headcount</Botao>
       </div>
 
+      {/* semSumario: Corporativo 2026-09-19 trata Dissídio e resumo CLT nos
+          grupos colapsáveis de AbaCustos — QuadroPessoal só entrega a tabela
+          de funcionários novos (o miolo, sem cabeçalho nem rodapé) */}
+      {!semSumario && (
+        <>
       <div style={{ marginTop: 16 }}>
         <TabelaMensal
           linhas={[]}
@@ -8755,24 +8763,7 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
         />
       </div>
 
-      {/* Premissas de encargos e benefícios (2026-09-08, pedido: "pode
-          desconsiderar todos os campos de encargos e benefícios, irei
-          implantar essas premissas apenas na segunda fase do orçamento") —
-          os campos saem da tela; premissasPessoal.inssPct/fgtsPct/etc.
-          continuam existindo na estrutura de dados (só sem UI pra editar),
-          então parseNum('') = 0 e o cálculo (computeFolhaPessoalMes) passa a
-          dar só o Salário — sem precisar mexer no motor de cálculo agora
-          nem perder o que já estiver preenchido de antes. Reativar na fase 2
-          é só devolver este bloco de campos. */}
-
       <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>Dissídio</h5>
-      {/* Pedido de 2026-09-08: "desconsidere Reajuste salarial/dissídio por
-          enquanto, será considerado à parte com base na planilha de pessoal
-          de suporte" — retira o campo (mês + %) desta tela; volta a ser
-          calculado quando essa integração existir. Até lá, dissidioPct fica
-          congelado no último valor que cada unidade tinha (não é mais
-          sincronizado com a Premissa Macro "Reajuste salarial/dissídio",
-          removida — ver PREMISSAS_MACRO_REF). */}
       <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, marginBottom: 12, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
         <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
         <div style={{ fontSize: 11, color: COR.texto }}>
@@ -8795,6 +8786,8 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
           },
         ]}
       />
+        </>
+      )}
     </div>
   );
 }
@@ -9231,6 +9224,9 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const [mostrarConsolidado, setMostrarConsolidado] = useState(false);
   const [mostrarConsolidadoCC, setMostrarConsolidadoCC] = useState(false);
   const [ccsAbertosMacro, setCcsAbertosMacro] = useState({});
+  // Grupos colapsáveis do pacote Pessoal — Corporativo (2026-09-19)
+  const [hcExistenteAberto, setHcExistenteAberto] = useState(false);
+  const [novoHcAberto, setNovoHcAberto] = useState(false);
 
   if (ccsVisiveis.length === 0) {
     return (
@@ -9400,6 +9396,34 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const folhaAtual = folhaCC(ccSel);
   const totalCC = todasContasCC.reduce((acc, c) => acc + totalConta(c.codigo), 0) + folhaAtual.totalAnual;
 
+  // Linhas calculadas Pessoal — Corporativo (2026-09-19): Dissídio,
+  // Meritocracia, Bônus e Encargos Novo HC — todas derivadas das
+  // premissasPessoal da unidade (nenhum valor hardcoded).
+  const _ppC = premissasPessoal || {};
+  const _hcExisteContaCorp = unidadeId === 'corporativo'
+    ? (refUnidade.planoContas?.['pessoal'] || []).find(c => c.nome === 'Headcount Existente')
+    : null;
+  const hcExistenteMesCorp = _hcExisteContaCorp
+    ? MESES.map((_, m) => totalContaMes(_hcExisteContaCorp.codigo, m))
+    : null;
+  const _dissidioMesIdxC = _ppC.dissidioMes ? MESES.indexOf(_ppC.dissidioMes) : -1;
+  const _meritMesIdxC = _ppC.meritocraciaMes ? MESES.indexOf(_ppC.meritocraciaMes) : -1;
+  const _bonusMesIdxC = _ppC.bonusMes ? MESES.indexOf(_ppC.bonusMes) : -1;
+  const dissidioRowCorp = hcExistenteMesCorp
+    ? MESES.map((_, m) => _dissidioMesIdxC >= 0 && m >= _dissidioMesIdxC ? hcExistenteMesCorp[m] * parseNum(_ppC.dissidioPct) / 100 : 0)
+    : null;
+  const meritocraciaRowCorp = hcExistenteMesCorp
+    ? MESES.map((_, m) => _meritMesIdxC >= 0 && m >= _meritMesIdxC ? hcExistenteMesCorp[m] * parseNum(_ppC.meritocraciaPct) / 100 : 0)
+    : null;
+  const bonusRowCorp = hcExistenteMesCorp
+    ? MESES.map((_, m) => _bonusMesIdxC >= 0 && m === _bonusMesIdxC ? hcExistenteMesCorp[_bonusMesIdxC] * parseNum(_ppC.bonusPct) / 100 : 0)
+    : null;
+  const encargosNovoHcRowCorp = unidadeId === 'corporativo'
+    ? MESES.map((_, m) => folhaAtual.mensal[m].total * parseNum(_ppC.encargosNovoHcPct) / 100)
+    : null;
+  const _somaRow = (row) => row ? row.reduce((a, v) => a + v, 0) : 0;
+  const totalCalculadosCorp = _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp) + _somaRow(encargosNovoHcRowCorp);
+
   const termoBusca = filtroConta.trim().toLowerCase();
   const gruposPacoteExibidos = gruposPacote
     .filter(g => filtroPacoteId === 'todos' || g.id === filtroPacoteId)
@@ -9502,9 +9526,13 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
           linhasCalculadas={[
             ...gruposPacote.map(g => g.id === 'pessoal' ? {
               key: g.id,
-              label: `${g.nome} (CLT — folha calculada + Consultórias PJs)`,
-              valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + totalPacoteMes(g.contas, m)),
-              totalValor: folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0),
+              label: unidadeId === 'corporativo'
+                ? `${g.nome} (HC Existente + Calculados + Novo HC + PJs)`
+                : `${g.nome} (CLT — folha calculada + Consultórias PJs)`,
+              valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + totalPacoteMes(g.contas, m)
+                + (unidadeId === 'corporativo' ? (dissidioRowCorp?.[m] || 0) + (meritocraciaRowCorp?.[m] || 0) + (bonusRowCorp?.[m] || 0) + (encargosNovoHcRowCorp?.[m] || 0) : 0)),
+              totalValor: folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
+                + (unidadeId === 'corporativo' ? totalCalculadosCorp : 0),
               cor: COR.azul,
             } : {
               key: g.id,
@@ -9629,6 +9657,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
         // analíticas do pacote (Consultórias PJs, só Corporativo).
         const totalPacote = g.id === 'pessoal'
           ? folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
+            + (unidadeId === 'corporativo' ? totalCalculadosCorp : 0)
           : g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0);
         const pacoteAberto = !!pacotesAbertos[g.id];
         return (
@@ -9650,103 +9679,292 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
               <div style={{ padding: 8 }}>
                 {g.id === 'pessoal' ? (
                   <>
-                    {/* Headcount Existente (2026-09-08, pedido: "deixe o
-                        racional conforme as demais contas analíticas...
-                        extrair valor total do CC na planilha de pessoal do
-                        Departamento Pessoal e incluir os valores mensais
-                        abaixo") — conta analítica normal (não calculadora),
-                        identificada pelo nome porque o código muda por
-                        unidade (HC_EXISTENTE_C/D na Têxtil/Agrícola,
-                        HC_EXISTENTE na Resorts, CORP01 no Corporativo). */}
-                    {g.contas.filter(c => c.nome === 'Headcount Existente').map(c => (
-                      <div key={c.codigo} style={{ marginBottom: 18 }}>
-                        <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>1.1 Headcount Existente</h5>
-                        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, marginBottom: 10, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                          <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
-                          <div style={{ fontSize: 11, color: COR.texto }}>
-                            Para a primeira versão do Orçamento, por gentileza, extrair o valor total do CC na planilha de pessoal do Departamento Pessoal e incluir os valores mensais abaixo:
+                    {/* ── CORPORATIVO: redesign 2026-09-19 ─────────────────
+                        Salários / Despesas com Pessoal CLT com dois grupos
+                        colapsáveis (HC Existente + Novo HC) e linhas
+                        calculadas por premissas da unidade. Outros: layout
+                        original (LinhaConta + QuadroPessoal). */}
+                    {unidadeId === 'corporativo' ? (
+                      <>
+                        {/* Premissas — editáveis por Admin FP&A, só leitura para Gestor */}
+                        {(usuario?.perfil === 'admin_fpa' || usuario?.perfil === 'gerente_unidade') && (
+                          <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
+                            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>Premissas — Pessoal (Corporativo)</div>
+                            <div style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 10 }}>
+                              {usuario?.perfil === 'admin_fpa'
+                                ? 'Parâmetros por unidade — aplicados automaticamente nas linhas calculadas abaixo.'
+                                : 'Parâmetros definidos pelo FP&A — somente leitura.'}
+                            </div>
+                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                              {/* Dissídio */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Dissídio — mês</label>
+                                {usuario?.perfil === 'admin_fpa'
+                                  ? <Selecao value={_ppC.dissidioMes || ''} onChange={v => updatePremissaPessoal('dissidioMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.dissidioMes || '—'}</span>}
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Dissídio — %</label>
+                                {usuario?.perfil === 'admin_fpa'
+                                  ? <CampoNumero value={_ppC.dissidioPct} onChange={v => updatePremissaPessoal('dissidioPct', v)} sufixo="%" placeholder="0,00" />
+                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.dissidioPct || '—'}%</span>}
+                              </div>
+                              {/* Meritocracia */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Meritocracia — mês</label>
+                                {usuario?.perfil === 'admin_fpa'
+                                  ? <Selecao value={_ppC.meritocraciaMes || ''} onChange={v => updatePremissaPessoal('meritocraciaMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.meritocraciaMes || '—'}</span>}
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Meritocracia — %</label>
+                                {usuario?.perfil === 'admin_fpa'
+                                  ? <CampoNumero value={_ppC.meritocraciaPct} onChange={v => updatePremissaPessoal('meritocraciaPct', v)} sufixo="%" placeholder="0,00" />
+                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.meritocraciaPct || '—'}%</span>}
+                              </div>
+                              {/* Bônus */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus — mês</label>
+                                {usuario?.perfil === 'admin_fpa'
+                                  ? <Selecao value={_ppC.bonusMes || ''} onChange={v => updatePremissaPessoal('bonusMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusMes || '—'}</span>}
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus — % do mês</label>
+                                {usuario?.perfil === 'admin_fpa'
+                                  ? <CampoNumero value={_ppC.bonusPct} onChange={v => updatePremissaPessoal('bonusPct', v)} sufixo="%" placeholder="0,00" />
+                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPct || '—'}%</span>}
+                              </div>
+                              {/* Encargos Novo HC */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Encargos — Novo HC (%)</label>
+                                {usuario?.perfil === 'admin_fpa'
+                                  ? <CampoNumero value={_ppC.encargosNovoHcPct} onChange={v => updatePremissaPessoal('encargosNovoHcPct', v)} sufixo="%" placeholder="0,00" />
+                                  : <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.encargosNovoHcPct || '—'}%</span>}
+                              </div>
+                            </div>
                           </div>
+                        )}
+
+                        <h5 style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '4px 0 10px' }}>Salários / Despesas com Pessoal CLT</h5>
+
+                        {/* 1.1 Headcount Existente — colapsável */}
+                        <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
+                          <button
+                            onClick={() => setHcExistenteAberto(v => !v)}
+                            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: COR.azul }}>
+                              {hcExistenteAberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                              1.1 Headcount Existente
+                            </span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>
+                              {formatBRL(_somaRow(hcExistenteMesCorp) + _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp))}
+                            </span>
+                          </button>
+                          {hcExistenteAberto && (
+                            <div style={{ padding: 10 }}>
+                              {_hcExisteContaCorp && (
+                                <>
+                                  <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, marginBottom: 10, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                                    <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+                                    <div style={{ fontSize: 11, color: COR.texto }}>Inserir os valores constantes da planilha do Departamento Pessoal, que já contemplam encargos e benefícios.</div>
+                                  </div>
+                                  <LinhaConta
+                                    conta={_hcExisteContaCorp}
+                                    linha={linhas[chaveLinha(_hcExisteContaCorp.codigo)] || novaContaVazia()}
+                                    aberta={contaAberta === chaveLinha(_hcExisteContaCorp.codigo)}
+                                    onToggle={() => toggleConta(_hcExisteContaCorp.codigo)}
+                                    onUpdateClassificacao={valor => updateConta(chaveLinha(_hcExisteContaCorp.codigo), 'classificacao', valor)}
+                                    onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(_hcExisteContaCorp.codigo), sublinhaId, campo, valor)}
+                                    onAddSublinha={() => addSublinha(chaveLinha(_hcExisteContaCorp.codigo))}
+                                    onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(_hcExisteContaCorp.codigo), sublinhaId)}
+                                    total={totalConta(_hcExisteContaCorp.codigo)}
+                                    receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                                    ocultarClassificacao ocultarAddSublinha
+                                    unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                                  />
+                                  {hcExistenteMesCorp && (
+                                    <div style={{ marginTop: 10 }}>
+                                      <TabelaMensal
+                                        linhas={[]} onChangeCelula={() => {}}
+                                        linhasCalculadas={[
+                                          { key: 'hcBase', label: 'Headcount Existente (DP)', valoresMensal: hcExistenteMesCorp, totalValor: _somaRow(hcExistenteMesCorp), cor: COR.texto },
+                                          ...(dissidioRowCorp ? [{ key: 'dissidio', label: `Dissídio${_ppC.dissidioMes ? ` — a partir de ${_ppC.dissidioMes}, ${_ppC.dissidioPct || '0'}%` : ''}`, valoresMensal: dissidioRowCorp, totalValor: _somaRow(dissidioRowCorp), cor: COR.texto }] : []),
+                                          ...(meritocraciaRowCorp ? [{ key: 'meritocracia', label: `Meritocracia${_ppC.meritocraciaMes ? ` — a partir de ${_ppC.meritocraciaMes}, ${_ppC.meritocraciaPct || '0'}%` : ''}`, valoresMensal: meritocraciaRowCorp, totalValor: _somaRow(meritocraciaRowCorp), cor: COR.texto }] : []),
+                                          ...(bonusRowCorp ? [{ key: 'bonus', label: `Bônus${_ppC.bonusMes ? ` — ${_ppC.bonusMes}, ${_ppC.bonusPct || '0'}%` : ''}`, valoresMensal: bonusRowCorp, totalValor: _somaRow(bonusRowCorp), cor: COR.texto }] : []),
+                                          {
+                                            key: 'totalHcEx', label: 'Total — HC Existente',
+                                            valoresMensal: hcExistenteMesCorp.map((v, m) => v + (dissidioRowCorp?.[m] || 0) + (meritocraciaRowCorp?.[m] || 0) + (bonusRowCorp?.[m] || 0)),
+                                            totalValor: _somaRow(hcExistenteMesCorp) + _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp),
+                                            cor: COR.laranja,
+                                          },
+                                        ]}
+                                      />
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <LinhaConta
-                          conta={c}
-                          linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
-                          aberta={contaAberta === chaveLinha(c.codigo)}
-                          onToggle={() => toggleConta(c.codigo)}
-                          onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
-                          onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
-                          onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
-                          onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
-                          total={totalConta(c.codigo)}
-                          receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
-                          ocultarClassificacao={unidadeId === 'corporativo'}
-                          ocultarAddSublinha
-                          unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
-                          cambios={cambios}
+
+                        {/* 1.2 Novo Headcount — colapsável */}
+                        <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
+                          <button
+                            onClick={() => setNovoHcAberto(v => !v)}
+                            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: COR.azul }}>
+                              {novoHcAberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                              1.2 Novo Headcount
+                              <span style={{ fontWeight: 400, color: '#8A8F96', fontSize: 11 }}>({(funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo').length} funcionários)</span>
+                            </span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>
+                              {formatBRL(folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp))}
+                            </span>
+                          </button>
+                          {novoHcAberto && (
+                            <div style={{ padding: 10 }}>
+                              <QuadroPessoal
+                                ccCodigo={ccSel} unidadeId={unidadeId}
+                                funcionarios={(funcionarios || []).filter(f => f.ccCodigo === ccSel)}
+                                addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
+                                premissasPessoal={premissasPessoal} folha={folhaAtual} hcExistenteMes={null}
+                                semCabecalho semSumario
+                              />
+                              <div style={{ marginTop: 10 }}>
+                                <TabelaMensal
+                                  linhas={[]} onChangeCelula={() => {}}
+                                  linhasCalculadas={[
+                                    { key: 'folhaNovo', label: 'Folha — Novo Headcount', valoresMensal: folhaAtual.mensal.map(m => m.total), totalValor: folhaAtual.totalAnual, cor: COR.texto },
+                                    ...(encargosNovoHcRowCorp ? [{ key: 'encargosNovo', label: `Encargos e Benefícios${_ppC.encargosNovoHcPct ? ` — ${_ppC.encargosNovoHcPct}%` : ''}`, valoresMensal: encargosNovoHcRowCorp, totalValor: _somaRow(encargosNovoHcRowCorp), cor: COR.texto }] : []),
+                                    {
+                                      key: 'totalNovoHc', label: 'Total — Novo HC',
+                                      valoresMensal: folhaAtual.mensal.map((m, i) => m.total + (encargosNovoHcRowCorp?.[i] || 0)),
+                                      totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp),
+                                      cor: COR.laranja,
+                                    },
+                                  ]}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Consultórias PJs (CORP03) */}
+                        {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
+                          <div key={c.codigo} style={{ marginTop: 14 }}>
+                            <LinhaConta
+                              conta={c}
+                              linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                              aberta={contaAberta === chaveLinha(c.codigo)}
+                              onToggle={() => toggleConta(c.codigo)}
+                              onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                              onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                              onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                              onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                              total={totalConta(c.codigo)}
+                              receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                              ocultarClassificacao
+                              unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                            />
+                          </div>
+                        ))}
+                        {/* Cursos (CORP13, individual: true) e demais contas individual */}
+                        {g.contas.filter(c => c.individual).map(c => (
+                          <div key={c.codigo} style={{ marginTop: 10 }}>
+                            <LinhaConta
+                              conta={c}
+                              linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                              aberta={contaAberta === chaveLinha(c.codigo)}
+                              onToggle={() => toggleConta(c.codigo)}
+                              onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                              onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                              onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                              onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                              total={totalConta(c.codigo)}
+                              receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                              ocultarClassificacao
+                              unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                            />
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      // Não-Corporativo: layout original ────────────────────
+                      <>
+                        {g.contas.filter(c => c.nome === 'Headcount Existente').map(c => (
+                          <div key={c.codigo} style={{ marginBottom: 18 }}>
+                            <h5 style={{ fontSize: 11.5, color: COR.azul, marginBottom: 8 }}>1.1 Headcount Existente</h5>
+                            <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, marginBottom: 10, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                              <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+                              <div style={{ fontSize: 11, color: COR.texto }}>
+                                Para a primeira versão do Orçamento, por gentileza, extrair o valor total do CC na planilha de pessoal do Departamento Pessoal e incluir os valores mensais abaixo:
+                              </div>
+                            </div>
+                            <LinhaConta
+                              conta={c}
+                              linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                              aberta={contaAberta === chaveLinha(c.codigo)}
+                              onToggle={() => toggleConta(c.codigo)}
+                              onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                              onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                              onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                              onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                              total={totalConta(c.codigo)}
+                              receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                              ocultarClassificacao={unidadeId === 'corporativo'}
+                              ocultarAddSublinha
+                              unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                            />
+                          </div>
+                        ))}
+                        <QuadroPessoal
+                          ccCodigo={ccSel} unidadeId={unidadeId}
+                          funcionarios={(funcionarios || []).filter(f => f.ccCodigo === ccSel)}
+                          addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
+                          premissasPessoal={premissasPessoal} folha={folhaAtual}
+                          hcExistenteMes={MESES.map((_, m) => (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente').reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0))}
                         />
-                      </div>
-                    ))}
-                    <QuadroPessoal
-                      ccCodigo={ccSel}
-                      unidadeId={unidadeId}
-                      funcionarios={(funcionarios || []).filter(f => f.ccCodigo === ccSel)}
-                      addFuncionario={addFuncionario}
-                      updateFuncionario={updateFuncionario}
-                      removeFuncionario={removeFuncionario}
-                      premissasPessoal={premissasPessoal}
-                      folha={folhaAtual}
-                      hcExistenteMes={MESES.map((_, m) => (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente').reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0))}
-                    />
-                    {/* Consultórias PJs (2026-08-23) — 2ª conta analítica do
-                        pacote Pessoal, só Corporativo (ver CONTA_CONSULTORIA_PJ/
-                        PLANO_CONTAS_CORPORATIVO). LinhaConta normal, igual a
-                        qualquer outra conta — sem premissa nenhuma dedicada. */}
-                    {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
-                      <div key={c.codigo} style={{ marginTop: 18 }}>
-                        <LinhaConta
-                          conta={c}
-                          linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
-                          aberta={contaAberta === chaveLinha(c.codigo)}
-                          onToggle={() => toggleConta(c.codigo)}
-                          onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
-                          onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
-                          onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
-                          onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
-                          total={totalConta(c.codigo)}
-                          receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
-                          ocultarClassificacao={unidadeId === 'corporativo'}
-                          unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
-                          cambios={cambios}
-                        />
-                      </div>
-                    ))}
-                    {/* Outras contas do Pessoal marcadas individual: true
-                        (2026-09-08, bug: "não estou identificando" essas
-                        contas na tela) — não são componente de folha (ex.:
-                        Lanches e Refeições, Medicamentos, Cursos/Seminários,
-                        Uniformes na Resorts), então precisam de lançamento
-                        próprio como qualquer LinhaConta normal. As ~20
-                        contas de referência da folha (Salários, INSS, FGTS,
-                        Férias...) continuam de fora — já viram custo pelo
-                        Headcount Existente ou pelo Novo Headcount calculado. */}
-                    {g.contas.filter(c => c.individual).map(c => (
-                      <div key={c.codigo} style={{ marginTop: 10 }}>
-                        <LinhaConta
-                          conta={c}
-                          linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
-                          aberta={contaAberta === chaveLinha(c.codigo)}
-                          onToggle={() => toggleConta(c.codigo)}
-                          onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
-                          onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
-                          onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
-                          onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
-                          total={totalConta(c.codigo)}
-                          receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
-                          ocultarClassificacao={unidadeId === 'corporativo'}
-                          unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes}
-                          cambios={cambios}
-                        />
-                      </div>
-                    ))}
+                        {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
+                          <div key={c.codigo} style={{ marginTop: 18 }}>
+                            <LinhaConta
+                              conta={c}
+                              linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                              aberta={contaAberta === chaveLinha(c.codigo)}
+                              onToggle={() => toggleConta(c.codigo)}
+                              onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                              onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                              onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                              onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                              total={totalConta(c.codigo)}
+                              receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                              ocultarClassificacao={unidadeId === 'corporativo'}
+                              unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                            />
+                          </div>
+                        ))}
+                        {g.contas.filter(c => c.individual).map(c => (
+                          <div key={c.codigo} style={{ marginTop: 10 }}>
+                            <LinhaConta
+                              conta={c}
+                              linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                              aberta={contaAberta === chaveLinha(c.codigo)}
+                              onToggle={() => toggleConta(c.codigo)}
+                              onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                              onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                              onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                              onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                              total={totalConta(c.codigo)}
+                              receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                              ocultarClassificacao={unidadeId === 'corporativo'}
+                              unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                            />
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </>
                 ) : g.contas.length === 0 ? (
                   <div style={{ fontSize: 11.5, color: '#8A8F96', padding: '6px 2px' }}>Nenhuma conta encontrada para o filtro atual.</div>
