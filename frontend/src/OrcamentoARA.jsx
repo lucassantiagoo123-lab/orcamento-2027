@@ -8366,7 +8366,7 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
 // CONTA inteira (não mais uma linha só) — normalizarConta aceita os dois
 // formatos, então dado já salvo antes desta mudança continua funcionando
 // sem migração.
-function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onUpdateSublinha, onAddSublinha, onRemoveSublinha, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, ocultarAddSublinha, unidadeId, ipcaAnualPct, volumeTotalKgMes, cambios }) {
+function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onUpdateSublinha, onAddSublinha, onRemoveSublinha, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, ocultarAddSublinha, unidadeId, ipcaAnualPct, volumeTotalKgMes, cambios, linhasCalculadas }) {
   const contaNorm = normalizarConta(linha);
   const incoerente = contaNorm.sublinhas.some(s => linhaIncoerente(s));
   const multiplas = contaNorm.sublinhas.length > 1;
@@ -8447,6 +8447,11 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onU
               adicionar fornecedor" do Headcount Existente) — essa conta é
               sempre 1 valor único mensal, vindo direto da planilha do
               Departamento Pessoal, não faz sentido oferecer múltiplas linhas. */}
+          {linhasCalculadas && linhasCalculadas.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={linhasCalculadas} />
+            </div>
+          )}
           {!ocultarAddSublinha && (
             <Botao variante="fantasma" icone={Plus} onClick={onAddSublinha}>+ Adicionar linha (ex.: outro fornecedor)</Botao>
           )}
@@ -9920,25 +9925,27 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
                               onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
                               onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
-                              total={totalConta(c.codigo)}
+                              total={totalConta(c.codigo) + _somaRow(bonusPjRowCorp)}
                               receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                               ocultarClassificacao
                               unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                              linhasCalculadas={bonusPjRowCorp ? [
+                                {
+                                  key: 'bonusPj',
+                                  label: `Bônus PJs${_ppC.bonusPjMes ? ` — ${_ppC.bonusPjMes}, ${_ppC.bonusPjAtendimentoPct || '0'}% atingimento` : ''}`,
+                                  valoresMensal: bonusPjRowCorp,
+                                  totalValor: _somaRow(bonusPjRowCorp),
+                                  cor: '#8A8F96',
+                                },
+                                {
+                                  key: 'totalPj',
+                                  label: 'Total CORP03 (Remuneração + Bônus)',
+                                  valoresMensal: MESES.map((_, m) => (corp03MesCorp?.[m] || 0) + (bonusPjRowCorp?.[m] || 0)),
+                                  totalValor: _somaRow(corp03MesCorp) + _somaRow(bonusPjRowCorp),
+                                  cor: COR.laranja,
+                                },
+                              ] : undefined}
                             />
-                            {bonusPjRowCorp && _somaRow(bonusPjRowCorp) > 0 && (
-                              <div style={{ marginTop: 8 }}>
-                                <TabelaMensal
-                                  linhas={[]} onChangeCelula={() => {}}
-                                  linhasCalculadas={[{
-                                    key: 'bonusPj',
-                                    label: `Bônus PJs${_ppC.bonusPjMes ? ` — ${_ppC.bonusPjMes}, ${_ppC.bonusPjAtendimentoPct || '0'}% atingimento` : ''}`,
-                                    valoresMensal: bonusPjRowCorp,
-                                    totalValor: _somaRow(bonusPjRowCorp),
-                                    cor: COR.texto,
-                                  }]}
-                                />
-                              </div>
-                            )}
                           </div>
                         ))}
                         {/* Cursos (CORP13, individual: true) e demais contas individual */}
