@@ -10422,11 +10422,12 @@ function AbaGiro({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct,
 
 // Bloco expansível de linhas por conta analítica para Pagamentos em Carteira ou Competência Nov/Dez.
 // Preserva o flat array existente (sempre editável) e exibe as novas linhas por conta lado a lado.
-function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onRemove, onChangeLinha }) {
+function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onRemove, onChangeLinha, contasOpcoes }) {
   const totalFlat = (flatValores || []).reduce((a, v) => a + parseNum(v), 0);
   const totalLinhas = (linhas || []).reduce((acc, l) => acc + (l.valores || []).reduce((a, v) => a + parseNum(v), 0), 0);
   const TH = { background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '4px 4px', textAlign: 'right', fontWeight: 700 };
   const TD = { padding: '2px 3px', borderBottom: `1px solid ${COR.borda}`, textAlign: 'right', fontSize: 10.5, fontFamily: FONT };
+  const listId = `dl-giro-${titulo.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase()}`;
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -10475,6 +10476,7 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
                       value={l.conta || ''}
                       onChange={e => onChangeLinha(idx, 'conta', e.target.value)}
                       placeholder="Nome da conta"
+                      list={contasOpcoes && contasOpcoes.length > 0 ? listId : undefined}
                       style={{ width: '100%', fontFamily: FONT, fontSize: 10.5, padding: '2px 4px', border: `1px solid ${COR.borda}`, borderRadius: 3 }}
                     />
                   </td>
@@ -10511,6 +10513,13 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
           </tbody>
         </table>
       </div>
+      {contasOpcoes && contasOpcoes.length > 0 && (
+        <datalist id={listId}>
+          {contasOpcoes.map(c => (
+            <option key={c.codigo} value={`${c.codigo} — ${c.nome}`} />
+          ))}
+        </datalist>
+      )}
     </div>
   );
 }
@@ -10521,6 +10530,7 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
 function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct }) {
   const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const premPag2 = capitalGiro.premissasPagamento2 || {};
+  const contasOpcoes = Object.values(refUnidade.todasContas || {}).sort((a, b) => a.codigo.localeCompare(b.codigo));
 
   function updatePagamento2(chave, mesIdx, valor) {
     const novoArray = atualizarArray(premPag2[chave] || mesesVazios(), mesIdx, valor);
@@ -10593,6 +10603,7 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
         onAdd={() => addLinhaPorConta('carteiraLinhas')}
         onRemove={idx => removeLinhaPorConta('carteiraLinhas', idx)}
         onChangeLinha={(idx, campo, valor) => updateLinhaPorConta('carteiraLinhas', idx, campo, valor)}
+        contasOpcoes={contasOpcoes}
       />
       <BlocoLinhasGiro
         titulo="Pagamentos Competência Nov e Dez"
@@ -10602,6 +10613,7 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
         onAdd={() => addLinhaPorConta('competenciaNovDezLinhas')}
         onRemove={idx => removeLinhaPorConta('competenciaNovDezLinhas', idx)}
         onChangeLinha={(idx, campo, valor) => updateLinhaPorConta('competenciaNovDezLinhas', idx, campo, valor)}
+        contasOpcoes={contasOpcoes}
       />
 
       {/* Contas analíticas por pacote — tabela compacta */}
@@ -10732,6 +10744,7 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
   const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const p = capitalGiro.premissasRecebimento;
   const premPag2 = capitalGiro.premissasPagamento2 || {};
+  const contasOpcoes = Object.values(refUnidade.todasContas || {}).sort((a, b) => a.codigo.localeCompare(b.codigo));
 
   function updatePremissa(id, valor) {
     atualizar(['capitalGiro', 'premissasRecebimento'], { ...p, [id]: valor });
@@ -10854,6 +10867,7 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
         onAdd={() => addLinhaPorConta('carteiraLinhas')}
         onRemove={idx => removeLinhaPorConta('carteiraLinhas', idx)}
         onChangeLinha={(idx, campo, valor) => updateLinhaPorConta('carteiraLinhas', idx, campo, valor)}
+        contasOpcoes={contasOpcoes}
       />
       <BlocoLinhasGiro
         titulo="Pagamentos Competência Nov e Dez"
@@ -10863,6 +10877,7 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
         onAdd={() => addLinhaPorConta('competenciaNovDezLinhas')}
         onRemove={idx => removeLinhaPorConta('competenciaNovDezLinhas', idx)}
         onChangeLinha={(idx, campo, valor) => updateLinhaPorConta('competenciaNovDezLinhas', idx, campo, valor)}
+        contasOpcoes={contasOpcoes}
       />
 
       {/* Contas analíticas de C&D por pacote — tabela compacta, critério por conta */}
