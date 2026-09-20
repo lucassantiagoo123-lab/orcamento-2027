@@ -10112,7 +10112,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                         ] : undefined}
                       />
                     );
-                  }))
+                  })
                 )}
               </div>
             )}
