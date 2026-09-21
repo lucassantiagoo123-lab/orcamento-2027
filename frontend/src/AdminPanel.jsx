@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import {
   listarUsuarios, criarUsuario, atualizarUsuario, vincularUnidade, desvincularUnidade,
   vincularCc, desvincularCc, removerTodosCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
-  definirAcessoUsuario,
+  definirAcessoUsuario, listarSnapshots, restaurarSnapshot,
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
@@ -88,6 +88,7 @@ export default function AdminPanel({ voltar }) {
         <>
           <SecaoUsuarios usuarios={usuarios} onMudou={carregar} />
           <SecaoConcessoes usuarios={usuarios} concessoes={concessoes} onMudou={carregar} />
+          <SecaoRecuperacaoDados />
         </>
       )}
     </div>
@@ -624,6 +625,136 @@ function SecaoConcessoes({ usuarios, concessoes, onMudou }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+const CAMPO_LABEL = {
+  estrategicas: 'Premissas Estratégicas', receita: 'Receita', custos: 'Custos e Despesas',
+  capex: 'CAPEX', capitalGiro: 'Capital de Giro', provisoes: 'Provisões',
+  resultado: 'Resultado (Não Operacional)', fcFinanciamentos: 'FC Financiamentos',
+  balanco: 'Balanço Patrimonial', plano5y: 'Plano 5Y (2028-2031)', sensibilidades: 'Sensibilidades',
+};
+const UNIDADE_LABEL = {
+  textil: 'ARA Têxtil', agricola: 'ARA Agrícola — Consolidado',
+  agricola_tds: 'ARA Agrícola — Terra do Sol', agricola_fds: 'ARA Agrícola — Frutos do Sol',
+  resorts: 'ARA Resorts — Consolidado', samoa_beach: 'ARA Resorts — Samoa Beach',
+  samoa_villa: 'ARA Resorts — Samoa Villa', corporativo: 'Corporativo',
+};
+const UNIDADES_BACKUP = Object.keys(UNIDADE_LABEL);
+
+function SecaoRecuperacaoDados() {
+  const [unidadeSel, setUnidadeSel] = useState('textil');
+  const [snapshots, setSnapshots] = useState(null);
+  const [carregando, setCarregando] = useState(false);
+  const [restaurando, setRestaurando] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  async function carregar() {
+    setCarregando(true);
+    setMsg(null);
+    try {
+      const data = await listarSnapshots(unidadeSel);
+      setSnapshots(data.snapshots);
+    } catch (e) {
+      setMsg({ tipo: 'erro', texto: e instanceof ApiError ? e.message : 'Erro ao carregar snapshots.' });
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  async function handleRestaurar(snap) {
+    const unidadeNome = UNIDADE_LABEL[snap.unidade_id] || snap.unidade_id;
+    const campo = CAMPO_LABEL[snap.campo] || snap.campo;
+    const kbAntes = snap.tam_anterior ? Math.round(snap.tam_anterior / 1024) : 0;
+    const kbDepois = snap.tam_novo ? Math.round(snap.tam_novo / 1024) : 0;
+    const confirmado = window.confirm(
+      `⚠️ RESTAURAR — ${unidadeNome}\n\nSeção: ${campo}\nData do snapshot: ${new Date(snap.criado_em).toLocaleString('pt-BR')}\nAutor da alteração: ${snap.usuario_nome}\n\n` +
+      `Isso substituirá os dados ATUAIS (${kbDepois} KB) pelo estado ANTERIOR (${kbAntes} KB).\n` +
+      `Gestores que estiverem editando agora perderão mudanças não salvas.\n\nConfirmar restauração?`
+    );
+    if (!confirmado) return;
+    setRestaurando(snap.id);
+    setMsg(null);
+    try {
+      await restaurarSnapshot(snap.id);
+      setMsg({ tipo: 'ok', texto: `✓ Seção "${campo}" de ${unidadeNome} restaurada. Peça aos gestores que recarreguem a página para ver o estado restaurado.` });
+    } catch (e) {
+      setMsg({ tipo: 'erro', texto: e instanceof ApiError ? e.message : 'Erro ao restaurar snapshot.' });
+    } finally {
+      setRestaurando(null);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h2 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>Recuperação de Dados</h2>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Lista os últimos 100 snapshots por unidade. Use para restaurar uma seção ao estado anterior após uma edição acidental.
+        {' '}<strong style={{ color: '#C00000' }}>A restauração substitui os dados atuais dessa seção — confirme antes de prosseguir.</strong>
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
+        <select
+          value={unidadeSel}
+          onChange={e => { setUnidadeSel(e.target.value); setSnapshots(null); setMsg(null); }}
+          style={{ fontSize: 12, padding: '6px 10px', border: `1px solid ${COR.borda}`, borderRadius: 6, fontFamily: 'inherit' }}
+        >
+          {UNIDADES_BACKUP.map(id => <option key={id} value={id}>{UNIDADE_LABEL[id]}</option>)}
+        </select>
+        <button onClick={carregar} disabled={carregando} style={botaoSecundario}>
+          {carregando ? 'Carregando…' : 'Carregar snapshots'}
+        </button>
+      </div>
+
+      {msg && (
+        <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 12, fontSize: 12, background: msg.tipo === 'ok' ? '#E8F5E9' : '#FDECEC', color: msg.tipo === 'ok' ? '#2E7D32' : '#C00000', border: `1px solid ${msg.tipo === 'ok' ? '#A5D6A7' : '#FFCDD2'}` }}>
+          {msg.texto}
+        </div>
+      )}
+
+      {snapshots !== null && (
+        snapshots.length === 0
+          ? <p style={{ fontSize: 12, color: '#8A8F96' }}>Nenhum snapshot encontrado para esta unidade.</p>
+          : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th style={th}>Data/hora</th>
+                    <th style={th}>Usuário</th>
+                    <th style={th}>Seção</th>
+                    <th style={{ ...th, textAlign: 'right' }}>KB antes</th>
+                    <th style={{ ...th, textAlign: 'right' }}>KB depois</th>
+                    <th style={th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {snapshots.map(s => (
+                    <tr key={s.id}>
+                      <td style={td}>{new Date(s.criado_em).toLocaleString('pt-BR')}</td>
+                      <td style={td}>{s.usuario_nome}</td>
+                      <td style={td}>{CAMPO_LABEL[s.campo] || s.campo}</td>
+                      <td style={{ ...td, textAlign: 'right', color: s.tam_anterior > 0 ? COR.texto : '#B5B9BE' }}>
+                        {s.tam_anterior ? Math.round(s.tam_anterior / 1024) : '—'}
+                      </td>
+                      <td style={{ ...td, textAlign: 'right' }}>{s.tam_novo ? Math.round(s.tam_novo / 1024) : '—'}</td>
+                      <td style={td}>
+                        <button
+                          onClick={() => handleRestaurar(s)}
+                          disabled={restaurando === s.id || !s.tam_anterior}
+                          style={{ ...botaoSecundario, color: s.tam_anterior ? '#C00000' : '#B5B9BE', cursor: s.tam_anterior ? 'pointer' : 'default' }}
+                        >
+                          {restaurando === s.id ? '…' : 'Restaurar'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+      )}
     </div>
   );
 }

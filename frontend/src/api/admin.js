@@ -31,3 +31,7 @@ export const revogarConcessao = (id) => apiFetch(`/api/admin/concessoes/${id}/re
 // aplicar=false (padrão) só simula; aplicar=true grava de verdade.
 export const migrarPlanoContasResorts = (aplicar = false) =>
   apiFetch('/api/admin/migracoes/plano-contas-resorts', { method: 'POST', body: { aplicar } });
+
+// Snapshots / recuperação de dados (2026-09-21).
+export const listarSnapshots = (unidadeId) => apiFetch(`/api/admin/snapshots/${unidadeId}`);
+export const restaurarSnapshot = (logId) => apiFetch(`/api/admin/snapshots/${logId}/restaurar`, { method: 'POST' });

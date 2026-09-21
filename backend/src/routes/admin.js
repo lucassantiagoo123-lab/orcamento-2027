@@ -9,6 +9,7 @@ import {
   listarConcessoes, criarConcessao, revogarConcessao,
 } from '../db/admin.js';
 import { migrarPlanoContasResorts } from '../db/migracaoContasResorts.js';
+import { pool } from '../db/pool.js';
 import { definirSenha, buscarUsuarioParaEnvioAcesso, definirAcessoExpiracao } from '../db/usuarios.js';
 import { validarSenha, gerarHashSenha } from '../auth/senha.js';
 import { enviarAcesso } from '../email/notificacoes.js';
@@ -217,5 +218,43 @@ adminRouter.post('/migracoes/plano-contas-resorts', async (req, res, next) => {
     const aplicar = req.body?.aplicar === true;
     const resultado = await migrarPlanoContasResorts({ aplicar, usuarioId: req.usuario.id });
     res.json(resultado);
+  } catch (err) { next(err); }
+});
+
+// --- Snapshots / recuperação de dados (seção do log_alteracoes) ---
+
+adminRouter.get('/snapshots/:unidadeId', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT l.id, l.unidade_id, l.campo, l.criado_em, u.nome AS usuario_nome,
+             length(l.valor_anterior) AS tam_anterior, length(l.valor_novo) AS tam_novo
+      FROM log_alteracoes l
+      JOIN usuarios u ON u.id = l.usuario_id
+      WHERE l.unidade_id = $1
+      ORDER BY l.criado_em DESC
+      LIMIT 100
+    `, [req.params.unidadeId]);
+    res.json({ snapshots: rows });
+  } catch (err) { next(err); }
+});
+
+adminRouter.post('/snapshots/:logId/restaurar', async (req, res, next) => {
+  try {
+    const logId = Number(req.params.logId);
+    if (!Number.isInteger(logId) || logId <= 0) return res.status(400).json({ erro: 'logId_invalido' });
+    const { rows: logRows } = await pool.query(
+      `SELECT unidade_id, campo, valor_anterior FROM log_alteracoes WHERE id = $1`, [logId]
+    );
+    if (!logRows[0]) return res.status(404).json({ erro: 'snapshot_nao_encontrado' });
+    const { unidade_id, campo, valor_anterior } = logRows[0];
+    if (!valor_anterior) return res.status(400).json({ erro: 'sem_valor_anterior', mensagem: 'Este snapshot não registrou estado anterior.' });
+    const { rows } = await pool.query(`
+      UPDATE orcamentos
+      SET dados = jsonb_set(dados, ARRAY[$1::text], $2::jsonb), atualizado_em = now()
+      WHERE unidade_id = $3 AND ano = 2027
+      RETURNING id, unidade_id
+    `, [campo, valor_anterior, unidade_id]);
+    if (!rows[0]) return res.status(404).json({ erro: 'orcamento_nao_encontrado' });
+    res.json({ ok: true, unidade_id: rows[0].unidade_id, campo });
   } catch (err) { next(err); }
 });
