@@ -10424,8 +10424,9 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
   const _funcsCapex = isGerenteCc
     ? (funcionarios || []).filter(f => (ccsDisponiveis || []).some(cc => cc.codigo === f.ccCodigo))
     : (funcionarios || []);
+  const _funcsCapexVisiveis = ccFiltro === 'todos' ? _funcsCapex : _funcsCapex.filter(f => f.ccCodigo === ccFiltro);
   const capexEquipNovoHcRowCorp = unidadeId === 'corporativo' && funcionarios
-    ? MESES.map(mes => _funcsCapex.filter(f => f.origem === 'novo' && f.mesAdmissao === mes).length
+    ? MESES.map(mes => _funcsCapexVisiveis.filter(f => f.origem === 'novo' && f.mesAdmissao === mes).length
         * parseNum((premissasPessoal || {}).capexEquipNovoHcValor || '13460'))
     : null;
   const _somaCapexEquip = capexEquipNovoHcRowCorp ? capexEquipNovoHcRowCorp.reduce((a, v) => a + v, 0) : 0;
