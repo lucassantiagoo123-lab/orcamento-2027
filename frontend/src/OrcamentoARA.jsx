@@ -10576,24 +10576,13 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
                       }),
                     ];
                   }),
-                  ...(equipRow && _somaCapexEquip > 0 ? [
-                    {
-                      key: '__equip_novo_hc__',
-                      label: `  Equipamentos — Novo HC (R$ ${(premissasPessoal || {}).capexEquipNovoHcValor || '13.460'}/pessoa)`,
-                      valoresMensal: capexEquipNovoHcRowCorp,
-                      totalValor: _somaCapexEquip,
-                      cor: '#5B8DB8',
-                    },
-                    ...[...new Set(_funcsCapex.filter(f => f.origem === 'novo').map(f => f.ccCodigo || ''))].sort().flatMap(ccCodigo => {
-                      const ccFuncs = _funcsCapex.filter(f => f.origem === 'novo' && (f.ccCodigo || '') === ccCodigo);
-                      const ccInfo = ccsDisponiveis?.find(c => c.codigo === ccCodigo);
-                      const ccLabel = ccInfo ? `${ccInfo.codigo} — ${ccInfo.nome}` : (ccCodigo || '(sem CC)');
-                      const ccMensal = MESES.map(mes => ccFuncs.filter(f => f.mesAdmissao === mes).length * parseNum((premissasPessoal || {}).capexEquipNovoHcValor || '13460'));
-                      const ccTotal = ccMensal.reduce((a, v) => a + v, 0);
-                      if (ccTotal === 0) return [];
-                      return [{ key: `__equip_cc_${ccCodigo}__`, label: `      ${ccLabel}`, valoresMensal: ccMensal, totalValor: ccTotal, cor: COR.texto }];
-                    }),
-                  ] : []),
+                  ...(equipRow && _somaCapexEquip > 0 ? [{
+                    key: '__equip_novo_hc__',
+                    label: `    Equipamentos — Novo HC (R$ ${(premissasPessoal || {}).capexEquipNovoHcValor || '13.460'}/pessoa)`,
+                    valoresMensal: capexEquipNovoHcRowCorp,
+                    totalValor: _somaCapexEquip,
+                    cor: COR.texto,
+                  }] : []),
                 ] : []),
               ];
             }),
