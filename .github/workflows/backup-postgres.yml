@@ -1,4 +1,4 @@
-name: Backup diário Postgres → OneDrive
+name: Backup diário Postgres → GitHub Artifacts
 
 on:
   schedule:
@@ -26,42 +26,9 @@ jobs:
           pg_dump "$DATABASE_URL" | gzip > "$FILENAME"
           echo "Tamanho: $(du -sh $FILENAME | cut -f1)"
 
-      - name: Obter token Microsoft Graph
-        id: token
-        env:
-          AZURE_TENANT_ID:     ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID:     ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        run: |
-          RESPONSE=$(curl -s -X POST \
-            "https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "client_id=${AZURE_CLIENT_ID}" \
-            -d "client_secret=${AZURE_CLIENT_SECRET}" \
-            -d "scope=https://graph.microsoft.com/.default" \
-            -d "grant_type=client_credentials")
-          TOKEN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-          echo "::add-mask::$TOKEN"
-          echo "TOKEN=$TOKEN" >> $GITHUB_ENV
-
-      - name: Upload para OneDrive
-        env:
-          ONEDRIVE_DRIVE_ID:    ${{ secrets.ONEDRIVE_DRIVE_ID }}
-          ONEDRIVE_FOLDER_PATH: ${{ secrets.ONEDRIVE_FOLDER_PATH }}
-        run: |
-          curl -s -X PUT \
-            "https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_DRIVE_ID}/root:/${ONEDRIVE_FOLDER_PATH}/${FILENAME}:/content" \
-            -H "Authorization: Bearer ${TOKEN}" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@${FILENAME}" \
-            -o response.json
-          # Verifica se o upload teve sucesso (campo 'id' presente na resposta)
-          if python3 -c "import sys,json; d=json.load(open('response.json')); sys.exit(0 if 'id' in d else 1)"; then
-            echo "✅ Backup enviado: ${FILENAME}"
-          else
-            echo "❌ Falha no upload:" && cat response.json && exit 1
-          fi
-
-      - name: Limpar arquivos locais
-        if: always()
-        run: rm -f "$FILENAME" response.json
+      - name: Salvar backup como Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: obz2027_${{ github.run_id }}
+          path: ${{ env.FILENAME }}
+          retention-days: 90
