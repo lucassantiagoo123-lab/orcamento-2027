@@ -10157,6 +10157,25 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                             </div>
                           )}
                         </div>
+
+                        {/* Demais contas analíticas do pacote Pessoal (individual: true) */}
+                        {g.contas.filter(c => c.individual).map(c => (
+                          <div key={c.codigo} style={{ marginTop: 10 }}>
+                            <LinhaConta
+                              conta={c}
+                              linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                              aberta={contaAberta === chaveLinha(c.codigo)}
+                              onToggle={() => toggleConta(c.codigo)}
+                              onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                              onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                              onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                              onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                              total={totalConta(c.codigo)}
+                              receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                              unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                            />
+                          </div>
+                        ))}
                       </>
                     ) : (
                       // Sem HC_EXISTENTE: layout original ────────────────────
