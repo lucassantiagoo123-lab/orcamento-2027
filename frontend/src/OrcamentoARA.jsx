@@ -10576,13 +10576,16 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
                       }),
                     ];
                   }),
-                  ...(equipRow && _somaCapexEquip > 0 ? [{
-                    key: '__equip_novo_hc__',
-                    label: `    Equipamentos — Novo HC (R$ ${(premissasPessoal || {}).capexEquipNovoHcValor || '13.460'}/pessoa)`,
-                    valoresMensal: capexEquipNovoHcRowCorp,
-                    totalValor: _somaCapexEquip,
-                    cor: COR.texto,
-                  }] : []),
+                  ...(equipRow && _somaCapexEquip > 0 ? [
+                    { key: '__equip_novo_hc__', label: `  Equipamentos — Novo HC (R$ ${(premissasPessoal || {}).capexEquipNovoHcValor || '13.460'}/pessoa)`, valoresMensal: capexEquipNovoHcRowCorp, totalValor: _somaCapexEquip, cor: '#5B8DB8' },
+                    ...(ccsDisponiveis || []).flatMap(cc => {
+                      const ccFuncs = _funcsCapex.filter(f => f.origem === 'novo' && f.ccCodigo === cc.codigo);
+                      const ccMensal = MESES.map(mes => ccFuncs.filter(f => f.mesAdmissao === mes).length * parseNum((premissasPessoal || {}).capexEquipNovoHcValor || '13460'));
+                      const ccTotal = ccMensal.reduce((a, v) => a + v, 0);
+                      if (ccTotal === 0) return [];
+                      return [{ key: `__equip_cc_${cc.codigo}__`, label: `      ${cc.codigo} — ${cc.nome}`, valoresMensal: ccMensal, totalValor: ccTotal, cor: COR.texto }];
+                    }),
+                  ] : []),
                 ] : []),
               ];
             }),
