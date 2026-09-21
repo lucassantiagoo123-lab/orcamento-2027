@@ -3951,6 +3951,11 @@ export default function OrcamentoARA({ usuario }) {
   const [dados, setDados] = useState(emptyFormData());
   const [versoes, setVersoes] = useState([]);
   const [statusUnidades, setStatusUnidades] = useState({});
+  // custosBase por unidade (carregarFPA): o custos que existia no banco quando
+  // o FP&A carregou a página — passado ao putOrcamento como custosBase para
+  // que o backend aplique apenas o diff de premissasPessoal, sem sobrescrever
+  // edições simultâneas dos gestores de CC em custos.linhas.
+  const custosBaseUnidadesRef = useRef({});
   const [aguardandoLiberacaoPorUnidade, setAguardandoLiberacaoPorUnidade] = useState({});
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
@@ -4025,16 +4030,20 @@ export default function OrcamentoARA({ usuario }) {
     setCarregando(true);
     const mapa = {};
     const mapaAguardando = {};
+    const novoBase = {};
     for (const u of UNIDADES) {
       try {
         const r = await getOrcamento(u.id);
         mapa[u.id] = r.orcamento.dados;
+        novoBase[u.id] = r.orcamento.dados.custos;
         mapaAguardando[u.id] = r.orcamento.aguardando_liberacao || false;
       } catch (e) {
         mapa[u.id] = emptyFormData();
+        novoBase[u.id] = emptyFormData().custos;
         mapaAguardando[u.id] = false;
       }
     }
+    custosBaseUnidadesRef.current = novoBase;
     setStatusUnidades(mapa);
     setAguardandoLiberacaoPorUnidade(mapaAguardando);
     // Backlog (2026-08-23, ampliado em 2026-09-08): combina envios de versão
@@ -4138,7 +4147,7 @@ export default function OrcamentoARA({ usuario }) {
     });
     for (const uid of ids) {
       try {
-        await putOrcamento(uid, novosDadosPorUid[uid]);
+        await putOrcamento(uid, novosDadosPorUid[uid], undefined, custosBaseUnidadesRef.current[uid]);
       } catch (_) {}
     }
   }
