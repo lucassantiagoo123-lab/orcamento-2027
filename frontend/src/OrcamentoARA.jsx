@@ -10422,10 +10422,8 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
   // Equipamentos por novo headcount — Corporativo only (2026-09-19): one-shot
   // no mês de admissão, soma todos os CCs (CAPEX é investimento da unidade).
   const capexEquipNovoHcRowCorp = unidadeId === 'corporativo' && funcionarios
-    ? MESES.map((_, m) => {
-        const hcAcum = MESES.slice(0, m + 1).reduce((acc, mes) => acc + (funcionarios || []).filter(f => f.origem === 'novo' && f.mesAdmissao === mes).length, 0);
-        return hcAcum * parseNum((premissasPessoal || {}).capexEquipNovoHcValor || '13460') / 12;
-      })
+    ? MESES.map(mes => (funcionarios || []).filter(f => f.origem === 'novo' && f.mesAdmissao === mes).length
+        * parseNum((premissasPessoal || {}).capexEquipNovoHcValor || '13460'))
     : null;
   const _somaCapexEquip = capexEquipNovoHcRowCorp ? capexEquipNovoHcRowCorp.reduce((a, v) => a + v, 0) : 0;
 
@@ -10577,7 +10575,7 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
                   }),
                   ...(equipRow && _somaCapexEquip > 0 ? [{
                     key: '__equip_novo_hc__',
-                    label: `    Licença Microsoft — Novo HC (R$ ${(premissasPessoal || {}).capexEquipNovoHcValor || '13.460'}/ano/pessoa — mensal)`,
+                    label: `    Equipamentos — Novo HC (R$ ${(premissasPessoal || {}).capexEquipNovoHcValor || '13.460'}/pessoa)`,
                     valoresMensal: capexEquipNovoHcRowCorp,
                     totalValor: _somaCapexEquip,
                     cor: COR.texto,
@@ -12693,6 +12691,23 @@ const CAMPO_LOG_LABEL = {
 function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, updateFontePremissaMacroGlobal, updatePremissasPessoalCorporativo, updatePremissasPessoalUnidade, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
+  const _propInicial = useRef(false);
+  // Propaga campos compartilhados do Corporativo (meritocracia, bônus) para
+  // unidades não-Corporativo que ainda não os têm — roda uma vez após o
+  // carregamento, sem sobrescrever valores já preenchidos.
+  useEffect(() => {
+    if (_propInicial.current) return;
+    const corpPremi = statusUnidades['corporativo']?.custos?.premissasPessoal;
+    if (!corpPremi || !statusUnidades['textil']) return;
+    _propInicial.current = true;
+    const COMPARTILHADOS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct'];
+    const OUTRAS = ['textil', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'];
+    COMPARTILHADOS.forEach(campo => {
+      if (!corpPremi[campo]) return;
+      const semValor = OUTRAS.filter(uid => !statusUnidades[uid]?.custos?.premissasPessoal?.[campo]);
+      if (semValor.length > 0) updatePremissasPessoalUnidade(semValor, campo, corpPremi[campo]);
+    });
+  }, [statusUnidades]);
   // Mesmo racional do ipcaAnualPct no componente App — recalculado aqui
   // porque premissasMacro chega como prop, não como estado local.
   const ipcaAnualPct = premissasMacro.find(p => p.id === 'ipca')?.valor;
