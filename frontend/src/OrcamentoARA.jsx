@@ -10453,7 +10453,7 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
       {CATEGORIAS_CAPEX.map(cat => {
         // Cards: respeita o filtro de CC; total do cabeçalho: todos os projetos da categoria (independente do filtro)
         const projetosCategoria = projetosVisiveis.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
-        const totalCategoria = projetosFiltrados.filter(p => (p.categoria || 'melhoria_interna') === cat.id).reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
+        const totalCategoria = projetosCategoria.reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
         return (
           <div key={cat.id} style={{ marginBottom: 22 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
