@@ -9515,17 +9515,17 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     ? MESES.map((_, m) => _hcExisteContasTextil.reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0))
     : null;
   const _dissidioMesIdx2T = _ppC.dissidioMes2 ? MESES.indexOf(_ppC.dissidioMes2) : -1;
-  const dissidioRow1Textil = hcExistenteMesTextil && _dissidioMesIdxC >= 0
-    ? MESES.map((_, m) => m >= _dissidioMesIdxC ? hcExistenteMesTextil[m] * parseNum(_ppC.dissidioPct) / 100 : 0)
+  const dissidioRow1Textil = hcExistenteMesTextil
+    ? MESES.map((_, m) => _dissidioMesIdxC >= 0 && m >= _dissidioMesIdxC ? hcExistenteMesTextil[m] * parseNum(_ppC.dissidioPct) / 100 : 0)
     : null;
-  const dissidioRow2Textil = hcExistenteMesTextil && _dissidioMesIdx2T >= 0
-    ? MESES.map((_, m) => m >= _dissidioMesIdx2T ? hcExistenteMesTextil[m] * parseNum(_ppC.dissidioPct2) / 100 : 0)
+  const dissidioRow2Textil = hcExistenteMesTextil
+    ? MESES.map((_, m) => _dissidioMesIdx2T >= 0 && m >= _dissidioMesIdx2T ? hcExistenteMesTextil[m] * parseNum(_ppC.dissidioPct2) / 100 : 0)
     : null;
-  const meritocraciaRowTextil = hcExistenteMesTextil && _meritMesIdxC >= 0
-    ? MESES.map((_, m) => m >= _meritMesIdxC ? hcExistenteMesTextil[m] * parseNum(_ppC.meritocraciaPct) / 100 : 0)
+  const meritocraciaRowTextil = hcExistenteMesTextil
+    ? MESES.map((_, m) => _meritMesIdxC >= 0 && m >= _meritMesIdxC ? hcExistenteMesTextil[m] * parseNum(_ppC.meritocraciaPct) / 100 : 0)
     : null;
-  const bonusRowTextil = hcExistenteMesTextil && _bonusMesIdxC >= 0
-    ? MESES.map((_, m) => m === _bonusMesIdxC ? hcExistenteMesTextil[_bonusMesIdxC] * parseNum(_ppC.bonusPct) / 100 : 0)
+  const bonusRowTextil = hcExistenteMesTextil
+    ? MESES.map((_, m) => _bonusMesIdxC >= 0 && m === _bonusMesIdxC ? hcExistenteMesTextil[_bonusMesIdxC] * parseNum(_ppC.bonusPct) / 100 : 0)
     : null;
   const totalCalculadosTextil = _somaRow(dissidioRow1Textil) + _somaRow(dissidioRow2Textil) + _somaRow(meritocraciaRowTextil) + _somaRow(bonusRowTextil);
 
@@ -10018,7 +10018,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                       // Não-Corporativo com HC_EXISTENTE — redesign (Têxtil, Resorts, Agrícola)
                       <>
                         {/* Premissas — somente leitura; editáveis em Gestão do Orçamento */}
-                        {(usuario?.perfil === 'admin_fpa' || usuario?.perfil === 'gerente_unidade') && (_ppC.dissidioMes || _ppC.dissidioMes2 || _ppC.meritocraciaMes || _ppC.bonusMes) && (
+                        {(usuario?.perfil === 'admin_fpa' || usuario?.perfil === 'gerente_unidade') && (
                           <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
                             <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>Premissas — Pessoal</div>
                             <div style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 10 }}>
