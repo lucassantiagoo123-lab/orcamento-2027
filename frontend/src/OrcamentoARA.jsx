@@ -1160,16 +1160,16 @@ const PLANO_CONTAS_RESORTS = {
     { codigo: '410201090', nome: "ACORDOS TRABALHISTAS", origem: 'Custo' },
     { codigo: '410201100', nome: "RECISOES", origem: 'Custo' },
     { codigo: '410201110', nome: "GRATIFICACOES", origem: 'Custo' },
-    { codigo: '410201120', nome: "EXAMES MEDICOS", origem: 'Custo' },
+    { codigo: '410201120', nome: "EXAMES MEDICOS", origem: 'Custo', individual: true },
     { codigo: '410201130', nome: "BOLSA-ESTAGIO", origem: 'Custo' },
-    { codigo: '410201140', nome: "TRANSPORTE DE PESSOAL", origem: 'Custo' },
+    { codigo: '410201140', nome: "TRANSPORTE DE PESSOAL", origem: 'Custo', individual: true },
     // Adicionada em 2026-09-07 a partir do Plano de Contas Resorts.xlsb
     // oficial (as 6 abaixo, marcadas com a mesma nota) — não existia no
     // plano anterior (que tinha 158 contas contaminadas da Têxtil/Agrícola
     // em vez destas contas genuínas, ver nota completa acima de PACOTES_RESORTS).
     { codigo: '410201131', nome: "Outros Custos com Pessoal", origem: 'Custo' },
-    { codigo: '410202010', nome: "CONVENIO MEDICO", origem: 'Custo' },
-    { codigo: '410202020', nome: "CONVENIO ODONTOLOGICO", origem: 'Custo' },
+    { codigo: '410202010', nome: "CONVENIO MEDICO", origem: 'Custo', individual: true },
+    { codigo: '410202020', nome: "CONVENIO ODONTOLOGICO", origem: 'Custo', individual: true },
     { codigo: '410202030', nome: "CESTA BASICA", origem: 'Custo' },
     // individual: true (2026-09-08, bug reportado: "não estou identificando"
     // essas contas na tela) — o pacote Pessoal, em AbaCustos, é renderizado
@@ -10420,9 +10420,12 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
   const totalCapex = projetosFiltrados.reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
 
   // Equipamentos por novo headcount — Corporativo only (2026-09-19): one-shot
-  // no mês de admissão, soma todos os CCs (CAPEX é investimento da unidade).
+  // no mês de admissão. Gerente de CC vê só seus CCs; admin vê toda a unidade.
+  const _funcsCapex = isGerenteCc
+    ? (funcionarios || []).filter(f => (ccsDisponiveis || []).some(cc => cc.codigo === f.ccCodigo))
+    : (funcionarios || []);
   const capexEquipNovoHcRowCorp = unidadeId === 'corporativo' && funcionarios
-    ? MESES.map(mes => (funcionarios || []).filter(f => f.origem === 'novo' && f.mesAdmissao === mes).length
+    ? MESES.map(mes => _funcsCapex.filter(f => f.origem === 'novo' && f.mesAdmissao === mes).length
         * parseNum((premissasPessoal || {}).capexEquipNovoHcValor || '13460'))
     : null;
   const _somaCapexEquip = capexEquipNovoHcRowCorp ? capexEquipNovoHcRowCorp.reduce((a, v) => a + v, 0) : 0;
