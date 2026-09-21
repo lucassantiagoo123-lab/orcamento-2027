@@ -4123,19 +4123,22 @@ export default function OrcamentoARA({ usuario }) {
   // atualizar Resorts (beach+villa) e Agrícola (tds+fds) em bloco.
   async function updatePremissasPessoalUnidade(unidadeIds, campo, valor) {
     const ids = Array.isArray(unidadeIds) ? unidadeIds : [unidadeIds];
+    // Calcula novosDados a partir do snapshot atual (antes do setStatusUnidades)
+    // para que o putOrcamento use o mesmo objeto que será passado ao setState,
+    // evitando race condition entre campos editados em sequência rápida.
+    const novosDadosPorUid = {};
+    ids.forEach(uid => {
+      const u = statusUnidades[uid] || {};
+      novosDadosPorUid[uid] = { ...u, custos: { ...u.custos, premissasPessoal: { ...(u.custos?.premissasPessoal || {}), [campo]: valor } } };
+    });
     setStatusUnidades(prev => {
       const next = { ...prev };
-      ids.forEach(uid => {
-        const u = prev[uid] || {};
-        next[uid] = { ...u, custos: { ...u.custos, premissasPessoal: { ...(u.custos?.premissasPessoal || {}), [campo]: valor } } };
-      });
+      ids.forEach(uid => { next[uid] = novosDadosPorUid[uid]; });
       return next;
     });
     for (const uid of ids) {
       try {
-        const current = statusUnidades[uid] || {};
-        const novosDados = { ...current, custos: { ...current.custos, premissasPessoal: { ...(current.custos?.premissasPessoal || {}), [campo]: valor } } };
-        await putOrcamento(uid, novosDados);
+        await putOrcamento(uid, novosDadosPorUid[uid]);
       } catch (_) {}
     }
   }
