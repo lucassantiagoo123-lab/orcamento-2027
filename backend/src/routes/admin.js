@@ -219,3 +219,26 @@ adminRouter.post('/migracoes/plano-contas-resorts', async (req, res, next) => {
     res.json(resultado);
   } catch (err) { next(err); }
 });
+
+// Recuperação pontual (2026-09-21) — restaura custos da Têxtil a partir do
+// log_alteracoes id=21065 (último estado bom antes do dado ser zerado).
+// Remover após confirmação da recuperação.
+import { pool } from '../db/pool.js';
+adminRouter.post('/recuperacao/textil-custos-21065', async (req, res, next) => {
+  try {
+    const { rows: check } = await pool.query(
+      `SELECT length(valor_anterior) as tam FROM log_alteracoes WHERE id = 21065`
+    );
+    if (!check[0]) return res.status(404).json({ erro: 'Log id 21065 não encontrado' });
+    const { rows } = await pool.query(`
+      UPDATE orcamentos
+      SET dados = jsonb_set(dados, '{custos}',
+            (SELECT valor_anterior::jsonb FROM log_alteracoes WHERE id = 21065)),
+          atualizado_em = now()
+      WHERE unidade_id = 'textil' AND ano = 2027
+      RETURNING id, unidade_id, length(dados::text) as tamanho
+    `);
+    if (!rows[0]) return res.status(404).json({ erro: 'Orçamento da Têxtil não encontrado' });
+    res.json({ ok: true, resultado: rows[0], tamanhoLogAnterior: check[0].tam });
+  } catch (err) { next(err); }
+});
