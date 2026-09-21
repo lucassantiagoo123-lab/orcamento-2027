@@ -9506,6 +9506,29 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     : null;
   const totalCalculadosCorp = _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp) + _somaRow(encargosNovoHcRowCorp) + _somaRow(bonusPjRowCorp);
 
+  // Linhas calculadas Pessoal — unidades não-Corporativo (Têxtil, Resorts, Agrícola):
+  // Dissídio (dois ciclos), Meritocracia e Bônus derivados das premissasPessoal da unidade.
+  const _hcExisteContasTextil = unidadeId !== 'corporativo'
+    ? (refUnidade.planoContas?.['pessoal'] || []).filter(c => c.codigo.startsWith('HC_EXISTENTE'))
+    : [];
+  const hcExistenteMesTextil = _hcExisteContasTextil.length > 0
+    ? MESES.map((_, m) => _hcExisteContasTextil.reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0))
+    : null;
+  const _dissidioMesIdx2T = _ppC.dissidioMes2 ? MESES.indexOf(_ppC.dissidioMes2) : -1;
+  const dissidioRow1Textil = hcExistenteMesTextil && _dissidioMesIdxC >= 0
+    ? MESES.map((_, m) => m >= _dissidioMesIdxC ? hcExistenteMesTextil[m] * parseNum(_ppC.dissidioPct) / 100 : 0)
+    : null;
+  const dissidioRow2Textil = hcExistenteMesTextil && _dissidioMesIdx2T >= 0
+    ? MESES.map((_, m) => m >= _dissidioMesIdx2T ? hcExistenteMesTextil[m] * parseNum(_ppC.dissidioPct2) / 100 : 0)
+    : null;
+  const meritocraciaRowTextil = hcExistenteMesTextil && _meritMesIdxC >= 0
+    ? MESES.map((_, m) => m >= _meritMesIdxC ? hcExistenteMesTextil[m] * parseNum(_ppC.meritocraciaPct) / 100 : 0)
+    : null;
+  const bonusRowTextil = hcExistenteMesTextil && _bonusMesIdxC >= 0
+    ? MESES.map((_, m) => m === _bonusMesIdxC ? hcExistenteMesTextil[_bonusMesIdxC] * parseNum(_ppC.bonusPct) / 100 : 0)
+    : null;
+  const totalCalculadosTextil = _somaRow(dissidioRow1Textil) + _somaRow(dissidioRow2Textil) + _somaRow(meritocraciaRowTextil) + _somaRow(bonusRowTextil);
+
   const termoBusca = filtroConta.trim().toLowerCase();
   const gruposPacoteExibidos = gruposPacote
     .filter(g => filtroPacoteId === 'todos' || g.id === filtroPacoteId)
@@ -9739,7 +9762,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
         // analíticas do pacote (Consultórias PJs, só Corporativo).
         const totalPacote = g.id === 'pessoal'
           ? folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
-            + (unidadeId === 'corporativo' ? totalCalculadosCorp : 0)
+            + (unidadeId === 'corporativo' ? totalCalculadosCorp : totalCalculadosTextil)
           : g.contas.reduce((acc, c) => acc + totalConta(c.codigo) + (c.codigo === 'CORP10' && unidadeId === 'corporativo' ? _somaRow(licencaSoftwareNovoHcRowCorp) : 0), 0);
         const pacoteAberto = !!pacotesAbertos[g.id];
         return (
@@ -9991,8 +10014,152 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                           </div>
                         ))}
                       </>
+                    ) : _hcExisteContasTextil.length > 0 ? (
+                      // Não-Corporativo com HC_EXISTENTE — redesign (Têxtil, Resorts, Agrícola)
+                      <>
+                        {/* Premissas — somente leitura; editáveis em Gestão do Orçamento */}
+                        {(usuario?.perfil === 'admin_fpa' || usuario?.perfil === 'gerente_unidade') && (_ppC.dissidioMes || _ppC.dissidioMes2 || _ppC.meritocraciaMes || _ppC.bonusMes) && (
+                          <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
+                            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>Premissas — Pessoal</div>
+                            <div style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 10 }}>
+                              Parâmetros definidos pelo FP&A — somente leitura. Editar em <em>Gestão do Orçamento</em>.
+                            </div>
+                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                              {_ppC.dissidioMes && <>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                                  <label style={{ fontSize: 10.5, color: '#7A8088' }}>Dissídio — mês</label>
+                                  <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.dissidioMes}</span>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                                  <label style={{ fontSize: 10.5, color: '#7A8088' }}>Dissídio — %</label>
+                                  <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.dissidioPct ? `${_ppC.dissidioPct}%` : '—'}</span>
+                                </div>
+                              </>}
+                              {_ppC.dissidioMes2 && <>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                                  <label style={{ fontSize: 10.5, color: '#7A8088' }}>Dissídio 2 — mês</label>
+                                  <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.dissidioMes2}</span>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                                  <label style={{ fontSize: 10.5, color: '#7A8088' }}>Dissídio 2 — %</label>
+                                  <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.dissidioPct2 ? `${_ppC.dissidioPct2}%` : '—'}</span>
+                                </div>
+                              </>}
+                              {_ppC.meritocraciaMes && <>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                                  <label style={{ fontSize: 10.5, color: '#7A8088' }}>Meritocracia — mês</label>
+                                  <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.meritocraciaMes}</span>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                                  <label style={{ fontSize: 10.5, color: '#7A8088' }}>Meritocracia — %</label>
+                                  <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.meritocraciaPct ? `${_ppC.meritocraciaPct}%` : '—'}</span>
+                                </div>
+                              </>}
+                              {_ppC.bonusMes && <>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                                  <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus — mês</label>
+                                  <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusMes}</span>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                                  <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus — %</label>
+                                  <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPct ? `${_ppC.bonusPct}%` : '—'}</span>
+                                </div>
+                              </>}
+                            </div>
+                          </div>
+                        )}
+
+                        <h5 style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '4px 0 10px' }}>Salários / Despesas com Pessoal CLT</h5>
+
+                        {/* 1.1 Headcount Existente — colapsável */}
+                        <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
+                          <button
+                            onClick={() => setHcExistenteAberto(v => !v)}
+                            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: COR.azul }}>
+                              {hcExistenteAberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                              1.1 Headcount Existente
+                            </span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>
+                              {formatBRL(_somaRow(hcExistenteMesTextil) + _somaRow(dissidioRow1Textil) + _somaRow(dissidioRow2Textil) + _somaRow(meritocraciaRowTextil) + _somaRow(bonusRowTextil))}
+                            </span>
+                          </button>
+                          {hcExistenteAberto && (
+                            <div style={{ padding: 10 }}>
+                              <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, marginBottom: 10, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                                <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+                                <div style={{ fontSize: 11, color: COR.texto }}>Inserir os valores constantes da planilha do Departamento Pessoal, que já contemplam encargos e benefícios.</div>
+                              </div>
+                              {_hcExisteContasTextil.map(c => (
+                                <LinhaConta
+                                  key={c.codigo} conta={c}
+                                  linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                                  aberta={contaAberta === chaveLinha(c.codigo)}
+                                  onToggle={() => toggleConta(c.codigo)}
+                                  onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                                  onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                                  onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                                  onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                                  total={totalConta(c.codigo)}
+                                  receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                                  ocultarClassificacao ocultarAddSublinha
+                                  unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                                />
+                              ))}
+                              {hcExistenteMesTextil && (
+                                <div style={{ marginTop: 10 }}>
+                                  <TabelaMensal
+                                    linhas={[]} onChangeCelula={() => {}}
+                                    linhasCalculadas={[
+                                      { key: 'hcBase', label: 'Headcount Existente (DP)', valoresMensal: hcExistenteMesTextil, totalValor: _somaRow(hcExistenteMesTextil), cor: COR.texto },
+                                      ...(dissidioRow1Textil ? [{ key: 'dissidio1', label: `Dissídio${_ppC.dissidioMes ? ` — a partir de ${_ppC.dissidioMes}, ${_ppC.dissidioPct || '0'}%` : ''}`, valoresMensal: dissidioRow1Textil, totalValor: _somaRow(dissidioRow1Textil), cor: COR.texto }] : []),
+                                      ...(dissidioRow2Textil ? [{ key: 'dissidio2', label: `Dissídio 2${_ppC.dissidioMes2 ? ` — a partir de ${_ppC.dissidioMes2}, ${_ppC.dissidioPct2 || '0'}%` : ''}`, valoresMensal: dissidioRow2Textil, totalValor: _somaRow(dissidioRow2Textil), cor: COR.texto }] : []),
+                                      ...(meritocraciaRowTextil ? [{ key: 'meritocracia', label: `Meritocracia${_ppC.meritocraciaMes ? ` — a partir de ${_ppC.meritocraciaMes}, ${_ppC.meritocraciaPct || '0'}%` : ''}`, valoresMensal: meritocraciaRowTextil, totalValor: _somaRow(meritocraciaRowTextil), cor: COR.texto }] : []),
+                                      ...(bonusRowTextil ? [{ key: 'bonus', label: `Bônus${_ppC.bonusMes ? ` — ${_ppC.bonusMes}, ${_ppC.bonusPct || '0'}%` : ''}`, valoresMensal: bonusRowTextil, totalValor: _somaRow(bonusRowTextil), cor: COR.texto }] : []),
+                                      {
+                                        key: 'totalHcEx', label: 'Total — HC Existente',
+                                        valoresMensal: hcExistenteMesTextil.map((v, m) => v + (dissidioRow1Textil?.[m] || 0) + (dissidioRow2Textil?.[m] || 0) + (meritocraciaRowTextil?.[m] || 0) + (bonusRowTextil?.[m] || 0)),
+                                        totalValor: _somaRow(hcExistenteMesTextil) + _somaRow(dissidioRow1Textil) + _somaRow(dissidioRow2Textil) + _somaRow(meritocraciaRowTextil) + _somaRow(bonusRowTextil),
+                                        cor: COR.laranja,
+                                      },
+                                    ]}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 1.2 Novo Headcount — colapsável */}
+                        <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
+                          <button
+                            onClick={() => setNovoHcAberto(v => !v)}
+                            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: COR.azul }}>
+                              {novoHcAberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                              1.2 Novo Headcount
+                              <span style={{ fontWeight: 400, color: '#8A8F96', fontSize: 11 }}>({(funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo').length} funcionários)</span>
+                            </span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(folhaAtual.totalAnual)}</span>
+                          </button>
+                          {novoHcAberto && (
+                            <div style={{ padding: 10 }}>
+                              <QuadroPessoal
+                                ccCodigo={ccSel} unidadeId={unidadeId}
+                                funcionarios={(funcionarios || []).filter(f => f.ccCodigo === ccSel)}
+                                addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
+                                premissasPessoal={premissasPessoal} folha={folhaAtual}
+                                hcExistenteMes={hcExistenteMesTextil}
+                                semCabecalho semSumario
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </>
                     ) : (
-                      // Não-Corporativo: layout original ────────────────────
+                      // Sem HC_EXISTENTE: layout original ────────────────────
                       <>
                         {g.contas.filter(c => c.nome === 'Headcount Existente').map(c => (
                           <div key={c.codigo} style={{ marginBottom: 18 }}>
@@ -10014,8 +10181,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
                               total={totalConta(c.codigo)}
                               receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
-                              ocultarClassificacao={unidadeId === 'corporativo'}
-                              ocultarAddSublinha
+                              ocultarClassificacao ocultarAddSublinha
                               unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
                             />
                           </div>
@@ -10027,42 +10193,6 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                           premissasPessoal={premissasPessoal} folha={folhaAtual}
                           hcExistenteMes={MESES.map((_, m) => (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente').reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0))}
                         />
-                        {g.contas.filter(c => c.codigo === CONTA_CONSULTORIA_PJ).map(c => (
-                          <div key={c.codigo} style={{ marginTop: 18 }}>
-                            <LinhaConta
-                              conta={c}
-                              linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
-                              aberta={contaAberta === chaveLinha(c.codigo)}
-                              onToggle={() => toggleConta(c.codigo)}
-                              onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
-                              onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
-                              onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
-                              onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
-                              total={totalConta(c.codigo)}
-                              receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
-                              ocultarClassificacao={unidadeId === 'corporativo'}
-                              unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
-                            />
-                          </div>
-                        ))}
-                        {g.contas.filter(c => c.individual).map(c => (
-                          <div key={c.codigo} style={{ marginTop: 10 }}>
-                            <LinhaConta
-                              conta={c}
-                              linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
-                              aberta={contaAberta === chaveLinha(c.codigo)}
-                              onToggle={() => toggleConta(c.codigo)}
-                              onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
-                              onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
-                              onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
-                              onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
-                              total={totalConta(c.codigo)}
-                              receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
-                              ocultarClassificacao={unidadeId === 'corporativo'}
-                              unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
-                            />
-                          </div>
-                        ))}
                       </>
                     )}
                   </>
