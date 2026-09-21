@@ -4153,7 +4153,7 @@ export default function OrcamentoARA({ usuario }) {
   }
   // Atalho para Corporativo (retrocompatibilidade com call sites já existentes)
   function updatePremissasPessoalCorporativo(campo, valor) {
-    const COMPARTILHADOS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct'];
+    const COMPARTILHADOS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
     if (COMPARTILHADOS.includes(campo)) {
       updatePremissasPessoalUnidade(['textil', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'], campo, valor);
     }
@@ -12694,20 +12694,17 @@ const CAMPO_LOG_LABEL = {
 function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, updateFontePremissaMacroGlobal, updatePremissasPessoalCorporativo, updatePremissasPessoalUnidade, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
-  const _propInicial = useRef(false);
-  // Propaga campos compartilhados do Corporativo (meritocracia, bônus) para
-  // unidades não-Corporativo que ainda não os têm — roda uma vez após o
-  // carregamento, sem sobrescrever valores já preenchidos.
+  // Propaga campos compartilhados do Corporativo para unidades não-Corporativo
+  // que ainda não os têm — roda toda vez que statusUnidades muda, mas só
+  // salva quando alguma unidade ainda está sem o valor (convergente).
+  const COMPARTILHADOS_PREMISSAS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
+  const OUTRAS_UNIDADES = ['textil', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'];
   useEffect(() => {
-    if (_propInicial.current) return;
     const corpPremi = statusUnidades['corporativo']?.custos?.premissasPessoal;
     if (!corpPremi || !statusUnidades['textil']) return;
-    _propInicial.current = true;
-    const COMPARTILHADOS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct'];
-    const OUTRAS = ['textil', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'];
-    COMPARTILHADOS.forEach(campo => {
+    COMPARTILHADOS_PREMISSAS.forEach(campo => {
       if (!corpPremi[campo]) return;
-      const semValor = OUTRAS.filter(uid => !statusUnidades[uid]?.custos?.premissasPessoal?.[campo]);
+      const semValor = OUTRAS_UNIDADES.filter(uid => !statusUnidades[uid]?.custos?.premissasPessoal?.[campo]);
       if (semValor.length > 0) updatePremissasPessoalUnidade(semValor, campo, corpPremi[campo]);
     });
   }, [statusUnidades]);
