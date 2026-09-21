@@ -12697,14 +12697,14 @@ const CAMPO_LOG_LABEL = {
 function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, updateFontePremissaMacroGlobal, updatePremissasPessoalCorporativo, updatePremissasPessoalUnidade, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
-  // Propaga campos compartilhados do Corporativo para unidades não-Corporativo
-  // que ainda não os têm — roda toda vez que statusUnidades muda, mas só
-  // salva quando alguma unidade ainda está sem o valor (convergente).
+  const _propInicial = useRef(false);
   const COMPARTILHADOS_PREMISSAS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
   const OUTRAS_UNIDADES = ['textil', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'];
   useEffect(() => {
+    if (_propInicial.current) return;
     const corpPremi = statusUnidades['corporativo']?.custos?.premissasPessoal;
     if (!corpPremi || !statusUnidades['textil']) return;
+    _propInicial.current = true;
     COMPARTILHADOS_PREMISSAS.forEach(campo => {
       if (!corpPremi[campo]) return;
       const semValor = OUTRAS_UNIDADES.filter(uid => !statusUnidades[uid]?.custos?.premissasPessoal?.[campo]);
