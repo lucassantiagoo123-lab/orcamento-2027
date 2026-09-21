@@ -10533,7 +10533,7 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
           onChangeCelula={() => {}}
           linhasCalculadas={[
             ...CATEGORIAS_CAPEX.flatMap(cat => {
-              const projetosCat = projetosFiltrados.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
+              const projetosCat = projetosVisiveis.filter(p => (p.categoria || 'melhoria_interna') === cat.id);
               const mensaisLancados = MESES.map((_, m) => projetosCat.reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0));
               const equipRow = cat.id === 'melhoria_interna' && capexEquipNovoHcRowCorp;
               const mensais = equipRow
@@ -10592,8 +10592,8 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
             {
               key: '__total_capex__',
               label: 'Total CapEx',
-              valoresMensal: MESES.map((_, m) => projetosFiltrados.reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0) + (capexEquipNovoHcRowCorp?.[m] || 0)),
-              totalValor: totalCapex + _somaCapexEquip,
+              valoresMensal: MESES.map((_, m) => projetosVisiveis.reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0) + (capexEquipNovoHcRowCorp?.[m] || 0)),
+              totalValor: projetosVisiveis.reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0) + _somaCapexEquip,
               cor: COR.laranja,
             },
           ]}
