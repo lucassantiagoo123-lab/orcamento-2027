@@ -4593,15 +4593,25 @@ export default function OrcamentoARA({ usuario }) {
     // os dados de TODAS as unidades que o usuário tem permissão de ver
     // (unidadesVisiveis), não só a aba atual. admin_fpa continua usando
     // statusUnidades (já carregado inteiro por carregarFPA).
-    let mapaDados = statusUnidades;
-    if (role !== 'fpa') {
-      mapaDados = { [unidadeAtual]: dados };
-    }
-
-    const wb = XLSX.utils.book_new();
     const unidadesParaExportar = role === 'fpa'
       ? UNIDADES
       : unidadesVisiveis.filter(u => u.id === unidadeAtual);
+
+    // Busca dados frescos do servidor — statusUnidades/dados podem estar
+    // desatualizados se headcount (ou outro dado) foi adicionado depois do
+    // carregamento inicial da página (ex.: import feito por outro usuário).
+    const mapaDados = {};
+    await Promise.all(unidadesParaExportar.map(async u => {
+      try {
+        const r = await getOrcamento(u.id);
+        if (r.orcamento?.dados) mapaDados[u.id] = r.orcamento.dados;
+      } catch {
+        const fallback = role === 'fpa' ? statusUnidades[u.id] : dados;
+        if (fallback) mapaDados[u.id] = fallback;
+      }
+    }));
+
+    const wb = XLSX.utils.book_new();
 
     const linhasCustosExport = [['Unidade', 'Centro de Custo', 'Tipo', 'Pacote', 'Conta', 'Descrição da Conta', 'Tipo de Premissa', 'Mês', 'Valor Calculado', 'Justificativa', 'Status', 'Última Atualização', 'Autor']];
     unidadesParaExportar.forEach(u => {
