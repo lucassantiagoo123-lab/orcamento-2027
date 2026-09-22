@@ -10318,9 +10318,9 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                   <TabelaMensal
                                     linhas={[]} onChangeCelula={() => {}}
                                     linhasCalculadas={[
-                                      ...(encargosNovoHcRowTextil ? [{ key: 'encargosNovoHc', label: `Encargos e Benefícios${_ppC.encargosNovoHcPct ? ` — ${_ppC.encargosNovoHcPct}%` : ''}`, valoresMensal: encargosNovoHcRowTextil, totalValor: _somaRow(encargosNovoHcRowTextil), cor: COR.texto }] : []),
                                       ...(dissidioNovoHcRow1Textil ? [{ key: 'dissidioNovoHc1', label: `Dissídio 1${_ppC.dissidioMes ? ` — ${_ppC.dissidioMes}` : ''}${_ppC.dissidioPct ? ` (${_ppC.dissidioPct}%)` : ''}`, valoresMensal: dissidioNovoHcRow1Textil, totalValor: _somaRow(dissidioNovoHcRow1Textil), cor: COR.texto }] : []),
                                       ...(dissidioNovoHcRow2Textil ? [{ key: 'dissidioNovoHc2', label: `Dissídio 2${_ppC.dissidioMes2 ? ` — ${_ppC.dissidioMes2}` : ''}${_ppC.dissidioPct2 ? ` (${_ppC.dissidioPct2}%)` : ''}`, valoresMensal: dissidioNovoHcRow2Textil, totalValor: _somaRow(dissidioNovoHcRow2Textil), cor: COR.texto }] : []),
+                                      ...(encargosNovoHcRowTextil ? [{ key: 'encargosNovoHc', label: `Encargos e Benefícios${_ppC.encargosNovoHcPct ? ` — ${_ppC.encargosNovoHcPct}%` : ''}`, valoresMensal: encargosNovoHcRowTextil, totalValor: _somaRow(encargosNovoHcRowTextil), cor: COR.texto }] : []),
                                       { key: 'totalNovoHcTextil', label: 'Total — Novo HC', valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + (encargosNovoHcRowTextil?.[m] || 0) + (dissidioNovoHcRow1Textil?.[m] || 0) + (dissidioNovoHcRow2Textil?.[m] || 0)), totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowTextil) + _somaRow(dissidioNovoHcRow1Textil) + _somaRow(dissidioNovoHcRow2Textil), cor: COR.laranja },
                                     ]}
                                   />
