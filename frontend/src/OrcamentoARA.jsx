@@ -3982,6 +3982,7 @@ export default function OrcamentoARA({ usuario }) {
   // que o backend aplique apenas o diff de premissasPessoal, sem sobrescrever
   // edições simultâneas dos gestores de CC em custos.linhas.
   const custosBaseUnidadesRef = useRef({});
+  const capexBaseUnidadesRef = useRef({});
   const premissasPendentesRef = useRef({});
   const premissasSaveTimersRef = useRef({});
   const premissasMacroTimersRef = useRef({});
@@ -4068,10 +4069,12 @@ export default function OrcamentoARA({ usuario }) {
         const r = await getOrcamento(u.id);
         mapa[u.id] = r.orcamento.dados;
         novoBase[u.id] = r.orcamento.dados.custos;
+        capexBaseUnidadesRef.current[u.id] = r.orcamento.dados.capex;
         mapaAguardando[u.id] = r.orcamento.aguardando_liberacao || false;
       } catch (e) {
         mapa[u.id] = emptyFormData();
         novoBase[u.id] = emptyFormData().custos;
+        capexBaseUnidadesRef.current[u.id] = emptyFormData().capex;
         mapaAguardando[u.id] = false;
       }
     }
@@ -4154,7 +4157,7 @@ export default function OrcamentoARA({ usuario }) {
       Object.entries(premissasSaveTimersRef.current).forEach(([uid, t]) => {
         clearTimeout(t);
         const d = premissasPendentesRef.current[uid];
-        if (d) putOrcamento(uid, d, undefined, custosBaseUnidadesRef.current[uid]).catch(() => {});
+        if (d) putOrcamento(uid, d, undefined, custosBaseUnidadesRef.current[uid], capexBaseUnidadesRef.current[uid]).catch(() => {});
       });
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4228,7 +4231,12 @@ export default function OrcamentoARA({ usuario }) {
           return;
         }
         try {
-          await putOrcamento(uid, d, undefined, custosBaseUnidadesRef.current[uid]);
+          const resultado = await putOrcamento(uid, d, undefined, custosBaseUnidadesRef.current[uid], capexBaseUnidadesRef.current[uid]);
+          // Atualiza as bases de comparação com o resultado mesclado do servidor —
+          // sem isso, saves subsequentes de premissas sobrescreveriam CapEx adicionado
+          // por outro usuário (gestor) entre o carregamento da tela do FP&A e este save.
+          if (resultado?.orcamento?.dados?.custos) custosBaseUnidadesRef.current[uid] = resultado.orcamento.dados.custos;
+          if (resultado?.orcamento?.dados?.capex)  capexBaseUnidadesRef.current[uid]  = resultado.orcamento.dados.capex;
         } catch (_) {}
         pendingSaveSlotsRef.current.delete(slotKey);
         if (pendingSaveSlotsRef.current.size === 0) setSalvandoPremissas(false);
