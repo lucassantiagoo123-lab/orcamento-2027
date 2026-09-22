@@ -13018,6 +13018,10 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
                     <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
                   </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos Novo HC — %</label>
+                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
+                  </div>
                 </div>
               </div>
             );
@@ -13064,6 +13068,10 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
                     <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
                   </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos Novo HC — %</label>
+                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
+                  </div>
                 </div>
               </div>
             );
@@ -13101,6 +13109,10 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
                     <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos Novo HC — %</label>
+                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
                   </div>
                 </div>
               </div>
