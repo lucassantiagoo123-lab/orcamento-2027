@@ -4210,6 +4210,7 @@ export default function OrcamentoARA({ usuario }) {
   // quando null) e força um save em no máximo 2s, mesmo que as mudanças
   // continuem — o debounce continua cuidando do caso comum (pausa curta).
   const maxWaitTimerRef = useRef(null);
+  const savePostponeCountRef = useRef(0);
 
   useEffect(() => {
     if (role !== 'gerente' || carregando) return;
@@ -4228,6 +4229,20 @@ export default function OrcamentoARA({ usuario }) {
       clearTimeout(maxWaitTimerRef.current);
       debounceTimerRef.current = null;
       maxWaitTimerRef.current = null;
+      // Aguarda o usuário terminar de digitar: se há um input/textarea com
+      // foco, o valor pode estar incompleto — adia até 5×600ms (3s no total)
+      // antes de forçar o save. Previne captura de valores parciais pelo
+      // maxWaitTimerRef durante digitação ativa.
+      const activeEl = document.activeElement;
+      const estaDigitando = activeEl &&
+        (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') &&
+        activeEl.type !== 'checkbox' && activeEl.type !== 'button';
+      if (estaDigitando && savePostponeCountRef.current < 5) {
+        savePostponeCountRef.current += 1;
+        debounceTimerRef.current = setTimeout(salvar, 600);
+        return;
+      }
+      savePostponeCountRef.current = 0;
       const dadosAtuais = dadosRef.current;
       const unidade = unidadeAtualRef.current;
       const custosBaseAoEnviar = custosBaseRef.current;
