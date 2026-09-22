@@ -1951,7 +1951,7 @@ function linhaIncoerente(linha) {
       return q !== v;
     });
   }
-  if ((linha.premissaTipo === 'rateio' && linha.baseTipo === 'manual') || linha.premissaTipo === 'rateio_hospedagem') {
+  if (linha.premissaTipo === 'rateio' && linha.baseTipo === 'manual') {
     return MESES.some((_, m) => {
       const b = linha.baseManual?.[m] !== '' && linha.baseManual?.[m] != null;
       const p = linha.percentuais?.[m] !== '' && linha.percentuais?.[m] != null;
