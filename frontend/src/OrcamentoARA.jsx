@@ -4644,16 +4644,18 @@ export default function OrcamentoARA({ usuario }) {
         });
       });
       // Novo Headcount: adiciona uma linha por CC × mês com o custo total
-      // calculado por folhaAnualPorCC (salário + encargos + 13º + benefícios).
+      // calculado por folhaAnualPorCC × (1 + encargosNovoHcPct/100).
       // Esses valores entram no DRE mas não existem em custos.linhas — sem
       // este bloco ficam ausentes da aba Custos_Despesas do export.
+      const _encPct = parseNum(d.custos.premissasPessoal?.encargosNovoHcPct);
       refU.ccs.forEach(cc => {
         const novos = (d.custos.funcionarios || []).filter(f => f.ccCodigo === cc.codigo && f.origem === 'novo');
         if (novos.length === 0) return;
         const folha = folhaAnualPorCC(d, cc.codigo);
         const justificativa = novos.map(f => f.justificativa || f.cargo || '').filter(Boolean).join('; ');
         MESES.forEach((m, mi) => {
-          const v = folha.mensal[mi]?.total || 0;
+          const base = folha.mensal[mi]?.total || 0;
+          const v = base * (1 + _encPct / 100);
           if (v === 0) return;
           linhasCustosExport.push([u.nome, cc.nome, cc.tipo === 'producao' ? 'Custo' : 'Despesa', 'Pessoal', 'Novo Headcount', 'Novo Headcount (calculado)', 'Calculado', m, v, justificativa, d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
         });
@@ -9683,6 +9685,9 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const dissidioNovoHcRow2Textil = _hcExisteContasTextil.length > 0 && _dissidioMesIdx2T >= 0 && parseNum(_ppC.dissidioPct2)
     ? MESES.map((_, m) => m < _dissidioMesIdx2T ? 0 : folhaAtual.mensal[m].total * parseNum(_ppC.dissidioPct2) / 100)
     : null;
+  const encargosNovoHcRowTextil = _hcExisteContasTextil.length > 0 && parseNum(_ppC.encargosNovoHcPct)
+    ? MESES.map((_, m) => folhaAtual.mensal[m].total * parseNum(_ppC.encargosNovoHcPct) / 100)
+    : null;
 
   const termoBusca = filtroConta.trim().toLowerCase();
   const gruposPacoteExibidos = gruposPacote
@@ -10296,7 +10301,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               1.2 Novo Headcount
                               <span style={{ fontWeight: 400, color: '#8A8F96', fontSize: 11 }}>({(funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo').length} funcionários)</span>
                             </span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(folhaAtual.totalAnual + _somaRow(dissidioNovoHcRow1Textil) + _somaRow(dissidioNovoHcRow2Textil))}</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(folhaAtual.totalAnual + _somaRow(encargosNovoHcRowTextil) + _somaRow(dissidioNovoHcRow1Textil) + _somaRow(dissidioNovoHcRow2Textil))}</span>
                           </button>
                           {novoHcAberto && (
                             <div style={{ padding: 10 }}>
@@ -10308,13 +10313,15 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                 hcExistenteMes={hcExistenteMesTextil}
                                 semCabecalho semSumario
                               />
-                              {(dissidioNovoHcRow1Textil || dissidioNovoHcRow2Textil) && (
+                              {(dissidioNovoHcRow1Textil || dissidioNovoHcRow2Textil || encargosNovoHcRowTextil) && (
                                 <div style={{ marginTop: 10 }}>
                                   <TabelaMensal
                                     linhas={[]} onChangeCelula={() => {}}
                                     linhasCalculadas={[
+                                      ...(encargosNovoHcRowTextil ? [{ key: 'encargosNovoHc', label: `Encargos e Benefícios${_ppC.encargosNovoHcPct ? ` — ${_ppC.encargosNovoHcPct}%` : ''}`, valoresMensal: encargosNovoHcRowTextil, totalValor: _somaRow(encargosNovoHcRowTextil), cor: COR.texto }] : []),
                                       ...(dissidioNovoHcRow1Textil ? [{ key: 'dissidioNovoHc1', label: `Dissídio 1${_ppC.dissidioMes ? ` — ${_ppC.dissidioMes}` : ''}${_ppC.dissidioPct ? ` (${_ppC.dissidioPct}%)` : ''}`, valoresMensal: dissidioNovoHcRow1Textil, totalValor: _somaRow(dissidioNovoHcRow1Textil), cor: COR.texto }] : []),
                                       ...(dissidioNovoHcRow2Textil ? [{ key: 'dissidioNovoHc2', label: `Dissídio 2${_ppC.dissidioMes2 ? ` — ${_ppC.dissidioMes2}` : ''}${_ppC.dissidioPct2 ? ` (${_ppC.dissidioPct2}%)` : ''}`, valoresMensal: dissidioNovoHcRow2Textil, totalValor: _somaRow(dissidioNovoHcRow2Textil), cor: COR.texto }] : []),
+                                      { key: 'totalNovoHcTextil', label: 'Total — Novo HC', valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + (encargosNovoHcRowTextil?.[m] || 0) + (dissidioNovoHcRow1Textil?.[m] || 0) + (dissidioNovoHcRow2Textil?.[m] || 0)), totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowTextil) + _somaRow(dissidioNovoHcRow1Textil) + _somaRow(dissidioNovoHcRow2Textil), cor: COR.laranja },
                                     ]}
                                   />
                                 </div>
