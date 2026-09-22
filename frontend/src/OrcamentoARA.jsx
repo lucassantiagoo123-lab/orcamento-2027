@@ -6026,11 +6026,13 @@ function VisaoGerente(props) {
               calculadas, por aba, mês a mês — ver exportarExcelCalculo) ×
               Dados Brutos (1 linha por mês por conta/produto, para
               auditoria — exportarExcel) × Apresentação (PPT pro CAD). */}
+          {usuario.perfil !== 'gerente_cc_corporativo' && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Botao variante="secundario" icone={FileSpreadsheet} onClick={() => exportarExcelCalculo()}>Excel — Cálculo</Botao>
             <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel} disabled={exportandoExcel}>{exportandoExcel ? 'Buscando suas unidades…' : 'Excel — Dados Brutos'}</Botao>
             <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>Apresentação (PPT)</Botao>
           </div>
+          )}
           <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
             <button
               onClick={() => setMostrarHistorico(!mostrarHistorico)}
