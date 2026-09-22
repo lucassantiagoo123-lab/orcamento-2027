@@ -4721,6 +4721,20 @@ export default function OrcamentoARA({ usuario }) {
     const wsD = XLSX.utils.aoa_to_sheet(linhasDRE);
     XLSX.utils.book_append_sheet(wb, wsD, 'DRE_Resumo');
 
+    const linhasHC = [['Unidade', 'Centro de Custo', 'Cargo', 'Salário (R$)', 'Mês Admissão', 'Justificativa']];
+    unidadesParaExportar.forEach(u => {
+      const d = mapaDados[u.id];
+      if (!d || ehSnapshotConsolidado(d)) return;
+      const refU = referenciaDaUnidade(u.id);
+      (d.custos.funcionarios || []).filter(f => f.origem === 'novo').forEach(f => {
+        const cc = refU.ccs.find(c => c.codigo === f.ccCodigo);
+        linhasHC.push([u.nome, cc?.nome || f.ccCodigo, f.cargo || '', parseNum(f.salario), f.mesAdmissao || '', f.justificativa || '']);
+      });
+    });
+    const wsHC = XLSX.utils.aoa_to_sheet(linhasHC);
+    wsHC['!cols'] = [{ wch: 16 }, { wch: 24 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 40 }];
+    XLSX.utils.book_append_sheet(wb, wsHC, 'Novo_Headcount');
+
     XLSX.writeFile(wb, `Orcamento_2027_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}_DadosBrutos.xlsx`);
   }
 
