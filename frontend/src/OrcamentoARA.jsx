@@ -3984,6 +3984,8 @@ export default function OrcamentoARA({ usuario }) {
   const custosBaseUnidadesRef = useRef({});
   const premissasPendentesRef = useRef({});
   const premissasSaveTimersRef = useRef({});
+  const premissasMacroTimersRef = useRef({});
+  const premissasMacroPendentesRef = useRef({});
   const [aguardandoLiberacaoPorUnidade, setAguardandoLiberacaoPorUnidade] = useState({});
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
@@ -4131,13 +4133,18 @@ export default function OrcamentoARA({ usuario }) {
     })();
   }, []);
 
-  async function updatePremissaMacroGlobal(id, valor) {
-    try {
-      const p = await atualizarPremissaMacroApi(id, valor);
-      setPremissasMacro(prev => prev.map(x => x.id === id ? { ...x, valor: p.valor || '', fonte: p.fonte, atualizadoEm: p.atualizado_em } : x));
-    } catch (e) {
-      // silencioso — mesmo padrão de antes (sem toast de erro nesta tela)
-    }
+  function updatePremissaMacroGlobal(id, valor) {
+    // Atualiza o estado local imediatamente para o campo não "travar" enquanto digita
+    setPremissasMacro(prev => prev.map(x => x.id === id ? { ...x, valor } : x));
+    premissasMacroPendentesRef.current[id] = valor;
+    clearTimeout(premissasMacroTimersRef.current[id]);
+    premissasMacroTimersRef.current[id] = setTimeout(async () => {
+      const v = premissasMacroPendentesRef.current[id];
+      try {
+        const p = await atualizarPremissaMacroApi(id, v);
+        setPremissasMacro(prev => prev.map(x => x.id === id ? { ...x, valor: p.valor || '', fonte: p.fonte, atualizadoEm: p.atualizado_em } : x));
+      } catch (e) {}
+    }, 800);
   }
 
   // Coluna "Fonte" editável (2026-09-08) — usa o mesmo PATCH /:id/fonte já
