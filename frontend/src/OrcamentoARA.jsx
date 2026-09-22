@@ -4576,22 +4576,13 @@ export default function OrcamentoARA({ usuario }) {
     // statusUnidades (já carregado inteiro por carregarFPA).
     let mapaDados = statusUnidades;
     if (role !== 'fpa') {
-      setExportandoExcel(true);
       mapaDados = { [unidadeAtual]: dados };
-      try {
-        const outras = unidadesVisiveis.filter(u => u.id !== unidadeAtual);
-        const resultados = await Promise.all(outras.map(u => getOrcamento(u.id).catch(() => null)));
-        outras.forEach((u, i) => {
-          if (resultados[i]) mapaDados[u.id] = resultados[i].orcamento.dados;
-        });
-      } catch (e) {
-        alert('Não foi possível carregar os dados de todas as suas unidades — o Excel vai sair só com a unidade atual. Tente novamente em instantes.');
-      }
-      setExportandoExcel(false);
     }
 
     const wb = XLSX.utils.book_new();
-    const unidadesParaExportar = role === 'fpa' ? UNIDADES : unidadesVisiveis;
+    const unidadesParaExportar = role === 'fpa'
+      ? UNIDADES
+      : unidadesVisiveis.filter(u => u.id === unidadeAtual);
 
     const linhasCustosExport = [['Unidade', 'Centro de Custo', 'Tipo', 'Pacote', 'Conta', 'Descrição da Conta', 'Tipo de Premissa', 'Mês', 'Valor Calculado', 'Justificativa', 'Status', 'Última Atualização', 'Autor']];
     unidadesParaExportar.forEach(u => {
@@ -6055,7 +6046,7 @@ function VisaoGerente(props) {
           {usuario.perfil !== 'gerente_cc_corporativo' && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Botao variante="secundario" icone={FileSpreadsheet} onClick={() => exportarExcelCalculo()}>Excel — Cálculo</Botao>
-            <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel} disabled={exportandoExcel}>{exportandoExcel ? 'Buscando suas unidades…' : 'Excel — Dados Brutos'}</Botao>
+            <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Excel — Dados Brutos</Botao>
             <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>Apresentação (PPT)</Botao>
           </div>
           )}
