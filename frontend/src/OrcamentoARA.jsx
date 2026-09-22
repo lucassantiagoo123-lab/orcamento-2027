@@ -4285,7 +4285,11 @@ export default function OrcamentoARA({ usuario }) {
     if (!maxWaitTimerRef.current) {
       maxWaitTimerRef.current = setTimeout(salvar, 2000);
     }
-    return () => clearTimeout(debounceTimerRef.current);
+    return () => {
+      clearTimeout(debounceTimerRef.current);
+      clearTimeout(maxWaitTimerRef.current);
+      maxWaitTimerRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dados, unidadeAtual, role, carregando]);
 
