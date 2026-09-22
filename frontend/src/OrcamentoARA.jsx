@@ -3986,6 +3986,8 @@ export default function OrcamentoARA({ usuario }) {
   const premissasSaveTimersRef = useRef({});
   const premissasMacroTimersRef = useRef({});
   const premissasMacroPendentesRef = useRef({});
+  const pendingSaveSlotsRef = useRef(new Set());
+  const [salvandoPremissas, setSalvandoPremissas] = useState(false);
   const [aguardandoLiberacaoPorUnidade, setAguardandoLiberacaoPorUnidade] = useState({});
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
@@ -4133,10 +4135,37 @@ export default function OrcamentoARA({ usuario }) {
     })();
   }, []);
 
+  // Avisa o usuário antes de fechar/recarregar a aba se houver saves pendentes;
+  // e faz flush dos timers pendentes no unmount (navegação para fora do app).
+  useEffect(() => {
+    const handler = e => {
+      if (pendingSaveSlotsRef.current.size > 0) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => {
+      window.removeEventListener('beforeunload', handler);
+      // Flush premissas macro — cancela timers e persiste imediatamente
+      Object.entries(premissasMacroTimersRef.current).forEach(([id, t]) => {
+        clearTimeout(t);
+        const v = premissasMacroPendentesRef.current[id];
+        if (v !== undefined) atualizarPremissaMacroApi(id, v).catch(() => {});
+      });
+      // Flush premissas pessoal — cancela timers e persiste imediatamente
+      Object.entries(premissasSaveTimersRef.current).forEach(([uid, t]) => {
+        clearTimeout(t);
+        const d = premissasPendentesRef.current[uid];
+        if (d) putOrcamento(uid, d, undefined, custosBaseUnidadesRef.current[uid]).catch(() => {});
+      });
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   function updatePremissaMacroGlobal(id, valor) {
     // Atualiza o estado local imediatamente para o campo não "travar" enquanto digita
     setPremissasMacro(prev => prev.map(x => x.id === id ? { ...x, valor } : x));
     premissasMacroPendentesRef.current[id] = valor;
+    const slotKey = `macro_${id}`;
+    pendingSaveSlotsRef.current.add(slotKey);
+    setSalvandoPremissas(true);
     clearTimeout(premissasMacroTimersRef.current[id]);
     premissasMacroTimersRef.current[id] = setTimeout(async () => {
       const v = premissasMacroPendentesRef.current[id];
@@ -4144,6 +4173,8 @@ export default function OrcamentoARA({ usuario }) {
         const p = await atualizarPremissaMacroApi(id, v);
         setPremissasMacro(prev => prev.map(x => x.id === id ? { ...x, valor: p.valor || '', fonte: p.fonte, atualizadoEm: p.atualizado_em } : x));
       } catch (e) {}
+      pendingSaveSlotsRef.current.delete(slotKey);
+      if (pendingSaveSlotsRef.current.size === 0) setSalvandoPremissas(false);
     }, 800);
   }
 
@@ -4185,13 +4216,22 @@ export default function OrcamentoARA({ usuario }) {
     });
     // Debounce o PUT — só persiste após 800ms sem nova alteração.
     ids.forEach(uid => {
+      const slotKey = `pessoal_${uid}`;
+      pendingSaveSlotsRef.current.add(slotKey);
+      setSalvandoPremissas(true);
       clearTimeout(premissasSaveTimersRef.current[uid]);
       premissasSaveTimersRef.current[uid] = setTimeout(async () => {
         const d = premissasPendentesRef.current[uid];
-        if (!d) return;
+        if (!d) {
+          pendingSaveSlotsRef.current.delete(slotKey);
+          if (pendingSaveSlotsRef.current.size === 0) setSalvandoPremissas(false);
+          return;
+        }
         try {
           await putOrcamento(uid, d, undefined, custosBaseUnidadesRef.current[uid]);
         } catch (_) {}
+        pendingSaveSlotsRef.current.delete(slotKey);
+        if (pendingSaveSlotsRef.current.size === 0) setSalvandoPremissas(false);
       }, 800);
     });
   }
@@ -5566,6 +5606,13 @@ export default function OrcamentoARA({ usuario }) {
         </div>
       </div>
 
+
+      {salvandoPremissas && (
+        <div style={{ background: '#FFF8E6', borderBottom: `1px solid ${COR.laranja}`, padding: '5px 22px', fontSize: 11, color: COR.texto, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Loader2 size={12} className="girando" />
+          Salvando premissas…
+        </div>
+      )}
 
       {statusPptx && (
         <div style={{ background: statusPptx.erro ? '#FDECEC' : '#E8F0FA', borderBottom: `1px solid ${statusPptx.erro ? '#C00000' : COR.azul}`, padding: '10px 22px', fontSize: 11.5, color: COR.texto, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
