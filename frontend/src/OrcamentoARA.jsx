@@ -10154,9 +10154,9 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                     linhas={[]} onChangeCelula={() => {}}
                                     linhasCalculadas={[
                                       { key: 'hcBase', label: 'Headcount Existente (DP)', valoresMensal: hcExistenteMesTextil, totalValor: _somaRow(hcExistenteMesTextil), cor: COR.texto },
+                                      ...(meritocraciaRowTextil ? [{ key: 'meritocracia', label: `Meritocracia${_ppC.meritocraciaMes ? ` — a partir de ${_ppC.meritocraciaMes}, ${_ppC.meritocraciaPct || '0'}%` : ''}`, valoresMensal: meritocraciaRowTextil, totalValor: _somaRow(meritocraciaRowTextil), cor: COR.texto }] : []),
                                       ...(dissidioRow1Textil ? [{ key: 'dissidio1', label: `Dissídio${_ppC.dissidioMes ? ` — a partir de ${_ppC.dissidioMes}, ${_ppC.dissidioPct || '0'}%` : ''}`, valoresMensal: dissidioRow1Textil, totalValor: _somaRow(dissidioRow1Textil), cor: COR.texto }] : []),
                                       ...(dissidioRow2Textil ? [{ key: 'dissidio2', label: `Dissídio 2${_ppC.dissidioMes2 ? ` — a partir de ${_ppC.dissidioMes2}, ${_ppC.dissidioPct2 || '0'}%` : ''}`, valoresMensal: dissidioRow2Textil, totalValor: _somaRow(dissidioRow2Textil), cor: COR.texto }] : []),
-                                      ...(meritocraciaRowTextil ? [{ key: 'meritocracia', label: `Meritocracia${_ppC.meritocraciaMes ? ` — a partir de ${_ppC.meritocraciaMes}, ${_ppC.meritocraciaPct || '0'}%` : ''}`, valoresMensal: meritocraciaRowTextil, totalValor: _somaRow(meritocraciaRowTextil), cor: COR.texto }] : []),
                                       ...(bonusRowTextil ? [{ key: 'bonus', label: `Bônus${_ppC.bonusMes ? ` — ${_ppC.bonusMes}, ${_ppC.bonusPct || '0'}%` : ''}`, valoresMensal: bonusRowTextil, totalValor: _somaRow(bonusRowTextil), cor: COR.texto }] : []),
                                       {
                                         key: 'totalHcEx', label: 'Total — HC Existente',
