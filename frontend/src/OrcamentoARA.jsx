@@ -3982,6 +3982,8 @@ export default function OrcamentoARA({ usuario }) {
   // que o backend aplique apenas o diff de premissasPessoal, sem sobrescrever
   // edições simultâneas dos gestores de CC em custos.linhas.
   const custosBaseUnidadesRef = useRef({});
+  const premissasPendentesRef = useRef({});
+  const premissasSaveTimersRef = useRef({});
   const [aguardandoLiberacaoPorUnidade, setAguardandoLiberacaoPorUnidade] = useState({});
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
@@ -4158,24 +4160,33 @@ export default function OrcamentoARA({ usuario }) {
   // atualizar Resorts (beach+villa) e Agrícola (tds+fds) em bloco.
   async function updatePremissasPessoalUnidade(unidadeIds, campo, valor) {
     const ids = Array.isArray(unidadeIds) ? unidadeIds : [unidadeIds];
-    // Lê `prev` dentro do functional updater: React garante que `prev` é sempre
-    // o estado mais recente da fila de atualizações, mesmo que outro campo tenha
-    // sido alterado antes do próximo re-render — elimina a race condition.
-    let novosDadosPorUid = {};
+    // Atualiza o estado da UI imediatamente (functional updater garante
+    // leitura do estado mais recente mesmo com múltiplas chamadas rápidas).
     setStatusUnidades(prev => {
       const next = { ...prev };
       ids.forEach(uid => {
         const u = prev[uid] || {};
-        novosDadosPorUid[uid] = { ...u, custos: { ...u.custos, premissasPessoal: { ...(u.custos?.premissasPessoal || {}), [campo]: valor } } };
-        next[uid] = novosDadosPorUid[uid];
+        const novoDados = { ...u, custos: { ...u.custos, premissasPessoal: { ...(u.custos?.premissasPessoal || {}), [campo]: valor } } };
+        next[uid] = novoDados;
+        // Guarda o dado mais recente para o timer de save (evita race
+        // condition: cada keystroke cancelava o timer e reagendava, mas
+        // três chamadas simultâneas à API podem chegar fora de ordem e
+        // a segunda sobreescrever a terceira no banco).
+        premissasPendentesRef.current[uid] = novoDados;
       });
       return next;
     });
-    for (const uid of ids) {
-      try {
-        await putOrcamento(uid, novosDadosPorUid[uid], undefined, custosBaseUnidadesRef.current[uid]);
-      } catch (_) {}
-    }
+    // Debounce o PUT — só persiste após 800ms sem nova alteração.
+    ids.forEach(uid => {
+      clearTimeout(premissasSaveTimersRef.current[uid]);
+      premissasSaveTimersRef.current[uid] = setTimeout(async () => {
+        const d = premissasPendentesRef.current[uid];
+        if (!d) return;
+        try {
+          await putOrcamento(uid, d, undefined, custosBaseUnidadesRef.current[uid]);
+        } catch (_) {}
+      }, 800);
+    });
   }
   // Atalho para Corporativo (retrocompatibilidade com call sites já existentes)
   function updatePremissasPessoalCorporativo(campo, valor) {
