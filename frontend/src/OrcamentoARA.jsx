@@ -1691,6 +1691,7 @@ const TIPOS_PREMISSA = [
   { id: 'qtd_valor', nome: 'Quantidade × Valor unit.' },
   { id: 'rateio', nome: 'Base × % Receita Bruta' },
   { id: 'rateio_hospedagem', nome: 'Base × % Receita Hospedagem' },
+  { id: 'rateio_aeb', nome: 'Base × % Receita A&B' },
   { id: 'reajuste_inflacao', nome: 'Reajuste Inflação (IPCA)' },
   { id: 'custo_por_kg', nome: 'Custo/Despesa por kg' },
   // Custo em Moeda (2026-09-07, pedido: "custo de matéria prima Fio da
@@ -1862,7 +1863,7 @@ function ipcaMensalDe(ipcaAnualPct) {
 // comparação de versões), o cálculo degrada sem quebrar: reajuste_inflacao
 // cai pro valor-base sem reajuste (equivalente a IPCA 0%) e custo_por_kg
 // cai pra zero (sem volume, não tem como multiplicar).
-function valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes) {
+function valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes) {
   if (!sublinha) return 0;
   if (sublinha.premissaTipo === 'qtd_valor') {
     return parseNum(sublinha.quantidades?.[m]) * parseNum(sublinha.valoresUnit?.[m]);
@@ -1878,6 +1879,11 @@ function valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaA
   if (sublinha.premissaTipo === 'rateio_hospedagem') {
     const pct = parseNum(sublinha.percentuais?.[m]) / 100;
     const base = receitaHospedagemMes?.[m] || 0;
+    return base * pct;
+  }
+  if (sublinha.premissaTipo === 'rateio_aeb') {
+    const pct = parseNum(sublinha.percentuais?.[m]) / 100;
+    const base = receitaAebMes?.[m] || 0;
     return base * pct;
   }
   if (sublinha.premissaTipo === 'reajuste_inflacao') {
@@ -1906,13 +1912,13 @@ function valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaA
 // resto do código (computeDRE, runAuditoria, exportarExcel...) continua
 // chamando esta função exatamente como sempre chamou, sem precisar saber
 // que agora pode ter mais de uma linha por trás.
-function valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes) {
+function valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes) {
   if (!contaRaw) return 0;
   const conta = normalizarConta(contaRaw);
-  return conta.sublinhas.reduce((acc, sub) => acc + valorSublinhaMes(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes), 0);
+  return conta.sublinhas.reduce((acc, sub) => acc + valorSublinhaMes(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes), 0);
 }
-function valorLinhaAnual(contaRaw, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes) {
-  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes), 0);
+function valorLinhaAnual(contaRaw, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes) {
+  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes), 0);
 }
 // Valor de CAIXA (pagamento) de uma sublinha num mês — usado só pelo Fluxo
 // de Caixa (Indireto e Direto), nunca pela DRE (que continua 100% em
@@ -1923,17 +1929,17 @@ function valorLinhaAnual(contaRaw, receitaBrutaMes, receitaLiquidaMes, ipcaAnual
 // digitado à parte em linha.valoresPagamento (mês a mês, independente do
 // valor de competência — o total pago no ano pode até ser diferente do
 // total incorrido, ex.: parte fica a pagar em janeiro do ano seguinte).
-function valorSublinhaMesCaixa(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes) {
+function valorSublinhaMesCaixa(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes) {
   if (!sublinha) return 0;
   if (sublinha.pagamentoDiferente) return parseNum(sublinha.valoresPagamento?.[m]);
-  return valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes);
+  return valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
 }
 // Idem valorLinhaMes acima, mas em caixa — soma valorSublinhaMesCaixa de
 // todas as sublinhas da conta.
-function valorLinhaMesCaixa(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes) {
+function valorLinhaMesCaixa(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes) {
   if (!contaRaw) return 0;
   const conta = normalizarConta(contaRaw);
-  return conta.sublinhas.reduce((acc, sub) => acc + valorSublinhaMesCaixa(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes), 0);
+  return conta.sublinhas.reduce((acc, sub) => acc + valorSublinhaMesCaixa(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes), 0);
 }
 // Checagem de coerência: premissa qtd_valor/rateio com apenas um dos dois campos preenchido em algum mês.
 function linhaIncoerente(linha) {
@@ -2519,12 +2525,13 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // — ver AbaCustos), então soma sempre 0 ali, sem risco de duplicar a
   // folha calculada.
   const receitaHospedagemMes = linhasReceitaMes?.hospedagem || null;
+  const receitaAebMes = linhasReceitaMes?.aeb || null;
 
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
@@ -2534,7 +2541,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
   const ebitda = lucroBruto - despesasSemDA;
   const margemEbitda = receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0;
@@ -2544,7 +2551,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0);
 
   const resultadoFinanceiro = somaMes(data.resultado.receitaFinanceira) - somaMes(data.resultado.despesaFinanceira);
@@ -2569,6 +2576,8 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     // Receita de Hospedagem por mês (Resorts) — base da premissa
     // rateio_hospedagem. null para unidades sem linha de hospedagem.
     receitaHospedagemMes,
+    // Receita A&B por mês (Resorts) — base da premissa rateio_aeb.
+    receitaAebMes,
     totalGeral: lucroLiquido,
   };
 }
@@ -8188,8 +8197,8 @@ function LinhaCalculadaMensal({ label, valoresMensal, formatarCelula, formatarTo
 // LinhaConta, pra dar suporte a mais de uma sublinha por conta analítica
 // (ver normalizarConta/novaContaVazia) sem duplicar toda essa lógica —
 // LinhaConta (abaixo) chama isto uma vez por sublinha.
-function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTotalKgMes, receitaBrutaMes, receitaLiquidaMes, cambios, receitaHospedagemMes }) {
-  const valoresMensaisCalc = MESES.map((_, m) => valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes));
+function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTotalKgMes, receitaBrutaMes, receitaLiquidaMes, cambios, receitaHospedagemMes, receitaAebMes }) {
+  const valoresMensaisCalc = MESES.map((_, m) => valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes));
   // Custo em Moeda (pedido de 2026-09-07: "custo de matéria prima Fio da
   // têxtil" indexado ao câmbio) — em vez de threadear `cambios` pelas ~15
   // funções do motor de cálculo (valorSublinhaMes/valorLinhaMes/
@@ -8211,10 +8220,12 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
   }, [sublinha.premissaTipo, sublinha.moeda, cambios?.usd, cambios?.eur, cambios?.gbp, JSON.stringify(sublinha.valoresMoeda)]);
   const incoerente = linhaIncoerente(sublinha);
   // "Custo/Despesa por kg" só Têxtil/Agrícola; "Base × % Receita Hospedagem"
-  // só Resorts — ver UNIDADES_COM_CUSTO_POR_KG / UNIDADES_COM_RATEIO_HOSPEDAGEM.
+  // e "Base × % Receita A&B" só Resorts — ver UNIDADES_COM_CUSTO_POR_KG /
+  // UNIDADES_COM_RATEIO_HOSPEDAGEM.
   const opcoesPremissa = TIPOS_PREMISSA.filter(t =>
     (t.id !== 'custo_por_kg' || UNIDADES_COM_CUSTO_POR_KG.includes(unidadeId)) &&
-    (t.id !== 'rateio_hospedagem' || UNIDADES_COM_RATEIO_HOSPEDAGEM.includes(unidadeId))
+    (t.id !== 'rateio_hospedagem' || UNIDADES_COM_RATEIO_HOSPEDAGEM.includes(unidadeId)) &&
+    (t.id !== 'rateio_aeb' || UNIDADES_COM_RATEIO_HOSPEDAGEM.includes(unidadeId))
   );
   // Linha de referência não-editável do IPCA acumulado mês a mês, a partir
   // da premissa macro do FP&A Corporativo (ipcaAnualPct) — pedido de
@@ -8358,6 +8369,16 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
                 <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
               </>
             )}
+            {sublinha.premissaTipo === 'rateio_aeb' && (
+              <>
+                <LinhaCalculadaMensal
+                  label="Receita A&B (R$) — da seção Receita"
+                  valoresMensal={receitaAebMes || Array(12).fill(0)}
+                />
+                <GradeMensalLinha label="Percentual (%)" valores={sublinha.percentuais} onChange={(mi, v) => onUpdate('percentuais', atualizarArray(sublinha.percentuais, mi, v))} />
+                <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
+              </>
+            )}
             {sublinha.premissaTipo === 'custo_moeda' && (
               <>
                 <GradeMensalLinha
@@ -8394,6 +8415,11 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
       {sublinha.premissaTipo === 'rateio_hospedagem' && (
         <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
           Receita Hospedagem vem da aba Receita (linha Hospedagem). O gestor digita o percentual mensal; o valor calculado é Receita Hospedagem × %.
+        </p>
+      )}
+      {sublinha.premissaTipo === 'rateio_aeb' && (
+        <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
+          Receita A&B vem da aba Receita (linha Alimentação e Bebidas). O gestor digita o percentual mensal; o valor calculado é Receita A&B × %.
         </p>
       )}
       {sublinha.premissaTipo === 'custo_moeda' && (
@@ -8441,7 +8467,7 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
 // CONTA inteira (não mais uma linha só) — normalizarConta aceita os dois
 // formatos, então dado já salvo antes desta mudança continua funcionando
 // sem migração.
-function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onUpdateSublinha, onAddSublinha, onRemoveSublinha, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, ocultarAddSublinha, unidadeId, ipcaAnualPct, volumeTotalKgMes, cambios, linhasCalculadas, observacao, receitaHospedagemMes }) {
+function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onUpdateSublinha, onAddSublinha, onRemoveSublinha, total, receitaBrutaMes, receitaLiquidaMes, ocultarClassificacao, ocultarAddSublinha, unidadeId, ipcaAnualPct, volumeTotalKgMes, cambios, linhasCalculadas, observacao, receitaHospedagemMes, receitaAebMes }) {
   const contaNorm = normalizarConta(linha);
   const incoerente = contaNorm.sublinhas.some(s => linhaIncoerente(s));
   const multiplas = contaNorm.sublinhas.length > 1;
@@ -8516,7 +8542,7 @@ function LinhaConta({ conta, linha, aberta, onToggle, onUpdateClassificacao, onU
                 onUpdate={(campo, valor) => onUpdateSublinha(sub.id, campo, valor)}
                 unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={volumeTotalKgMes}
                 receitaBrutaMes={receitaBrutaMes} receitaLiquidaMes={receitaLiquidaMes}
-                cambios={cambios} receitaHospedagemMes={receitaHospedagemMes}
+                cambios={cambios} receitaHospedagemMes={receitaHospedagemMes} receitaAebMes={receitaAebMes}
               />
             </div>
           ))}
@@ -9962,7 +9988,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                     receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                                     ocultarClassificacao ocultarAddSublinha
                                     unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
-                                    receitaHospedagemMes={dre.receitaHospedagemMes}
+                                    receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
                                   />
                                   {hcExistenteMesCorp && (
                                     <div style={{ marginTop: 10 }}>
@@ -10050,7 +10076,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                               ocultarClassificacao
                               unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
-                              receitaHospedagemMes={dre.receitaHospedagemMes}
+                              receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
                               linhasCalculadas={bonusPjRowCorp ? [
                                 {
                                   key: 'bonusPj',
@@ -10086,7 +10112,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                               ocultarClassificacao
                               unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
-                              receitaHospedagemMes={dre.receitaHospedagemMes}
+                              receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
                             />
                           </div>
                         ))}
@@ -10261,7 +10287,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               total={totalConta(c.codigo)}
                               receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                               unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
-                              receitaHospedagemMes={dre.receitaHospedagemMes}
+                              receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
                             />
                           </div>
                         ))}
@@ -10291,7 +10317,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                               ocultarClassificacao ocultarAddSublinha
                               unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
-                              receitaHospedagemMes={dre.receitaHospedagemMes}
+                              receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
                             />
                           </div>
                         ))}
@@ -10333,7 +10359,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                         receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                         ocultarClassificacao={unidadeId === 'corporativo'}
                         unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
-                        receitaHospedagemMes={dre.receitaHospedagemMes}
+                        receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
                         linhasCalculadas={isCorp10Calc ? [
                           {
                             key: 'licencaNovoHc',
@@ -10390,7 +10416,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                   receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
                   ocultarClassificacao={unidadeId === 'corporativo'}
                   unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
-                  receitaHospedagemMes={dre.receitaHospedagemMes}
+                  receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
                 />
               ))}
             </div>
