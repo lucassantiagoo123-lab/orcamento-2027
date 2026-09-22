@@ -4643,6 +4643,21 @@ export default function OrcamentoARA({ usuario }) {
           });
         });
       });
+      // Novo Headcount: adiciona uma linha por CC × mês com o custo total
+      // calculado por folhaAnualPorCC (salário + encargos + 13º + benefícios).
+      // Esses valores entram no DRE mas não existem em custos.linhas — sem
+      // este bloco ficam ausentes da aba Custos_Despesas do export.
+      refU.ccs.forEach(cc => {
+        const novos = (d.custos.funcionarios || []).filter(f => f.ccCodigo === cc.codigo && f.origem === 'novo');
+        if (novos.length === 0) return;
+        const folha = folhaAnualPorCC(d, cc.codigo);
+        const justificativa = novos.map(f => f.justificativa || f.cargo || '').filter(Boolean).join('; ');
+        MESES.forEach((m, mi) => {
+          const v = folha.mensal[mi]?.total || 0;
+          if (v === 0) return;
+          linhasCustosExport.push([u.nome, cc.nome, cc.tipo === 'producao' ? 'Custo' : 'Despesa', 'Pessoal', 'Novo Headcount', 'Novo Headcount (calculado)', 'Calculado', m, v, justificativa, d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
+        });
+      });
     });
     const wsC = XLSX.utils.aoa_to_sheet(linhasCustosExport);
     wsC['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 10 }, { wch: 26 }, { wch: 10 }, { wch: 30 }, { wch: 18 }, { wch: 8 }, { wch: 14 }, { wch: 40 }, { wch: 14 }, { wch: 20 }, { wch: 16 }];
