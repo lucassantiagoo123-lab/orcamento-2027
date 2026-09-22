@@ -9936,8 +9936,8 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                         linhas={[]} onChangeCelula={() => {}}
                                         linhasCalculadas={[
                                           { key: 'hcBase', label: 'Headcount Existente (DP)', valoresMensal: hcExistenteMesCorp, totalValor: _somaRow(hcExistenteMesCorp), cor: COR.texto },
-                                          ...(dissidioRowCorp ? [{ key: 'dissidio', label: `Dissídio${_ppC.dissidioMes ? ` — a partir de ${_ppC.dissidioMes}, ${_ppC.dissidioPct || '0'}%` : ''}`, valoresMensal: dissidioRowCorp, totalValor: _somaRow(dissidioRowCorp), cor: COR.texto }] : []),
                                           ...(meritocraciaRowCorp ? [{ key: 'meritocracia', label: `Meritocracia${_ppC.meritocraciaMes ? ` — a partir de ${_ppC.meritocraciaMes}, ${_ppC.meritocraciaPct || '0'}%` : ''}`, valoresMensal: meritocraciaRowCorp, totalValor: _somaRow(meritocraciaRowCorp), cor: COR.texto }] : []),
+                                          ...(dissidioRowCorp ? [{ key: 'dissidio', label: `Dissídio${_ppC.dissidioMes ? ` — a partir de ${_ppC.dissidioMes}, ${_ppC.dissidioPct || '0'}%` : ''}`, valoresMensal: dissidioRowCorp, totalValor: _somaRow(dissidioRowCorp), cor: COR.texto }] : []),
                                           ...(bonusRowCorp ? [{ key: 'bonus', label: `Bônus${_ppC.bonusMes ? ` — ${_ppC.bonusMes}, ${_ppC.bonusPct || '0'}%` : ''}`, valoresMensal: bonusRowCorp, totalValor: _somaRow(bonusRowCorp), cor: COR.texto }] : []),
                                           {
                                             key: 'totalHcEx', label: 'Total — HC Existente',
