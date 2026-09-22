@@ -2525,7 +2525,9 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // — ver AbaCustos), então soma sempre 0 ali, sem risco de duplicar a
   // folha calculada.
   const receitaHospedagemMes = linhasReceitaMes?.hospedagem || null;
-  const receitaAebMes = linhasReceitaMes?.aeb || null;
+  const receitaAebMes = linhasReceitaMes
+    ? MESES.map((_, m) => (linhasReceitaMes.aeb?.[m] || 0) + (linhasReceitaMes.cafePensao?.[m] || 0))
+    : null;
 
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
@@ -2576,7 +2578,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     // Receita de Hospedagem por mês (Resorts) — base da premissa
     // rateio_hospedagem. null para unidades sem linha de hospedagem.
     receitaHospedagemMes,
-    // Receita A&B por mês (Resorts) — base da premissa rateio_aeb.
+    // Receita A&B + Café e Pensão por mês (Resorts) — base da premissa rateio_aeb.
     receitaAebMes,
     totalGeral: lucroLiquido,
   };
@@ -8372,7 +8374,7 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
             {sublinha.premissaTipo === 'rateio_aeb' && (
               <>
                 <LinhaCalculadaMensal
-                  label="Receita A&B (R$) — da seção Receita"
+                  label="Receita A&B + Café e Pensão (R$) — da seção Receita"
                   valoresMensal={receitaAebMes || Array(12).fill(0)}
                 />
                 <GradeMensalLinha label="Percentual (%)" valores={sublinha.percentuais} onChange={(mi, v) => onUpdate('percentuais', atualizarArray(sublinha.percentuais, mi, v))} />
@@ -8419,7 +8421,7 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
       )}
       {sublinha.premissaTipo === 'rateio_aeb' && (
         <p style={{ fontSize: 10, color: '#8A8F96', marginTop: -4, marginBottom: 8 }}>
-          Receita A&B vem da aba Receita (linha Alimentação e Bebidas). O gestor digita o percentual mensal; o valor calculado é Receita A&B × %.
+          Receita A&B + Café e Pensão vem da aba Receita (soma das linhas Alimentação e Bebidas e Café e Pensão). O gestor digita o percentual mensal; o valor calculado é (A&B + Café e Pensão) × %.
         </p>
       )}
       {sublinha.premissaTipo === 'custo_moeda' && (
