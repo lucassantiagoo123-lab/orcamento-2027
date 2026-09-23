@@ -78,6 +78,34 @@ export async function notificarEnvioParaFpa({ unidadeNome, autorNome, comentario
   });
 }
 
+const escaparHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/** Aviso de possível perda de dados (ver db/detectarPerdas.js) — best-effort,
+ * mesma regra de notificarEnvioParaFpa: quem chama não espera. */
+export async function notificarAlertaPerda({ unidadeNome, usuarioNome, alertas }) {
+  const destinatarios = await listarEmailsAdminFpa();
+  const link = config.frontendOrigin;
+  await enviarEmail({
+    to: destinatarios,
+    subject: `[Orçamento 2027] ⚠ Possível perda de dados — ${unidadeNome}`,
+    text: [
+      `Um salvamento de ${usuarioNome || '—'} em ${unidadeNome} removeu ou reduziu dados de um jeito incomum:`,
+      '',
+      ...alertas.map((a) => `- ${a.descricao}`),
+      '',
+      'Confira em Administração → Alertas de possível perda de dados. Se for perda real, restaure pelo Histórico de CapEx / Recuperação de Dados.',
+      '',
+      `Abrir a plataforma: ${link}`,
+    ].join('\n'),
+    html: `
+      <p>Um salvamento de <strong>${escaparHtml(usuarioNome || '—')}</strong> em <strong>${escaparHtml(unidadeNome)}</strong> removeu ou reduziu dados de um jeito incomum:</p>
+      <ul>${alertas.map((a) => `<li>${escaparHtml(a.descricao)}</li>`).join('')}</ul>
+      <p>Confira em <strong>Administração → Alertas de possível perda de dados</strong>. Se for perda real, restaure pelo Histórico de CapEx / Recuperação de Dados.</p>
+      <p><a href="${link}">Abrir a plataforma</a></p>
+    `,
+  });
+}
+
 /** Manda login + senha atual pro próprio usuário — pedido de 2026-08-23,
  * disparado pelo botão "Enviar acesso por e-mail" no Painel de
  * Administração (routes/admin.js, POST /usuarios/:id/enviar-acesso). Ao

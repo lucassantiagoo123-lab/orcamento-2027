@@ -5,6 +5,7 @@ import { loginSenha } from './api/senha.js';
 import { ApiError, definirCallbackSessaoExpirada, definirCallbackManutencaoAtiva, obterUltimaAtividade } from './api/client.js';
 import OrcamentoARA from './OrcamentoARA.jsx';
 import AdminPanel from './AdminPanel.jsx';
+import { contarAlertasPendentes } from './api/admin.js';
 
 const COR_AZUL = '#0C4391';
 const COR_LARANJA = '#FFA707';
@@ -78,6 +79,15 @@ export default function AppGate() {
   const [statusBackend, setStatusBackend] = useState(null); // { ssoConfigurado, sessionTtlMinutes } — loginDevDisponivel também vem do /health, mas não é mais usado aqui (ver nota abaixo de LoginSenha)
   const [sessaoExpirada, setSessaoExpirada] = useState(false);
   const [manutencaoAtiva, setManutencaoAtiva] = useState(false);
+  const [alertasPendentes, setAlertasPendentes] = useState(0);
+
+  useEffect(() => {
+    if (usuario?.perfil !== 'admin_fpa' || tela !== 'orcamento') return;
+    const atualizar = () => contarAlertasPendentes().then(r => setAlertasPendentes(r.pendentes)).catch(() => {});
+    atualizar();
+    const t = setInterval(atualizar, 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [usuario?.perfil, tela]);
 
   useEffect(() => {
     getMe()
@@ -195,6 +205,11 @@ export default function AppGate() {
               style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: '1px solid #3E63A8', background: 'transparent', color: '#fff', cursor: 'pointer' }}
             >
               ⚙ Administração
+              {alertasPendentes > 0 && (
+                <span title="Alertas de possível perda de dados" style={{ marginLeft: 6, background: '#C00000', color: '#fff', borderRadius: 9, padding: '1px 7px', fontSize: 10.5 }}>
+                  ⚠ {alertasPendentes}
+                </span>
+              )}
             </button>
           </div>
         )}

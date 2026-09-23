@@ -10,7 +10,9 @@ import { mesclarCustos, mesclarCapex } from '../db/mesclarCustos.js';
 import { mesclarDados, iguais } from '../db/mesclarDados.js';
 import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade, ehSnapshotConsolidado } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
-import { notificarEnvioParaFpa } from '../email/notificacoes.js';
+import { notificarEnvioParaFpa, notificarAlertaPerda } from '../email/notificacoes.js';
+import { detectarPerdas } from '../db/detectarPerdas.js';
+import { registrarAlertas } from '../db/alertasDados.js';
 import { listarPremissasMacro } from '../db/premissasMacro.js';
 
 // IPCA anual (%) da premissa macro do FP&A Corporativo — usado pelo tipo de
@@ -44,6 +46,25 @@ const NOME_UNIDADE = {
   resorts: 'ARA Resorts — Consolidado', samoa_beach: 'ARA Resorts — Samoa Beach', samoa_villa: 'ARA Resorts — Samoa Villa',
   corporativo: 'Corporativo', ei: 'ARA EI', energia: 'Escritório de Investimentos',
 };
+
+// Depois da resposta — best-effort, nunca derruba nem atrasa o save.
+function verificarPerdasAposSalvar(req, antes, depois) {
+  let alertas;
+  try {
+    alertas = detectarPerdas(antes, depois, req.usuario, req.params.unidadeId);
+  } catch (err) {
+    console.error('[alertas] falha ao analisar save:', err.message);
+    return;
+  }
+  if (!alertas.length) return;
+  registrarAlertas({ unidadeId: req.params.unidadeId, usuarioId: req.usuario.id, alertas })
+    .then(({ enviarEmail }) => enviarEmail && notificarAlertaPerda({
+      unidadeNome: NOME_UNIDADE[req.params.unidadeId] || req.params.unidadeId,
+      usuarioNome: req.usuario.nome,
+      alertas,
+    }))
+    .catch((err) => console.error('[alertas] falha ao registrar:', err.message));
+}
 
 // ARA Agrícola e ARA Resorts habilitadas em 2026-08-09, usando um CC
 // placeholder (ver calc/constantesAgricolaResorts.js) até a planilha real.
@@ -241,7 +262,9 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoE
         usuarioId: req.usuario.id,
         motivo: motivo || null,
       });
-      return res.json({ orcamento: atualizado });
+      res.json({ orcamento: atualizado });
+      verificarPerdasAposSalvar(req, atual.dados, atualizado.dados);
+      return;
     }
 
     // Merge de edições simultâneas (2026-09-10, ver db/mesclarCustos.js) —
@@ -283,6 +306,7 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoE
     // próxima base de comparação com isso (ver salvar()/salvarRascunhoAgora
     // no .jsx).
     res.json({ orcamento: atualizado });
+    verificarPerdasAposSalvar(req, atual.dados, atualizado.dados);
   } catch (err) { next(err); }
 });
 

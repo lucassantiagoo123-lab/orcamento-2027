@@ -35,3 +35,14 @@ export const migrarPlanoContasResorts = (aplicar = false) =>
 // Snapshots / recuperação de dados (2026-09-21).
 export const listarSnapshots = (unidadeId) => apiFetch(`/api/admin/snapshots/${unidadeId}`);
 export const restaurarSnapshot = (logId) => apiFetch(`/api/admin/snapshots/${logId}/restaurar`, { method: 'POST' });
+
+// Alertas de possível perda de dados (2026-09-23).
+export const listarAlertas = (todos = false) => apiFetch(`/api/admin/alertas${todos ? '?todos=true' : ''}`);
+export const contarAlertasPendentes = () => apiFetch('/api/admin/alertas/contagem');
+export const resolverAlerta = (id) => apiFetch(`/api/admin/alertas/${id}/resolver`, { method: 'POST' });
+
+// Histórico de CapEx por projeto (2026-09-23).
+export const listarHistoricoCapex = (unidadeId) => apiFetch(`/api/admin/capex-historico/${unidadeId}`);
+export const detalharHistoricoCapex = (unidadeId, logId) => apiFetch(`/api/admin/capex-historico/${unidadeId}/${logId}`);
+export const restaurarProjetosCapex = (unidadeId, logId, projetoIds, lado) =>
+  apiFetch(`/api/admin/capex-historico/${unidadeId}/${logId}/restaurar`, { method: 'POST', body: { projetoIds, lado } });

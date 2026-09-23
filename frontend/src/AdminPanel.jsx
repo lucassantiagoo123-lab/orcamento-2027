@@ -7,6 +7,7 @@ import {
   listarUsuarios, criarUsuario, atualizarUsuario, vincularUnidade, desvincularUnidade,
   vincularCc, desvincularCc, removerTodosCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
   definirAcessoUsuario, listarSnapshots, restaurarSnapshot,
+  listarAlertas, resolverAlerta, listarHistoricoCapex, detalharHistoricoCapex, restaurarProjetosCapex,
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
@@ -86,8 +87,10 @@ export default function AdminPanel({ voltar }) {
       {erro && <div style={{ background: '#FDECEC', border: '1px solid #C00000', borderRadius: 6, padding: 10, marginBottom: 16, fontSize: 12.5 }}>{erro}</div>}
       {carregando ? <p>Carregando…</p> : (
         <>
+          <SecaoAlertas />
           <SecaoUsuarios usuarios={usuarios} onMudou={carregar} />
           <SecaoConcessoes usuarios={usuarios} concessoes={concessoes} onMudou={carregar} />
+          <SecaoHistoricoCapex />
           <SecaoRecuperacaoDados />
         </>
       )}
@@ -691,7 +694,8 @@ function SecaoRecuperacaoDados() {
       <h2 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>Recuperação de Dados</h2>
       <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
         Lista os últimos 100 snapshots por unidade. Use para restaurar uma seção ao estado anterior após uma edição acidental.
-        {' '}<strong style={{ color: '#C00000' }}>A restauração substitui os dados atuais dessa seção — confirme antes de prosseguir.</strong>
+        {' '}<strong style={{ color: '#C00000' }}>A restauração substitui a seção inteira — desfaz também o que outros usuários salvaram depois.</strong>
+        {' '}Para CapEx, prefira o Histórico de CapEx por projeto acima. Toda restauração fica registrada no histórico.
       </p>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
@@ -754,6 +758,321 @@ function SecaoRecuperacaoDados() {
               </table>
             </div>
           )
+      )}
+    </div>
+  );
+}
+
+const reais = (v) => `R$ ${Math.round(Number(v) || 0).toLocaleString('pt-BR')}`;
+const dataHora = (d) => new Date(d).toLocaleString('pt-BR');
+
+// Alertas de possível perda de dados (2026-09-23) — gerados no backend a cada
+// save suspeito (ver backend/src/db/detectarPerdas.js).
+function SecaoAlertas() {
+  const [alertas, setAlertas] = useState(null);
+  const [mostrarTodos, setMostrarTodos] = useState(false);
+  const [erro, setErro] = useState(null);
+  const [resolvendo, setResolvendo] = useState(null);
+
+  async function carregar(todos) {
+    setErro(null);
+    try {
+      const r = await listarAlertas(todos);
+      setAlertas(r.alertas);
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : 'Falha ao carregar alertas.');
+    }
+  }
+
+  useEffect(() => { carregar(mostrarTodos); }, [mostrarTodos]);
+
+  async function resolver(id) {
+    setResolvendo(id);
+    try {
+      await resolverAlerta(id);
+      await carregar(mostrarTodos);
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : 'Falha ao marcar como verificado.');
+    }
+    setResolvendo(null);
+  }
+
+  const pendentes = (alertas || []).filter((a) => !a.resolvido_em).length;
+
+  return (
+    <div style={{ marginBottom: 28, border: `1px solid ${pendentes ? '#C00000' : COR.borda}`, borderRadius: 8, padding: 14, background: pendentes ? '#FFF6F6' : '#fff' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <h2 style={{ fontSize: 15, color: pendentes ? '#C00000' : COR.azul, margin: 0 }}>
+          ⚠ Alertas de possível perda de dados{pendentes ? ` — ${pendentes} pendente${pendentes > 1 ? 's' : ''}` : ''}
+        </h2>
+        <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+          <input type="checkbox" checked={mostrarTodos} onChange={(e) => setMostrarTodos(e.target.checked)} />
+          Mostrar também os já verificados
+        </label>
+      </div>
+      <p style={{ fontSize: 12, color: '#7A8088', margin: '6px 0 12px' }}>
+        Gerados automaticamente quando um salvamento remove ou reduz dados de um jeito incomum (ex.: um gestor alterando CapEx de um CC que não é dele,
+        ou vários projetos apagados de uma vez). Confira no <strong>Histórico de CapEx por projeto</strong> abaixo e, se for perda real, restaure.
+      </p>
+      {erro && <p style={{ fontSize: 12, color: '#C00000' }}>{erro}</p>}
+      {alertas === null ? <p style={{ fontSize: 12 }}>Carregando…</p> : alertas.length === 0 ? (
+        <p style={{ fontSize: 12, color: '#2E7D32' }}>✓ Nenhum alerta{mostrarTodos ? '' : ' pendente'}.</p>
+      ) : (
+        <div style={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={th}>Data/hora</th>
+                <th style={th}>Unidade</th>
+                <th style={th}>Quem salvou</th>
+                <th style={th}>O que aconteceu</th>
+                <th style={th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {alertas.map((a) => (
+                <tr key={a.id} style={{ opacity: a.resolvido_em ? 0.55 : 1 }}>
+                  <td style={{ ...td, whiteSpace: 'nowrap' }}>{dataHora(a.criado_em)}</td>
+                  <td style={td}>{UNIDADE_LABEL[a.unidade_id] || a.unidade_id}</td>
+                  <td style={td}>{a.usuario_nome || '—'}</td>
+                  <td style={td}>
+                    <strong>{CAMPO_LABEL[a.secao] || a.secao}:</strong> {a.descricao}
+                  </td>
+                  <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                    {a.resolvido_em ? (
+                      <span style={{ fontSize: 11, color: '#7A8088' }}>Verificado por {a.resolvido_por_nome || '—'}</span>
+                    ) : (
+                      <button onClick={() => resolver(a.id)} disabled={resolvendo === a.id} style={botaoSecundario}>
+                        {resolvendo === a.id ? '…' : 'Marcar como verificado'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const SITUACAO_PROJETO = {
+  igual: { texto: 'Igual a hoje', cor: '#2E7D32', fundo: '#E8F5E9' },
+  diferente: { texto: 'Diferente de hoje', cor: '#8A5A00', fundo: '#FFF4DC' },
+  ausente_hoje: { texto: 'Não existe hoje', cor: '#C00000', fundo: '#FDECEC' },
+};
+
+// Histórico de CapEx por projeto (2026-09-23) — cada linha é um salvamento
+// que mexeu no CapEx; abre os projetos daquele momento e restaura só os
+// escolhidos (sem desfazer o que outros gestores salvaram depois).
+function SecaoHistoricoCapex() {
+  const [unidadeSel, setUnidadeSel] = useState('corporativo');
+  const [historico, setHistorico] = useState(null);
+  const [carregando, setCarregando] = useState(false);
+  const [detalhe, setDetalhe] = useState(null);
+  const [carregandoDetalhe, setCarregandoDetalhe] = useState(null);
+  const [lado, setLado] = useState('anterior');
+  const [marcados, setMarcados] = useState(new Set());
+  const [restaurando, setRestaurando] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  async function carregar() {
+    setCarregando(true);
+    setMsg(null);
+    setDetalhe(null);
+    try {
+      const r = await listarHistoricoCapex(unidadeSel);
+      setHistorico(r.historico);
+    } catch (e) {
+      setMsg({ tipo: 'erro', texto: e instanceof ApiError ? e.message : 'Erro ao carregar o histórico.' });
+    }
+    setCarregando(false);
+  }
+
+  async function abrir(logId) {
+    setCarregandoDetalhe(logId);
+    setMsg(null);
+    try {
+      setDetalhe(await detalharHistoricoCapex(unidadeSel, logId));
+      setMarcados(new Set());
+    } catch (e) {
+      setMsg({ tipo: 'erro', texto: e instanceof ApiError ? e.message : 'Erro ao abrir o salvamento.' });
+    }
+    setCarregandoDetalhe(null);
+  }
+
+  const projetos = detalhe ? detalhe[lado] : [];
+  const restauraveis = projetos.filter((p) => p.situacao !== 'igual');
+
+  function alternar(id) {
+    setMarcados((prev) => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return s;
+    });
+  }
+
+  async function restaurar() {
+    const escolhidos = projetos.filter((p) => marcados.has(p.id));
+    if (escolhidos.length === 0) return;
+    const ok = window.confirm(
+      `Restaurar ${escolhidos.length} projeto(s) de CapEx de ${UNIDADE_LABEL[unidadeSel]} para como estavam ` +
+      `${lado === 'anterior' ? 'ANTES' : 'DEPOIS'} do salvamento de ${detalhe.usuario_nome} em ${dataHora(detalhe.criado_em)}?\n\n` +
+      escolhidos.map((p) => `• ${p.nome || 'sem nome'} (${p.ccCodigo || 'sem CC'}): ${p.totalHoje === null ? 'não existe hoje' : reais(p.totalHoje)} → ${reais(p.total)}`).join('\n') +
+      '\n\nSó esses projetos mudam; o resto do CapEx fica como está. A restauração fica registrada no histórico e pode ser desfeita.'
+    );
+    if (!ok) return;
+    setRestaurando(true);
+    setMsg(null);
+    try {
+      await restaurarProjetosCapex(unidadeSel, detalhe.id, escolhidos.map((p) => p.id), lado);
+      setMsg({ tipo: 'ok', texto: `✓ ${escolhidos.length} projeto(s) restaurado(s). Peça aos gestores que recarreguem a página (F5).` });
+      await abrir(detalhe.id);
+    } catch (e) {
+      setMsg({ tipo: 'erro', texto: e instanceof ApiError ? e.message : 'Erro ao restaurar.' });
+    }
+    setRestaurando(false);
+  }
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h2 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>Histórico de CapEx por projeto</h2>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Cada linha é um salvamento que alterou o CapEx. Em vermelho, os que reduziram o total. Abra um salvamento, veja os projetos como estavam
+        antes ou depois dele e restaure <strong>só os projetos escolhidos</strong> — o que outros gestores salvaram depois não é desfeito.
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
+        <select
+          value={unidadeSel}
+          onChange={(e) => { setUnidadeSel(e.target.value); setHistorico(null); setDetalhe(null); setMsg(null); }}
+          style={{ fontSize: 12, padding: '6px 10px', border: `1px solid ${COR.borda}`, borderRadius: 6, fontFamily: 'inherit' }}
+        >
+          {UNIDADES_BACKUP.map((id) => <option key={id} value={id}>{UNIDADE_LABEL[id]}</option>)}
+        </select>
+        <button onClick={carregar} disabled={carregando} style={botaoSecundario}>
+          {carregando ? 'Carregando…' : 'Carregar histórico'}
+        </button>
+      </div>
+
+      {msg && (
+        <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 12, fontSize: 12, background: msg.tipo === 'ok' ? '#E8F5E9' : '#FDECEC', color: msg.tipo === 'ok' ? '#2E7D32' : '#C00000', border: `1px solid ${msg.tipo === 'ok' ? '#A5D6A7' : '#FFCDD2'}` }}>
+          {msg.texto}
+        </div>
+      )}
+
+      {historico !== null && (historico.length === 0 ? (
+        <p style={{ fontSize: 12, color: '#8A8F96' }}>Nenhuma alteração de CapEx registrada para esta unidade.</p>
+      ) : (
+        <div style={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto', border: `1px solid ${COR.borda}`, borderRadius: 6 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={th}>Data/hora</th>
+                <th style={th}>Quem salvou</th>
+                <th style={{ ...th, textAlign: 'right' }}>Projetos</th>
+                <th style={{ ...th, textAlign: 'right' }}>Total antes</th>
+                <th style={{ ...th, textAlign: 'right' }}>Total depois</th>
+                <th style={th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {historico.map((h) => {
+                const caiu = h.depois.total < h.antes.total - 1000;
+                const aberto = detalhe?.id === h.id;
+                return (
+                  <tr key={h.id} style={{ background: aberto ? '#EEF3FB' : caiu ? '#FFF6F6' : undefined }}>
+                    <td style={{ ...td, whiteSpace: 'nowrap' }}>{dataHora(h.criado_em)}</td>
+                    <td style={td}>
+                      {h.usuario_nome}
+                      {h.motivo && <div style={{ fontSize: 10.5, color: '#7A8088' }}>{h.motivo}</div>}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right' }}>{h.antes.projetos} → {h.depois.projetos}</td>
+                    <td style={{ ...td, textAlign: 'right' }}>{reais(h.antes.total)}</td>
+                    <td style={{ ...td, textAlign: 'right', color: caiu ? '#C00000' : COR.texto, fontWeight: caiu ? 700 : 400 }}>{reais(h.depois.total)}</td>
+                    <td style={td}>
+                      <button onClick={() => abrir(h.id)} disabled={carregandoDetalhe === h.id} style={botaoSecundario}>
+                        {carregandoDetalhe === h.id ? '…' : 'Ver projetos'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ))}
+
+      {detalhe && (
+        <div style={{ marginTop: 16, border: `1px solid ${COR.azul}`, borderRadius: 8, padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: COR.azul }}>
+              Salvamento de {detalhe.usuario_nome} — {dataHora(detalhe.criado_em)}
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[['anterior', 'Como estava ANTES'], ['novo', 'Como ficou DEPOIS']].map(([id, rotulo]) => (
+                <button
+                  key={id}
+                  onClick={() => { setLado(id); setMarcados(new Set()); }}
+                  style={{ ...botaoSecundario, background: lado === id ? COR.azul : '#fff', color: lado === id ? '#fff' : COR.azul }}
+                >
+                  {rotulo}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {projetos.length === 0 ? <p style={{ fontSize: 12, color: '#8A8F96' }}>Nenhum projeto neste momento.</p> : (
+            <>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={th}></th>
+                    <th style={th}>Projeto</th>
+                    <th style={th}>CC</th>
+                    <th style={th}>Categoria</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Total neste momento</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Total hoje</th>
+                    <th style={th}>Situação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projetos.map((p) => {
+                    const s = SITUACAO_PROJETO[p.situacao];
+                    return (
+                      <tr key={p.id}>
+                        <td style={td}>
+                          <input type="checkbox" disabled={p.situacao === 'igual'} checked={marcados.has(p.id)} onChange={() => alternar(p.id)} />
+                        </td>
+                        <td style={td}>{p.nome || <em style={{ color: '#8A8F96' }}>sem nome</em>}</td>
+                        <td style={td}>{p.ccCodigo || '—'}</td>
+                        <td style={td}>{p.categoria || '—'}</td>
+                        <td style={{ ...td, textAlign: 'right' }}>{reais(p.total)}</td>
+                        <td style={{ ...td, textAlign: 'right' }}>{p.totalHoje === null ? '—' : reais(p.totalHoje)}</td>
+                        <td style={td}>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, color: s.cor, background: s.fundo }}>{s.texto}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setMarcados(new Set(restauraveis.map((p) => p.id)))}
+                  disabled={restauraveis.length === 0}
+                  style={botaoSecundario}
+                >
+                  Marcar todos os que mudaram ({restauraveis.length})
+                </button>
+                <button onClick={restaurar} disabled={marcados.size === 0 || restaurando} style={{ ...botaoPrimario, opacity: marcados.size === 0 ? 0.5 : 1 }}>
+                  {restaurando ? 'Restaurando…' : `Restaurar selecionados (${marcados.size})`}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   );

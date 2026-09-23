@@ -13,6 +13,12 @@ import { pool } from '../db/pool.js';
 import { definirSenha, buscarUsuarioParaEnvioAcesso, definirAcessoExpiracao } from '../db/usuarios.js';
 import { validarSenha, gerarHashSenha } from '../auth/senha.js';
 import { enviarAcesso } from '../email/notificacoes.js';
+import { buscarOuCriarOrcamento, atualizarDadosComAuditoria } from '../db/orcamentos.js';
+import { listarAlertas, contarAlertasPendentes, resolverAlerta } from '../db/alertasDados.js';
+import { totalProjeto } from '../db/detectarPerdas.js';
+import { iguais } from '../db/mesclarDados.js';
+
+const ANO_ORCAMENTO = 2027;
 
 export const adminRouter = Router();
 adminRouter.use(exigirPerfil('admin_fpa'));
@@ -248,13 +254,132 @@ adminRouter.post('/snapshots/:logId/restaurar', async (req, res, next) => {
     if (!logRows[0]) return res.status(404).json({ erro: 'snapshot_nao_encontrado' });
     const { unidade_id, campo, valor_anterior } = logRows[0];
     if (!valor_anterior) return res.status(400).json({ erro: 'sem_valor_anterior', mensagem: 'Este snapshot não registrou estado anterior.' });
-    const { rows } = await pool.query(`
-      UPDATE orcamentos
-      SET dados = jsonb_set(dados, ARRAY[$1::text], $2::jsonb), atualizado_em = now()
-      WHERE unidade_id = $3 AND ano = 2027
-      RETURNING id, unidade_id
-    `, [campo, valor_anterior, unidade_id]);
-    if (!rows[0]) return res.status(404).json({ erro: 'orcamento_nao_encontrado' });
-    res.json({ ok: true, unidade_id: rows[0].unidade_id, campo });
+    // Via atualizarDadosComAuditoria: a restauração vira uma linha de log
+    // como qualquer save — dá pra ver quem restaurou e desfazer.
+    const atual = await buscarOuCriarOrcamento(unidade_id, ANO_ORCAMENTO);
+    await atualizarDadosComAuditoria({
+      orcamentoAntes: atual,
+      dadosNovos: { ...atual.dados, [campo]: JSON.parse(valor_anterior) },
+      usuarioId: req.usuario.id,
+      motivo: `Restauração da seção "${campo}" ao estado anterior do log #${logId}`,
+    });
+    res.json({ ok: true, unidade_id, campo });
+  } catch (err) { next(err); }
+});
+
+// --- Alertas de possível perda de dados (ver db/detectarPerdas.js) ---
+
+adminRouter.get('/alertas', async (req, res, next) => {
+  try {
+    res.json({ alertas: await listarAlertas({ pendentes: req.query.todos !== 'true' }) });
+  } catch (err) { next(err); }
+});
+
+adminRouter.get('/alertas/contagem', async (req, res, next) => {
+  try {
+    res.json({ pendentes: await contarAlertasPendentes() });
+  } catch (err) { next(err); }
+});
+
+adminRouter.post('/alertas/:id/resolver', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ erro: 'id_invalido' });
+    const r = await resolverAlerta(id, req.usuario.id);
+    if (!r) return res.status(404).json({ erro: 'alerta_nao_encontrado_ou_ja_resolvido' });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// --- Histórico de CapEx por projeto (restaura projeto a projeto) ---
+// Diferente da restauração de seção inteira acima: repõe só os projetos
+// escolhidos, sem desfazer o que outros gestores salvaram depois.
+
+function lerProjetos(texto) {
+  try { return JSON.parse(texto)?.projetos || []; } catch { return []; }
+}
+
+async function buscarLogCapex(unidadeId, logId) {
+  const { rows } = await pool.query(
+    `SELECT l.id, l.criado_em, l.valor_anterior, l.valor_novo, u.nome AS usuario_nome
+     FROM log_alteracoes l JOIN usuarios u ON u.id = l.usuario_id
+     WHERE l.id = $1 AND l.unidade_id = $2 AND l.campo = 'capex'`,
+    [logId, unidadeId]
+  );
+  return rows[0] || null;
+}
+
+adminRouter.get('/capex-historico/:unidadeId', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.id, l.criado_em, l.motivo, l.valor_anterior, l.valor_novo, u.nome AS usuario_nome, u.perfil AS usuario_perfil
+       FROM log_alteracoes l JOIN usuarios u ON u.id = l.usuario_id
+       WHERE l.unidade_id = $1 AND l.campo = 'capex'
+       ORDER BY l.criado_em DESC LIMIT 300`,
+      [req.params.unidadeId]
+    );
+    const resumo = (texto) => {
+      const ps = lerProjetos(texto);
+      return { projetos: ps.length, total: ps.reduce((acc, p) => acc + totalProjeto(p), 0) };
+    };
+    res.json({
+      historico: rows.map((r) => ({
+        id: r.id, criado_em: r.criado_em, motivo: r.motivo,
+        usuario_nome: r.usuario_nome, usuario_perfil: r.usuario_perfil,
+        antes: resumo(r.valor_anterior), depois: resumo(r.valor_novo),
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
+adminRouter.get('/capex-historico/:unidadeId/:logId', async (req, res, next) => {
+  try {
+    const log = await buscarLogCapex(req.params.unidadeId, Number(req.params.logId));
+    if (!log) return res.status(404).json({ erro: 'log_nao_encontrado' });
+    const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ORCAMENTO);
+    const atuaisPorId = new Map((atual.dados?.capex?.projetos || []).map((p) => [p.id, p]));
+    const descrever = (texto) => lerProjetos(texto).map((p) => {
+      const hoje = atuaisPorId.get(p.id);
+      return {
+        id: p.id, nome: p.nome, ccCodigo: p.ccCodigo, categoria: p.categoria,
+        total: totalProjeto(p),
+        totalHoje: hoje ? totalProjeto(hoje) : null,
+        situacao: !hoje ? 'ausente_hoje' : (iguais(hoje, p) ? 'igual' : 'diferente'),
+      };
+    });
+    res.json({
+      id: log.id, criado_em: log.criado_em, usuario_nome: log.usuario_nome,
+      anterior: descrever(log.valor_anterior),
+      novo: descrever(log.valor_novo),
+    });
+  } catch (err) { next(err); }
+});
+
+adminRouter.post('/capex-historico/:unidadeId/:logId/restaurar', async (req, res, next) => {
+  try {
+    const { projetoIds, lado } = req.body || {};
+    if (!Array.isArray(projetoIds) || projetoIds.length === 0) return res.status(400).json({ erro: 'projetoIds_obrigatorio' });
+    if (lado !== 'anterior' && lado !== 'novo') return res.status(400).json({ erro: 'lado_invalido' });
+    const log = await buscarLogCapex(req.params.unidadeId, Number(req.params.logId));
+    if (!log) return res.status(404).json({ erro: 'log_nao_encontrado' });
+
+    const escolhidos = lerProjetos(lado === 'novo' ? log.valor_novo : log.valor_anterior)
+      .filter((p) => projetoIds.includes(p.id));
+    if (escolhidos.length === 0) return res.status(400).json({ erro: 'projetos_nao_encontrados_no_log' });
+
+    const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ORCAMENTO);
+    const porId = new Map(escolhidos.map((p) => [p.id, p]));
+    const projetosAtuais = atual.dados?.capex?.projetos || [];
+    const projetos = [
+      ...projetosAtuais.map((p) => porId.get(p.id) || p),
+      ...escolhidos.filter((p) => !projetosAtuais.some((q) => q.id === p.id)),
+    ];
+    await atualizarDadosComAuditoria({
+      orcamentoAntes: atual,
+      dadosNovos: { ...atual.dados, capex: { ...(atual.dados?.capex || {}), projetos } },
+      usuarioId: req.usuario.id,
+      motivo: `Restauração de ${escolhidos.length} projeto(s) de CapEx a partir do log #${log.id} (${lado === 'novo' ? 'depois' : 'antes'} do save de ${log.usuario_nome})`,
+    });
+    res.json({ ok: true, restaurados: escolhidos.map((p) => p.nome || p.id) });
   } catch (err) { next(err); }
 });

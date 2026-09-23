@@ -210,3 +210,18 @@ CREATE INDEX idx_orcamentos_unidade ON orcamentos(unidade_id, ano);
 CREATE INDEX idx_orcamento_versoes_orcamento ON orcamento_versoes(orcamento_id);
 CREATE INDEX idx_log_alteracoes_unidade ON log_alteracoes(unidade_id, criado_em);
 CREATE INDEX idx_concessao_ativa ON concessao_acesso_temporaria(usuario_id, cc_codigo, valido_ate) WHERE revogado_em IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- Alertas de possível perda de dados (migração 0010_alertas_dados.sql)
+CREATE TABLE IF NOT EXISTS alertas_dados (
+  id            BIGSERIAL PRIMARY KEY,
+  criado_em     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  unidade_id    TEXT NOT NULL,
+  usuario_id    UUID REFERENCES usuarios(id),
+  secao         TEXT NOT NULL,
+  descricao     TEXT NOT NULL,
+  detalhes      JSONB,
+  resolvido_em  TIMESTAMPTZ,
+  resolvido_por UUID REFERENCES usuarios(id)
+);
+CREATE INDEX IF NOT EXISTS alertas_dados_pendentes_idx ON alertas_dados (criado_em DESC) WHERE resolvido_em IS NULL;
