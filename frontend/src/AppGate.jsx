@@ -120,10 +120,28 @@ export default function AppGate() {
     return () => clearInterval(t);
   }, [estado, statusBackend?.sessionTtlMinutes]);
 
-  if (manutencaoAtiva) return <TelaManutencao />;
-
   if (estado === 'carregando') {
     return <TelaCentral texto="Carregando sessão…" />;
+  }
+
+  // Manutenção ativa: admin_fpa passa, todos os outros veem tela de bloqueio.
+  // Verificado DEPOIS de 'carregando' para saber o perfil do usuário antes de decidir.
+  if (manutencaoAtiva && usuario?.perfil !== 'admin_fpa') {
+    if (estado === 'deslogado') {
+      // Admin pode estar deslogado: mostra tela de manutenção com login discreto
+      return (
+        <TelaCentral>
+          <img src="/logos/grupo-ara.jpg" alt="Grupo ARA" style={{ height: 90, marginBottom: 20 }} />
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🔧</div>
+          <h1 style={{ fontSize: 20, color: COR_AZUL, margin: '0 0 10px' }}>Sistema em manutenção</h1>
+          <p style={{ fontSize: 14, color: '#494949', maxWidth: 380, lineHeight: 1.6, margin: '0 0 20px' }}>
+            O FP&A está realizando uma manutenção programada. A plataforma voltará em breve.
+          </p>
+          <LoginSenha onEntrou={() => window.location.reload()} />
+        </TelaCentral>
+      );
+    }
+    return <TelaManutencao />;
   }
 
   if (estado === 'deslogado') {

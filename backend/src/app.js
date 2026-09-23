@@ -24,7 +24,19 @@ export function criarApp() {
   if (manutencaoAtiva) {
     app.use((req, res, next) => {
       if (req.path === '/health') return next();
-      res.status(503).json({ erro: 'manutencao', mensagem: 'Sistema em manutenção pelo FP&A. Por favor aguarde — voltamos em breve.' });
+      // /auth/* passa: login e /auth/me precisam funcionar para o admin_fpa
+      // conseguir autenticar mesmo durante a manutenção
+      if (req.path.startsWith('/auth')) return next();
+      // Demais rotas: só admin_fpa passa
+      authenticate(req, res, (err) => {
+        if (err || !req.usuario) {
+          return res.status(503).json({ erro: 'manutencao', mensagem: 'Sistema em manutenção pelo FP&A. Por favor aguarde — voltamos em breve.' });
+        }
+        if (req.usuario.perfil !== 'admin_fpa') {
+          return res.status(503).json({ erro: 'manutencao', mensagem: 'Sistema em manutenção pelo FP&A. Por favor aguarde — voltamos em breve.' });
+        }
+        next();
+      });
     });
   }
   // limit (2026-09-09, bug real: PayloadTooLargeError travando o autosave de
