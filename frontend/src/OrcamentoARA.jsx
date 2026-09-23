@@ -11,6 +11,7 @@ import {
   Users, Loader2, Info, Upload, FileText,
 } from 'lucide-react';
 import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi } from './api/orcamentos.js';
+import { mesclarDados, iguais } from './mesclarDados.js';
 import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, definirFontePremissaMacro as definirFontePremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
 import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
 import { logout } from './api/auth.js';
@@ -4023,17 +4024,11 @@ export default function OrcamentoARA({ usuario }) {
   // (que fica dentro do JSONB e o gestor controla).
   const [aguardandoLiberacao, setAguardandoLiberacao] = useState(false);
 
-  // custosBaseRef (2026-09-10, ver backend/src/db/mesclarCustos.js): o
-  // `custos` deste navegador no momento em que carregou a tela — a base de
-  // comparação pra o servidor saber o que ESTE cliente editou (em vez do
-  // que está no banco agora, que pode ter mudança de outro usuário
-  // enquanto esta aba ficou aberta). Atualizado sempre que `dados` vem
-  // fresco do servidor (carregarUnidade, envio de versão) e depois de cada
-  // salvamento bem-sucedido (ver salvar()/salvarRascunhoAgora), nunca nos
-  // edits locais do dia a dia (atualizar()) — é isso que faz a diferença
-  // entre "o que já estava salvo" e "o que estou editando agora".
-  const custosBaseRef = useRef(null);
-  const capexBaseRef = useRef(null);
+  // dadosBaseRef (ver backend/src/db/mesclarDados.js): o documento deste
+  // navegador na última vez que veio do servidor (carregarUnidade, envio de
+  // versão, resposta de cada salvamento) — nunca os edits locais. A
+  // diferença entre ele e `dados` é exatamente o que ESTE usuário editou.
+  const dadosBaseRef = useRef(null);
 
   const carregarUnidade = useCallback(async (idUnidade) => {
     setCarregando(true);
@@ -4041,14 +4036,12 @@ export default function OrcamentoARA({ usuario }) {
     try {
       const r = await getOrcamento(idUnidade);
       setDados(r.orcamento.dados);
-      custosBaseRef.current = r.orcamento.dados.custos;
-      capexBaseRef.current = r.orcamento.dados.capex;
+      dadosBaseRef.current = r.orcamento.dados;
       setAguardandoLiberacao(r.orcamento.aguardando_liberacao || false);
     } catch (e) {
       const vazio = emptyFormData();
       setDados(vazio);
-      custosBaseRef.current = vazio.custos;
-      capexBaseRef.current = vazio.capex;
+      dadosBaseRef.current = vazio;
       setAguardandoLiberacao(false);
     }
     try {
@@ -4205,7 +4198,7 @@ export default function OrcamentoARA({ usuario }) {
         ...atual,
         custos: { ...atual.custos, premissasPessoal: { ...(atual.custos?.premissasPessoal || {}), ...campos } },
       };
-      await putOrcamento(uid, dadosNovos, undefined, atual.custos, atual.capex);
+      await putOrcamento(uid, dadosNovos, undefined, atual);
     } catch (e) {
       premissasCamposPendentesRef.current[uid] = { ...campos, ...(premissasCamposPendentesRef.current[uid] || {}) };
       throw e;
@@ -4269,6 +4262,21 @@ export default function OrcamentoARA({ usuario }) {
   dadosRef.current = dados;
   const unidadeAtualRef = useRef(unidadeAtual);
   unidadeAtualRef.current = unidadeAtual;
+
+  // A resposta do PUT traz o documento já mesclado com o de outros usuários.
+  // Aplica na tela só o que mudou no servidor, preservando o que este usuário
+  // digitou enquanto o save estava em trânsito (mesma regra de merge do backend).
+  // Retorna o próprio `prev` quando nada muda — senão o autosave rearmaria em loop.
+  function aplicarResultadoDoSave(unidade, enviado, resultado) {
+    const mesclado = resultado?.orcamento?.dados;
+    if (!mesclado || unidadeAtualRef.current !== unidade) return;
+    dadosBaseRef.current = mesclado;
+    setDados(prev => {
+      const proximo = mesclarDados(enviado, mesclado, prev);
+      return iguais(proximo, prev) ? prev : proximo;
+    });
+  }
+
   const debounceTimerRef = useRef(null);
   // Pedido de 2026-09-08: "preciso que o autosave rode rápido a cada 2
   // segundos" — o debounce de 900ms só dispara depois de uma PAUSA na
@@ -4313,38 +4321,16 @@ export default function OrcamentoARA({ usuario }) {
       savePostponeCountRef.current = 0;
       const dadosAtuais = dadosRef.current;
       const unidade = unidadeAtualRef.current;
-      const custosBaseAoEnviar = custosBaseRef.current;
-      const capexBaseAoEnviar = capexBaseRef.current;
+      const baseAoEnviar = dadosBaseRef.current;
       try {
         const status = dadosAtuais.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
+        const enviado = { ...dadosAtuais, meta: { ...dadosAtuais.meta, status, atualizadoEm: new Date().toISOString() } };
         // comRetentativa (2026-09-10, pedido: "como faço pra evitar isso" —
         // falha de rede genuína, ex.: backend reiniciando alguns segundos
         // num deploy) — reintenta sozinho antes de incomodar o gestor com um
         // erro; PUT de rascunho é idempotente, seguro repetir.
-        const resultado = await comRetentativa(() => putOrcamento(unidade, { ...dadosAtuais, meta: { ...dadosAtuais.meta, status, atualizadoEm: new Date().toISOString() } }, undefined, custosBaseAoEnviar, capexBaseAoEnviar));
-        // Merge de edições simultâneas (2026-09-10, ver mesclarCustos no
-        // backend): o servidor pode ter mesclado mudança de outro usuário
-        // junto — atualiza a tela e a base de comparação com o resultado de
-        // verdade, não com o que este navegador mandou. `setDados` só roda
-        // quando o conteúdo de fato mudou (comparação profunda): sem essa
-        // guarda, um novo objeto (mesmo conteúdo idêntico, referência
-        // diferente) rearmaria o autosave via o efeito que observa `dados`
-        // — cada salvamento disparando outro em loop, mesmo sem edição
-        // nenhuma de ninguém.
-        if (resultado?.orcamento?.dados?.custos) {
-          const custosMesclado = resultado.orcamento.dados.custos;
-          custosBaseRef.current = custosMesclado;
-          if (JSON.stringify(custosMesclado) !== JSON.stringify(dadosAtuais.custos)) {
-            setDados(prev => ({ ...prev, custos: custosMesclado }));
-          }
-        }
-        if (resultado?.orcamento?.dados?.capex) {
-          const capexMesclado = resultado.orcamento.dados.capex;
-          capexBaseRef.current = capexMesclado;
-          if (JSON.stringify(capexMesclado) !== JSON.stringify(dadosAtuais.capex)) {
-            setDados(prev => ({ ...prev, capex: capexMesclado }));
-          }
-        }
+        const resultado = await comRetentativa(() => putOrcamento(unidade, enviado, undefined, baseAoEnviar));
+        aplicarResultadoDoSave(unidade, enviado, resultado);
         setUltimoSalvoEm(new Date());
         setErro(null); // limpa um erro anterior assim que um salvamento subsequente dá certo
         setPedindoMotivo(false);
@@ -4401,24 +4387,11 @@ export default function OrcamentoARA({ usuario }) {
     setErro(null);
     try {
       const status = dados.meta?.status === 'enviado' ? 'enviado' : 'em_preenchimento';
-      const custosBaseAoEnviar = custosBaseRef.current;
-      const capexBaseAoEnviar = capexBaseRef.current;
-      const resultado = await comRetentativa(() => putOrcamento(unidadeAtual, { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } }, motivo, custosBaseAoEnviar, capexBaseAoEnviar));
-      // Merge de edições simultâneas — ver nota completa em salvar() acima.
-      if (resultado?.orcamento?.dados?.custos) {
-        const custosMesclado = resultado.orcamento.dados.custos;
-        custosBaseRef.current = custosMesclado;
-        if (JSON.stringify(custosMesclado) !== JSON.stringify(dados.custos)) {
-          setDados(prev => ({ ...prev, custos: custosMesclado }));
-        }
-      }
-      if (resultado?.orcamento?.dados?.capex) {
-        const capexMesclado = resultado.orcamento.dados.capex;
-        capexBaseRef.current = capexMesclado;
-        if (JSON.stringify(capexMesclado) !== JSON.stringify(dados.capex)) {
-          setDados(prev => ({ ...prev, capex: capexMesclado }));
-        }
-      }
+      const unidade = unidadeAtual;
+      const baseAoEnviar = dadosBaseRef.current;
+      const enviado = { ...dados, meta: { ...dados.meta, status, atualizadoEm: new Date().toISOString() } };
+      const resultado = await comRetentativa(() => putOrcamento(unidade, enviado, motivo, baseAoEnviar));
+      aplicarResultadoDoSave(unidade, enviado, resultado);
       setUltimoSalvoEm(new Date());
       setPedindoMotivo(false);
       setMotivoBloqueio('');
@@ -4604,8 +4577,7 @@ export default function OrcamentoARA({ usuario }) {
       // acabou de ser gravada por enviarVersaoApi já aparece lá.
       const { orcamento } = await enviarVersaoApi(unidadeAtual, comentarioEnvio.trim());
       setDados(orcamento.dados);
-      custosBaseRef.current = orcamento.dados.custos;
-      capexBaseRef.current = orcamento.dados.capex;
+      dadosBaseRef.current = orcamento.dados;
       setAguardandoLiberacao(orcamento.aguardando_liberacao || false);
       setVersoes(await listarVersoes(unidadeAtual));
 

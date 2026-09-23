@@ -7,16 +7,15 @@ export function getOrcamento(unidadeId) {
 
 /** motivo é obrigatório só quando o orçamento já está aprovado/bloqueado
  * (seção 4.5) — o backend rejeita com 400 se faltar nesse caso.
- * custosBase (2026-09-10, ver backend/src/db/mesclarCustos.js): o `custos`
- * que este navegador tinha quando carregou a tela — não o que está salvo
- * agora. Permite o servidor mesclar só o que ESTE cliente editou por cima
- * do que está no banco no instante do PUT, em vez de sobrescrever o bloco
- * inteiro e apagar edição simultânea de outro usuário. Opcional — sem isso
- * o backend cai no comportamento de sempre (sobrescreve tudo). */
-export function putOrcamento(unidadeId, dados, motivo, custosBase, capexBase) {
+ * dadosBase (ver backend/src/db/mesclarDados.js): o documento que este
+ * navegador tinha quando carregou/salvou pela última vez. O servidor aplica
+ * só o que mudou entre dadosBase e dados, por cima do que está no banco —
+ * nunca apaga edição simultânea de outro usuário. Sem dadosBase, o backend
+ * substitui o documento (usado só pelo snapshot do Consolidado). */
+export function putOrcamento(unidadeId, dados, motivo, dadosBase) {
   return apiFetch(`/api/orcamentos/${unidadeId}`, {
     method: 'PUT',
-    body: { dados, motivo, custosBase, capexBase },
+    body: { dados, motivo, dadosBase },
   });
 }
 

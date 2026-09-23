@@ -7,6 +7,7 @@ import { exigirUnidade, exigirPerfil, exigirAcessoNaoExpirado } from '../middlew
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
 import { mesclarCustos, mesclarCapex } from '../db/mesclarCustos.js';
+import { mesclarDados, iguais } from '../db/mesclarDados.js';
 import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade, ehSnapshotConsolidado } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
 import { notificarEnvioParaFpa } from '../email/notificacoes.js';
@@ -103,7 +104,7 @@ function validarEscritaCcCustos(usuario, unidadeId, dadosAntes, dadosNovos) {
   );
   const custosAntes = dadosAntes?.custos || {};
   const custosNovo = dadosNovos?.custos || {};
-  const mudou = (a, b) => JSON.stringify(a ?? null) !== JSON.stringify(b ?? null);
+  const mudou = (a, b) => !iguais(a, b);
 
   const linhasAntes = custosAntes.linhas || {};
   const linhasNovas = custosNovo.linhas || {};
@@ -157,9 +158,22 @@ function validarSoCustosAlterado(usuario, dadosAntes, dadosNovos) {
   // uma seção (receita, pessoal…), não interpreta como "zerou a seção".
   for (const chave of Object.keys(dadosNovos || {})) {
     if (chave === 'custos' || chave === 'meta' || chave === 'capex') continue;
-    if (JSON.stringify(dadosAntes?.[chave]) !== JSON.stringify(dadosNovos[chave])) {
+    if (!iguais(dadosAntes?.[chave], dadosNovos[chave])) {
       return `Gestor de CC só pode alterar a seção Custos e Despesas (tentativa de mudar "${chave}").`;
     }
+  }
+  return null;
+}
+
+// Seção 4.5 — bloqueio pós-aprovação: só admin_fpa escreve depois de
+// aprovado, e precisa justificar (motivo vai para log_alteracoes.motivo).
+function verificarBloqueio(atual, usuario, motivo) {
+  if (!(atual.status === 'aprovado' && atual.bloqueado)) return null;
+  if (usuario.perfil !== 'admin_fpa') {
+    return { status: 403, corpo: { erro: 'orcamento_bloqueado', mensagem: 'Orçamento aprovado — só admin_fpa pode editar, informando motivo.' } };
+  }
+  if (!motivo || !motivo.trim()) {
+    return { status: 400, corpo: { erro: 'motivo_obrigatorio', mensagem: 'Edição pós-aprovação exige motivo.' } };
   }
   return null;
 }
@@ -207,10 +221,28 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
 
 orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoExpirado, exigirLancamentoHabilitado, async (req, res, next) => {
   try {
-    const { dados, motivo, custosBase, capexBase } = req.body;
+    const { dados, motivo, custosBase, capexBase, dadosBase } = req.body;
     if (!dados) return res.status(400).json({ erro: 'dados_obrigatorio' });
 
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
+
+    // dadosBase: merge 3-way do documento inteiro (todas as seções, ver
+    // db/mesclarDados.js). As validações de escopo comparam base → novo, que é
+    // exatamente o conjunto de mudanças que o merge vai aplicar.
+    if (dadosBase) {
+      const erroEscopo = validarEscritaCcCustos(req.usuario, req.params.unidadeId, dadosBase, dados)
+        || validarSoCustosAlterado(req.usuario, dadosBase, dados);
+      if (erroEscopo) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroEscopo });
+      const erroBloqueio = verificarBloqueio(atual, req.usuario, motivo);
+      if (erroBloqueio) return res.status(erroBloqueio.status).json(erroBloqueio.corpo);
+      const { orcamento: atualizado } = await atualizarDadosComAuditoria({
+        orcamentoAntes: atual,
+        dadosNovos: mesclarDados(dadosBase, atual.dados, dados),
+        usuarioId: req.usuario.id,
+        motivo: motivo || null,
+      });
+      return res.json({ orcamento: atualizado });
+    }
 
     // Merge de edições simultâneas (2026-09-10, ver db/mesclarCustos.js) —
     // `custosBase` é o que o navegador tinha em `custos` quando CARREGOU a
@@ -225,16 +257,8 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoE
     const erroSecao = validarSoCustosAlterado(req.usuario, atual.dados, dados);
     if (erroSecao) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroSecao });
 
-    // Seção 4.5 — bloqueio pós-aprovação: só admin_fpa escreve depois de
-    // aprovado, e precisa justificar (motivo vai para log_alteracoes.motivo).
-    if (atual.status === 'aprovado' && atual.bloqueado) {
-      if (req.usuario.perfil !== 'admin_fpa') {
-        return res.status(403).json({ erro: 'orcamento_bloqueado', mensagem: 'Orçamento aprovado — só admin_fpa pode editar, informando motivo.' });
-      }
-      if (!motivo || !motivo.trim()) {
-        return res.status(400).json({ erro: 'motivo_obrigatorio', mensagem: 'Edição pós-aprovação exige motivo.' });
-      }
-    }
+    const erroBloqueio = verificarBloqueio(atual, req.usuario, motivo);
+    if (erroBloqueio) return res.status(erroBloqueio.status).json(erroBloqueio.corpo);
 
     // Merge por seção: custosBase → mesclarCustos; capexBase → mesclarCapex.
     // Sem base enviado cai no comportamento de sempre (substitui a seção).
