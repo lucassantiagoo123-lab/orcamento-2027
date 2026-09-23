@@ -41,6 +41,10 @@ export const listarAlertas = (todos = false) => apiFetch(`/api/admin/alertas${to
 export const contarAlertasPendentes = () => apiFetch('/api/admin/alertas/contagem');
 export const resolverAlerta = (id) => apiFetch(`/api/admin/alertas/${id}/resolver`, { method: 'POST' });
 
+// Recalcular totais das versões já enviadas (2026-09-23). aplicar=false só simula.
+export const recalcularTotaisVersoes = (aplicar = false) =>
+  apiFetch('/api/admin/versoes/recalcular-totais', { method: 'POST', body: { aplicar } });
+
 // Histórico de CapEx por projeto (2026-09-23).
 export const listarHistoricoCapex = (unidadeId) => apiFetch(`/api/admin/capex-historico/${unidadeId}`);
 export const detalharHistoricoCapex = (unidadeId, logId) => apiFetch(`/api/admin/capex-historico/${unidadeId}/${logId}`);

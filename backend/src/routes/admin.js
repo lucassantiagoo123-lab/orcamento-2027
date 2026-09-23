@@ -17,6 +17,7 @@ import { buscarOuCriarOrcamento, atualizarDadosComAuditoria } from '../db/orcame
 import { listarAlertas, contarAlertasPendentes, resolverAlerta } from '../db/alertasDados.js';
 import { totalProjeto } from '../db/detectarPerdas.js';
 import { iguais } from '../db/mesclarDados.js';
+import { recalcularTotaisVersoes } from '../db/recalcularTotaisVersoes.js';
 
 const ANO_ORCAMENTO = 2027;
 
@@ -224,6 +225,14 @@ adminRouter.post('/migracoes/plano-contas-resorts', async (req, res, next) => {
     const aplicar = req.body?.aplicar === true;
     const resultado = await migrarPlanoContasResorts({ aplicar, usuarioId: req.usuario.id });
     res.json(resultado);
+  } catch (err) { next(err); }
+});
+
+// --- Recalcular totais das versões enviadas (2026-09-23) ---
+// Ver db/recalcularTotaisVersoes.js. `aplicar` false (padrão) só simula.
+adminRouter.post('/versoes/recalcular-totais', async (req, res, next) => {
+  try {
+    res.json(await recalcularTotaisVersoes({ aplicar: req.body?.aplicar === true }));
   } catch (err) { next(err); }
 });
 

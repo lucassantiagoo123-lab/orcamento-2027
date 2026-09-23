@@ -8,6 +8,7 @@ import {
   vincularCc, desvincularCc, removerTodosCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
   definirAcessoUsuario, listarSnapshots, restaurarSnapshot,
   listarAlertas, resolverAlerta, listarHistoricoCapex, detalharHistoricoCapex, restaurarProjetosCapex,
+  recalcularTotaisVersoes,
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
@@ -92,6 +93,7 @@ export default function AdminPanel({ voltar }) {
           <SecaoConcessoes usuarios={usuarios} concessoes={concessoes} onMudou={carregar} />
           <SecaoHistoricoCapex />
           <SecaoRecuperacaoDados />
+          <SecaoRecalcularTotais />
         </>
       )}
     </div>
@@ -852,6 +854,100 @@ function SecaoAlertas() {
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Recalcular totais das versões já enviadas (2026-09-23) — ver
+// backend/src/db/recalcularTotaisVersoes.js. Sempre simula antes de aplicar.
+function SecaoRecalcularTotais() {
+  const [resultado, setResultado] = useState(null);
+  const [rodando, setRodando] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  async function rodar(aplicar) {
+    if (aplicar && !window.confirm(
+      `Atualizar os totais (Receita Líquida, EBITDA, Lucro Líquido) de ${mudaram.length} versão(ões) enviada(s)?\n\n` +
+      'O conteúdo enviado de cada versão não muda — só os números de resumo usados no Backlog. O valor anterior fica guardado e pode ser restaurado.'
+    )) return;
+    setRodando(true);
+    setMsg(null);
+    try {
+      const r = await recalcularTotaisVersoes(aplicar);
+      setResultado(r);
+      if (aplicar) setMsg({ tipo: 'ok', texto: `✓ Totais atualizados em ${r.versoes.filter((v) => v.mudou).length} versão(ões).` });
+    } catch (e) {
+      setMsg({ tipo: 'erro', texto: e instanceof ApiError ? e.message : 'Erro ao recalcular.' });
+    }
+    setRodando(false);
+  }
+
+  const mudaram = (resultado?.versoes || []).filter((v) => v.mudou);
+  const comErro = (resultado?.versoes || []).filter((v) => v.erro);
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h2 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>Recalcular totais das versões enviadas</h2>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Até 23/09 o servidor calculava o EBITDA/Lucro gravado no envio sem os encargos do Novo HC, sem o 2º dissídio e sem os rateios de
+        Hospedagem/A&amp;B da Resorts. Isto recalcula esses três números a partir do conteúdo que cada versão guardou, com as regras atuais.
+        Usa o IPCA/câmbio de <strong>hoje</strong> — versões marcadas com ⚠ tiveram a receita alterada por isso.
+      </p>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <button onClick={() => rodar(false)} disabled={rodando} style={botaoSecundario}>
+          {rodando && !resultado ? 'Simulando…' : 'Simular (não grava nada)'}
+        </button>
+        {resultado && !resultado.aplicado && mudaram.length > 0 && (
+          <button onClick={() => rodar(true)} disabled={rodando} style={botaoPrimario}>
+            {rodando ? 'Aplicando…' : `Aplicar em ${mudaram.length} versão(ões)`}
+          </button>
+        )}
+      </div>
+
+      {msg && (
+        <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 12, fontSize: 12, background: msg.tipo === 'ok' ? '#E8F5E9' : '#FDECEC', color: msg.tipo === 'ok' ? '#2E7D32' : '#C00000', border: `1px solid ${msg.tipo === 'ok' ? '#A5D6A7' : '#FFCDD2'}` }}>
+          {msg.texto}
+        </div>
+      )}
+
+      {resultado && (
+        <>
+          <p style={{ fontSize: 12, marginBottom: 8 }}>
+            {resultado.versoes.length} versão(ões) analisada(s) — <strong>{mudaram.length}</strong> com total diferente
+            {comErro.length > 0 && <span style={{ color: '#C00000' }}> — {comErro.length} com erro no cálculo (não serão alteradas)</span>}.
+          </p>
+          {mudaram.length > 0 && (
+            <div style={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto', border: `1px solid ${COR.borda}`, borderRadius: 6 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={th}>Unidade</th>
+                    <th style={th}>Enviada em</th>
+                    <th style={th}>Autor</th>
+                    <th style={{ ...th, textAlign: 'right' }}>EBITDA gravado</th>
+                    <th style={{ ...th, textAlign: 'right' }}>EBITDA correto</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Lucro gravado</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Lucro correto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mudaram.map((v) => (
+                    <tr key={v.id}>
+                      <td style={td}>{v.receitaMudou && <span title="Receita mudou: IPCA/câmbio de hoje diferente do dia do envio">⚠ </span>}{UNIDADE_LABEL[v.unidade_id] || v.unidade_id}</td>
+                      <td style={{ ...td, whiteSpace: 'nowrap' }}>{dataHora(v.enviado_em)}</td>
+                      <td style={td}>{v.autor_nome}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{reais(v.antes.ebitda)}</td>
+                      <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{reais(v.depois.ebitda)}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{reais(v.antes.lucroLiquido)}</td>
+                      <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{reais(v.depois.lucroLiquido)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
