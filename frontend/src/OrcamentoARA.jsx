@@ -10375,8 +10375,16 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
                               linhasCalculadas={bonusPjRowCorp ? [
                                 {
+                                  // Informativa (fora do total): mostra a base do bônus.
+                                  key: 'basePj',
+                                  label: `Base do bônus — Valor projetado de ${_ppC.bonusPjMes} × ${_ppC.bonusPjMultiplicador || '1'} (multiplicador)`,
+                                  valoresMensal: MESES.map((mes, m) => mes === _ppC.bonusPjMes ? (corp03MesCorp?.[m] || 0) * multiplicadorBonus(_ppC.bonusPjMultiplicador) : 0),
+                                  totalValor: (corp03MesCorp?.[MESES.indexOf(_ppC.bonusPjMes)] || 0) * multiplicadorBonus(_ppC.bonusPjMultiplicador),
+                                  cor: '#8A8F96',
+                                },
+                                {
                                   key: 'bonusPj',
-                                  label: `Bônus PJs${_ppC.bonusPjMes ? ` — ${_ppC.bonusPjMes}, ${_ppC.bonusPjMultiplicador ? `${_ppC.bonusPjMultiplicador}× · ` : ''}${_ppC.bonusPjAtendimentoPct || '0'}% atingimento` : ''}`,
+                                  label: `Bônus PJs — ${_ppC.bonusPjAtendimentoPct || '0'}% de atingimento sobre a base`,
                                   valoresMensal: bonusPjRowCorp,
                                   totalValor: _somaRow(bonusPjRowCorp),
                                   cor: '#8A8F96',
