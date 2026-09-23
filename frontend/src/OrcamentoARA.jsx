@@ -2168,6 +2168,9 @@ function emptyFormData(unidadeId = 'textil') {
         // PJs (CORP03, Corporativo) — calculado pela plataforma, editável apenas
         // em Gestão do Orçamento, visível como linha somente leitura na conta.
         bonusPjMes: '', bonusPjAtendimentoPct: '',
+        // Multiplicadores (2026-09-23): bônus = valor do mês × multiplicador ×
+        // % (atingimento). Vazio = 1×. Editados só no FP&A Corporativo.
+        bonusMultiplicador: '', bonusPjMultiplicador: '',
         // licencaSoftwareNovoHcValor/capexEquipNovoHcValor (2026-09-19):
         // custo unitário por novo headcount admitido — licença Microsoft
         // (despesa, pacote Tecnologia, Locação de Software) e equipamento
@@ -2362,6 +2365,88 @@ function folhaAnualPorCC(data, ccCodigo) {
   return computeFolhaPessoalAnual(funcs, data.custos.premissasPessoal);
 }
 
+// Multiplicador de bônus (premissa do FP&A Corporativo): vazio = 1×.
+function multiplicadorBonus(v) {
+  return v === undefined || v === null || String(v).trim() === '' ? 1 : parseNum(v);
+}
+
+// Linhas de pessoal calculadas a partir das premissas (além da folha do Novo
+// HC): meritocracia, dissídio e bônus do Headcount Existente; Bônus PJs e
+// licença de software do Novo HC (esses dois só no Corporativo). Fonte única
+// da aba Custos, DRE, fluxos de caixa, exportações e servidor (espelho em
+// backend/src/calc/orcamento.js). `bases` = receitaBrutaMes, receitaLiquidaMes,
+// ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes.
+function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
+  const pp = data.custos.premissasPessoal || {};
+  const linhas = data.custos.linhas || {};
+  const idx = (mes) => (mes ? MESES.indexOf(mes) : -1);
+  const valorContaMes = (conta, m) => valorLinhaMes(linhas[`${ccCodigo}|${conta}`], m, bases.receitaBrutaMes, bases.receitaLiquidaMes, bases.ipcaAnualPct, bases.volumeTotalKgMes, bases.receitaHospedagemMes, bases.receitaAebMes);
+  const ehCorporativo = !!ref.todasContas?.[CONTA_CONSULTORIA_PJ];
+  const contasPessoal = ref.planoContas?.pessoal || [];
+  const contasHc = ehCorporativo
+    ? contasPessoal.filter(c => c.nome === 'Headcount Existente').slice(0, 1)
+    : contasPessoal.filter(c => c.codigo.startsWith('HC_EXISTENTE'));
+  const hcMes = contasHc.length > 0 ? MESES.map((_, m) => contasHc.reduce((acc, c) => acc + valorContaMes(c.codigo, m), 0)) : null;
+
+  const iMerit = idx(pp.meritocraciaMes);
+  const iBonus = idx(pp.bonusMes);
+  const iBonusPj = idx(pp.bonusPjMes);
+  const meritocracia = hcMes ? MESES.map((_, m) => (iMerit >= 0 && m >= iMerit ? hcMes[m] * parseNum(pp.meritocraciaPct) / 100 : 0)) : null;
+  const dissidioSobreHc = (iD, pct) => MESES.map((_, m) => (iD < 0 || m < iD ? 0 : (hcMes[m] + (meritocracia?.[m] || 0)) * parseNum(pct) / 100));
+  const dissidio1 = hcMes ? dissidioSobreHc(idx(pp.dissidioMes), pp.dissidioPct) : null;
+  const dissidio2 = hcMes && !ehCorporativo ? dissidioSobreHc(idx(pp.dissidioMes2), pp.dissidioPct2) : null;
+  const bonus = hcMes
+    ? MESES.map((_, m) => (iBonus >= 0 && m === iBonus ? hcMes[iBonus] * multiplicadorBonus(pp.bonusMultiplicador) * parseNum(pp.bonusPct) / 100 : 0))
+    : null;
+  const bonusPj = ehCorporativo && iBonusPj >= 0
+    ? MESES.map((_, m) => (m === iBonusPj ? valorContaMes(CONTA_CONSULTORIA_PJ, iBonusPj) * multiplicadorBonus(pp.bonusPjMultiplicador) * parseNum(pp.bonusPjAtendimentoPct) / 100 : 0))
+    : null;
+  let licencaSoftware = null;
+  if (ehCorporativo) {
+    const novos = (data.custos.funcionarios || []).filter(f => f.ccCodigo === ccCodigo && f.origem === 'novo');
+    const valorAno = parseNum(pp.licencaSoftwareNovoHcValor || '2700');
+    licencaSoftware = MESES.map((_, m) => novos.filter(f => { const i = MESES.indexOf(f.mesAdmissao); return i >= 0 && i <= m; }).length * valorAno / 12);
+  }
+
+  const calculadas = { meritocracia, dissidio1, dissidio2, bonus, bonusPj, licencaSoftware };
+  const totalMes = MESES.map((_, m) => Object.values(calculadas).reduce((acc, row) => acc + (row?.[m] || 0), 0));
+  return { ...calculadas, hcExistenteMes: hcMes, totalMes, totalAnual: totalMes.reduce((a, v) => a + v, 0) };
+}
+
+// Custo de pessoal de um CC que não está nas contas lançadas: folha do Novo
+// HC × (1 + encargos Novo HC %) + linhas calculadas (pessoalCalculadoPorCC).
+function pessoalExtraPorCC(data, ref, ccCodigo, bases) {
+  const fator = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
+  const folha = folhaAnualPorCC(data, ccCodigo);
+  const calc = pessoalCalculadoPorCC(data, ref, ccCodigo, bases);
+  const mes = MESES.map((_, m) => folha.mensal[m].total * fator + calc.totalMes[m]);
+  return { mes, anual: mes.reduce((a, v) => a + v, 0), folha, calc };
+}
+// Linhas calculadas de pessoal para as exportações Excel (Custos_Despesas):
+// [cc, pacote, conta, descrição, mesIdx, valor] — só meses com valor.
+const ROTULOS_PESSOAL_CALCULADO = [
+  ['meritocracia', 'Meritocracia (HC Existente)'], ['dissidio1', 'Dissídio (HC Existente)'], ['dissidio2', 'Dissídio 2 (HC Existente)'],
+  ['bonus', 'Bônus (HC Existente)'], ['bonusPj', 'Bônus PJs'], ['licencaSoftware', 'Licença de Software — Novo HC'],
+];
+function linhasExportPessoalCalculado(data, ref, ccs, dre, ipcaAnualPct) {
+  const bases = { receitaBrutaMes: dre.receitaBrutaMes, receitaLiquidaMes: dre.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dre.volumeTotalKgMes, receitaHospedagemMes: dre.receitaHospedagemMes, receitaAebMes: dre.receitaAebMes };
+  const nomePacoteDaConta = (conta) => (ref.pacotes || []).find(p => p.id === ref.todasContas?.[conta]?.pacoteId)?.nome;
+  const saida = [];
+  ccs.forEach(cc => {
+    const calc = pessoalCalculadoPorCC(data, ref, cc.codigo, bases);
+    ROTULOS_PESSOAL_CALCULADO.forEach(([chave, rotulo]) => {
+      const conta = chave === 'bonusPj' ? CONTA_CONSULTORIA_PJ : chave === 'licencaSoftware' ? 'CORP10' : 'Pessoal (calculado)';
+      const pacote = chave === 'licencaSoftware' ? (nomePacoteDaConta('CORP10') || 'Tecnologia') : 'Pessoal';
+      (calc[chave] || []).forEach((valor, mi) => { if (valor) saida.push([cc, pacote, conta, rotulo, mi, valor]); });
+    });
+  });
+  return saida;
+}
+function pessoalExtraTodosCCs(data, ref, dre, ipcaAnualPct) {
+  const bases = { receitaBrutaMes: dre.receitaBrutaMes, receitaLiquidaMes: dre.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dre.volumeTotalKgMes, receitaHospedagemMes: dre.receitaHospedagemMes, receitaAebMes: dre.receitaAebMes };
+  return Object.fromEntries(ref.ccs.map(cc => [cc.codigo, pessoalExtraPorCC(data, ref, cc.codigo, bases)]));
+}
+
 // Duas formas de modelar receita, conforme a unidade: `receita.produtos`
 // (Volume × Preço por produto — Têxtil e Agrícola) ou `receita.linhas`
 // (quantidade × valor unitário ou valor direto por linha — Resorts, modelo
@@ -2479,10 +2564,6 @@ function receitaBrutaPorMes(data, cambios) {
 }
 
 function computeDRE(data, ref, ipcaAnualPct, cambios) {
-  // encargosNovoHcPct: custo adicional sobre a folha de novo headcount (PLR,
-  // benefícios extras etc. não capturados nas premissas de INSS/FGTS/férias).
-  // Fator >= 1; sem o campo preenchido fica 1 (sem efeito).
-  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data, cambios);
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
@@ -2537,12 +2618,16 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     ? MESES.map((_, m) => (linhasReceitaMes.aeb?.[m] || 0) + (linhasReceitaMes.cafePensao?.[m] || 0))
     : null;
 
+  // Folha do Novo HC com encargos + linhas calculadas de pessoal, por CC.
+  const basesPessoal = { receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes };
+  const pessoalExtraAnual = (cc) => pessoalExtraPorCC(data, ref, cc.codigo, basesPessoal).anual;
+
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
-  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual * _fatorEncNovoHc, 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
 
@@ -2552,7 +2637,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
-  }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual * _fatorEncNovoHc, 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0);
   const ebitda = lucroBruto - despesasSemDA;
   const margemEbitda = receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0;
 
@@ -2705,11 +2790,12 @@ function computeGruposCustosMensal(lados, ipcaAnualPct) {
     porLado: lados.map(lado => {
       const ccs = ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'producao');
       const contasPessoal = lado.ref.planoContas.pessoal || [];
+      const extras = pessoalExtraTodosCCs(lado.dados, lado.ref, lado.dre, ipcaAnualPct);
       return {
         nome: lado.nome,
         valoresMensal: MESES.map((_, m) => ccs.reduce((acc, cc) =>
-          acc + (folhaAnualPorCC(lado.dados, cc.codigo).totalMes[m] || 0)
-          + contasPessoal.reduce((a2, c) => a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes), 0), 0)),
+          acc + (extras[cc.codigo]?.mes[m] || 0)
+          + contasPessoal.reduce((a2, c) => a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes, lado.dre.receitaHospedagemMes, lado.dre.receitaAebMes), 0), 0)),
       };
     }),
   });
@@ -2727,7 +2813,7 @@ function computeGruposCustosMensal(lados, ipcaAnualPct) {
         const contas = lado.ref.planoContas[pid] || [];
         const ccs = ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'producao');
         const valoresMensal = MESES.map((_, m) => ccs.reduce((acc, cc) => acc + contas.reduce((a2, c) =>
-          a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes), 0), 0));
+          a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes, lado.dre.receitaHospedagemMes, lado.dre.receitaAebMes), 0), 0));
         return { nome: lado.nome, valoresMensal };
       }),
     });
@@ -2751,7 +2837,7 @@ function computeDespesasOperacionaisPorGrupo(lados, ipcaAnualPct) {
       // Resorts) entraria no EBITDA mas sumiria deste detalhamento.
       const contas = pacoteIds.flatMap(pid => lado.ref.planoContas[pid] || []);
       const valoresMensal = MESES.map((_, m) => ccs.reduce((acc, cc) => acc + contas.reduce((a2, c) =>
-        a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes), 0), 0));
+        a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes, lado.dre.receitaHospedagemMes, lado.dre.receitaAebMes), 0), 0));
       return { nome: lado.nome, valoresMensal };
     });
   }
@@ -2759,10 +2845,11 @@ function computeDespesasOperacionaisPorGrupo(lados, ipcaAnualPct) {
   // contas do pacote 'pessoal' (ver nota em computeGruposCustosMensal) — sem
   // essa segunda parcela o valor entraria no EBITDA e sumiria do balde.
   const pessoalLancado = porPacotes(['pessoal']);
+  const extrasPorLado = lados.map(lado => pessoalExtraTodosCCs(lado.dados, lado.ref, lado.dre, ipcaAnualPct));
   const pessoal = lados.map((lado, i) => ({
     nome: lado.nome,
     valoresMensal: MESES.map((_, m) => ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'despesa')
-      .reduce((acc, cc) => acc + (folhaAnualPorCC(lado.dados, cc.codigo).totalMes[m] || 0), 0)
+      .reduce((acc, cc) => acc + (extrasPorLado[i][cc.codigo]?.mes[m] || 0), 0)
       + pessoalLancado[i].valoresMensal[m]),
   }));
   const vendas = porPacotes(['comercial']);
@@ -2954,7 +3041,7 @@ function dreEDfcGrupoUnidade(statusUnidades, unidadeId, ipcaAnualPct, cambios) {
 //   acionistas da aba 7.
 // ---------------------------------------------------------------------------
 function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
-  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
+  const pessoalCC = pessoalExtraTodosCCs(data, ref, dre, ipcaAnualPct);
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -2965,7 +3052,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
   // Versão em caixa (pagamento) do mesmo total — só difere de totalLinhasMes
@@ -2979,7 +3066,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
   // pacote 'pessoal' (2026-08-23): não exclui mais de totalLinhasMes — ver
@@ -2988,9 +3075,9 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // "de pessoal" de verdade — só não soma a folha calculada duas vezes.
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
-    + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
   const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao'], m)
-    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
   const ebitdaMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m] - despesasSemDAmes[m]);
 
   // depreciacaoMes/resultadoFinanceiroMes/outrasMes/ebtMes precisam vir
@@ -3002,7 +3089,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
-    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
   }, 0));
   const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
   const outrasMes = MESES.map((_, m) => parseNum(data.resultado.outrasReceitasDespesas?.[m]));
@@ -3032,7 +3119,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // Zero em qualquer linha sem o descasamento marcado (comportamento de
   // sempre, sem mudança).
   const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m)
-    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
   const ajustePagamentoMes = MESES.map((_, m) => despesasSemDAmes[m] - despesasCaixaMes[m]);
 
   const cg = data.capitalGiro;
@@ -3098,7 +3185,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 // FC Operacional do método indireto — são duas leituras do mesmo número.
 // ---------------------------------------------------------------------------
 function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
-  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
+  const pessoalCC = pessoalExtraTodosCCs(data, ref, dre, ipcaAnualPct);
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -3109,7 +3196,7 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
   // Versão em caixa — ver mesma nota em computeFluxoIndiretoMensal.
@@ -3119,7 +3206,7 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
   // pacote 'pessoal' (2026-08-23): não exclui mais — ver nota em
@@ -3130,7 +3217,7 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   // competência × caixa usam o valor de pagamento digitado à parte (ver
   // UNIDADES_COM_COMPETENCIA_CAIXA/valorLinhaMesCaixa).
   const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m));
-  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
+  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
@@ -3387,7 +3474,7 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     const linhasProducao = linhasCustos.filter(([chave]) => {
       const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
       return cc?.tipo === 'producao';
-    }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0);
+    }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes) > 0);
     checks.push({
       label: 'CPV: ao menos uma linha analítica lançada em CC de produção',
       ok: linhasProducao.length > 0,
@@ -3410,7 +3497,7 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   // por conta quando há mais de um fornecedor dentro dela.
   const linhasComValorSemJustificativa = linhasCustos.filter(([, contaRaw]) =>
     normalizarConta(contaRaw).sublinhas.some(sub =>
-      valorLinhaAnual(sub, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0 && !(sub.justificativa || '').trim()
+      valorLinhaAnual(sub, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes) > 0 && !(sub.justificativa || '').trim()
     )
   );
   checks.push({
@@ -4243,7 +4330,7 @@ export default function OrcamentoARA({ usuario }) {
   }
   // Atalho para Corporativo (retrocompatibilidade com call sites já existentes)
   function updatePremissasPessoalCorporativo(campo, valor) {
-    const COMPARTILHADOS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
+    const COMPARTILHADOS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'bonusMultiplicador', 'bonusPjMultiplicador', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
     if (COMPARTILHADOS.includes(campo)) {
       updatePremissasPessoalUnidade(['textil', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'], campo, valor);
     }
@@ -4681,7 +4768,7 @@ export default function OrcamentoARA({ usuario }) {
           const premissa = TIPOS_PREMISSA.find(t => t.id === sub.premissaTipo);
           const descricaoConta = sub.descricao ? `${conta?.nome || ''} — ${sub.descricao}` : (conta?.nome || '');
           MESES.forEach((m, mi) => {
-            const valor = valorSublinhaMes(sub, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes);
+            const valor = valorSublinhaMes(sub, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes, dreU.receitaHospedagemMes, dreU.receitaAebMes);
             if (valor === 0) return;
             linhasCustosExport.push([u.nome, cc?.nome || ccCodigo, cc?.tipo === 'producao' ? 'Custo' : 'Despesa', pacote?.nome || 'Sem pacote', contaCodigo, descricaoConta, premissa?.nome || sub.premissaTipo, m, valor, sub.justificativa || '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
           });
@@ -4703,6 +4790,9 @@ export default function OrcamentoARA({ usuario }) {
           if (v === 0) return;
           linhasCustosExport.push([u.nome, cc.nome, cc.tipo === 'producao' ? 'Custo' : 'Despesa', 'Pessoal', 'Novo Headcount', 'Novo Headcount (calculado)', 'Calculado', m, v, justificativa, d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
         });
+      });
+      linhasExportPessoalCalculado(d, refU, refU.ccs, dreU, ipcaAnualPct).forEach(([cc, pacote, conta, rotulo, mi, valor]) => {
+        linhasCustosExport.push([u.nome, cc.nome, cc.tipo === 'producao' ? 'Custo' : 'Despesa', pacote, conta, rotulo, 'Calculado', MESES[mi], valor, '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
       });
     });
     const wsC = XLSX.utils.aoa_to_sheet(linhasCustosExport);
@@ -4852,7 +4942,7 @@ export default function OrcamentoARA({ usuario }) {
         const premissa = TIPOS_PREMISSA.find(t => t.id === sub.premissaTipo);
         const descricaoConta = sub.descricao ? `${conta?.nome || ''} — ${sub.descricao}` : (conta?.nome || '');
         MESES.forEach((m, mi) => {
-          const valor = valorSublinhaMes(sub, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes);
+          const valor = valorSublinhaMes(sub, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes, dreU.receitaHospedagemMes, dreU.receitaAebMes);
           if (valor === 0) return;
           linhasCustosExport.push([unidadeObj.nome, cc?.nome || ccCodigo, cc?.tipo === 'producao' ? 'Custo' : 'Despesa', pacote?.nome || 'Sem pacote', contaCodigo, descricaoConta, premissa?.nome || sub.premissaTipo, m, valor, sub.justificativa || '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
         });
@@ -4870,6 +4960,9 @@ export default function OrcamentoARA({ usuario }) {
         if (v === 0) return;
         linhasCustosExport.push([unidadeObj.nome, cc.nome, cc.tipo === 'producao' ? 'Custo' : 'Despesa', 'Pessoal', 'Novo Headcount', 'Novo Headcount (calculado)', 'Calculado', m, v, justificativa, d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
       });
+    });
+    linhasExportPessoalCalculado(d, refU, refU.ccs.filter(cc => meusCcs.has(cc.codigo)), dreU, ipcaAnualPct).forEach(([cc, pacote, conta, rotulo, mi, valor]) => {
+      linhasCustosExport.push([unidadeObj.nome, cc.nome, cc.tipo === 'producao' ? 'Custo' : 'Despesa', pacote, conta, rotulo, 'Calculado', MESES[mi], valor, '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
     });
     const wsC = XLSX.utils.aoa_to_sheet(linhasCustosExport);
     wsC['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 10 }, { wch: 26 }, { wch: 10 }, { wch: 30 }, { wch: 18 }, { wch: 8 }, { wch: 14 }, { wch: 40 }, { wch: 14 }, { wch: 20 }, { wch: 16 }];
@@ -5181,9 +5274,13 @@ export default function OrcamentoARA({ usuario }) {
     MESES.forEach((m, i) => putS(wsFolha, 0, 3 + i, m)); putS(wsFolha, 0, 15, 'Total');
     let rf = 1;
     const folhaRowsByCC = {};
+    const dreExcel = computeDRE(d, refU, ipcaAnualPct, cambios);
+    const basesExcel = { receitaBrutaMes: dreExcel.receitaBrutaMes, receitaLiquidaMes: dreExcel.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dreExcel.volumeTotalKgMes, receitaHospedagemMes: dreExcel.receitaHospedagemMes, receitaAebMes: dreExcel.receitaAebMes };
+    const encNovoHcPct = parseNum(d.custos.premissasPessoal?.encargosNovoHcPct);
     (refU.ccs || []).forEach(cc => {
       const funcsCC = rowsFuncByRow.filter(x => x.cc === cc.codigo);
-      if (funcsCC.length === 0) return;
+      const calcCC = pessoalCalculadoPorCC(d, refU, cc.codigo, basesExcel);
+      if (funcsCC.length === 0 && calcCC.totalAnual === 0) return;
       function addFolhaRow(label, formulaPerMonth) {
         const row = rf;
         putS(wsFolha, rf, 0, cc.codigo); putS(wsFolha, rf, 1, cc.tipo); putS(wsFolha, rf, 2, label);
@@ -5192,11 +5289,32 @@ export default function OrcamentoARA({ usuario }) {
         rf++;
         return row;
       }
+      function addFolhaRowValores(label, valores) {
+        const row = rf;
+        putS(wsFolha, rf, 0, cc.codigo); putS(wsFolha, rf, 1, cc.tipo); putS(wsFolha, rf, 2, label);
+        valores.forEach((v, m) => putN(wsFolha, rf, 3 + m, v));
+        putF(wsFolha, rf, 15, `SUM(${colL(3)}${rf + 1}:${colL(14)}${rf + 1})`);
+        rf++;
+        return row;
+      }
+      // Linhas calculadas (bônus/meritocracia/dissídio do HC Existente, Bônus
+      // PJs, licença) entram como valor — mesma fonte da DRE da plataforma.
+      const rowsCalc = ROTULOS_PESSOAL_CALCULADO
+        .filter(([chave]) => calcCC[chave] && calcCC[chave].some(v => v))
+        .map(([chave, rotulo]) => addFolhaRowValores(`${rotulo} (calculado)`, calcCC[chave]));
+      const somaCalc = (m) => rowsCalc.map(r => `${colL(3 + m)}${r + 1}`).join('+') || '0';
+      if (funcsCC.length === 0) {
+        const rowTotalCalc = addFolhaRow('Total pessoal (CC)', m => somaCalc(m));
+        folhaRowsByCC[cc.codigo] = { cc, totalRow: rowTotalCalc, dec13Row: null };
+        return;
+      }
       const rowSal = addFolhaRow('Salários', m => funcsCC.map(x => `Premissas_Pessoal!${colL(5 + m)}${x.row + 1}`).join('+'));
       const rowEnc = addFolhaRow('Encargos (INSS+FGTS+Férias)', m => `${colL(3 + m)}${rowSal + 1}*(Premissas_Pessoal!$B$${refEncargo.inssPct + 1}+Premissas_Pessoal!$B$${refEncargo.fgtsPct + 1}+Premissas_Pessoal!$B$${refEncargo.feriasPct + 1})/100`);
       const row13 = addFolhaRow('13º salário (provisão)', m => `${colL(3 + m)}${rowSal + 1}*Premissas_Pessoal!$B$${refEncargo.decimoTerceiroPct + 1}/100`);
       const rowBenef = addFolhaRow('Benefícios', m => `(${funcsCC.map(x => `Premissas_Pessoal!${colL(17 + m)}${x.row + 1}`).join('+')})*(Premissas_Pessoal!$B$${refEncargo.valeTransporteValor + 1}+Premissas_Pessoal!$B$${refEncargo.cestaBasicaValor + 1}+Premissas_Pessoal!$B$${refEncargo.planoSaudeValor + 1}+Premissas_Pessoal!$B$${refEncargo.outrosBeneficiosValor + 1})`);
-      const rowTotal = addFolhaRow('Total da folha (CLT)', m => `${colL(3 + m)}${rowSal + 1}+${colL(3 + m)}${rowEnc + 1}+${colL(3 + m)}${row13 + 1}+${colL(3 + m)}${rowBenef + 1}`);
+      const rowFolhaClt = addFolhaRow('Folha CLT — Novo HC', m => `${colL(3 + m)}${rowSal + 1}+${colL(3 + m)}${rowEnc + 1}+${colL(3 + m)}${row13 + 1}+${colL(3 + m)}${rowBenef + 1}`);
+      const rowEncNovoHc = addFolhaRow(`Encargos e Benefícios Novo HC (${encNovoHcPct}%)`, m => `${colL(3 + m)}${rowFolhaClt + 1}*${encNovoHcPct}/100`);
+      const rowTotal = addFolhaRow('Total pessoal (CC)', m => `${colL(3 + m)}${rowFolhaClt + 1}+${colL(3 + m)}${rowEncNovoHc + 1}+${somaCalc(m)}`);
       folhaRowsByCC[cc.codigo] = { cc, totalRow: rowTotal, dec13Row: row13 };
     });
     finish(wsFolha, rf, 16, undefined);
@@ -5274,7 +5392,7 @@ export default function OrcamentoARA({ usuario }) {
       const estCur = `${colL(1 + m)}${rowEst + 1}`, estPrev = m === 0 ? `$B$${rowEstIni + 1}` : `${colL(m)}${rowEst + 1}`;
       return `-(${arCur}-${arPrev})-(${estCur}-${estPrev})+(${apCur}-${apPrev})`;
     });
-    const folhaTodos = Object.values(folhaRowsByCC);
+    const folhaTodos = Object.values(folhaRowsByCC).filter(x => x.dec13Row !== null);
     const rowDec13Total = addKgRow('13º salário — provisão total (referência)', m => folhaTodos.length ? folhaTodos.map(x => `Pessoal_Folha!${colL(3 + m)}${x.dec13Row + 1}`).join('+') : '0');
     const rowPag13 = addKgRow('Pagamento do 13º (nov/dez, metade cada)', m => (m === 10 || m === 11) ? `SUM(${colL(1)}${rowDec13Total + 1}:${colL(12)}${rowDec13Total + 1})/2` : '0');
     const rowAjuste13 = addKgRow('(+/-) Ajuste 13º (competência × caixa)', m => `${colL(1 + m)}${rowDec13Total + 1}-${colL(1 + m)}${rowPag13 + 1}`);
@@ -5312,7 +5430,8 @@ export default function OrcamentoARA({ usuario }) {
       return `-(-DRE_Mensal!${colL(1 + m)}${rowCpv + 1}+(${estCur}-${estPrev})-(${apCur}-${apPrev}))`;
     });
     addFdRow('(-) Pagamentos de Pessoal', m => {
-      const totalFolha = folhaTodos.length ? folhaTodos.map(x => `Pessoal_Folha!${colL(3 + m)}${x.totalRow + 1}`).join('+') : '0';
+      const pessoalTodos = Object.values(folhaRowsByCC);
+      const totalFolha = pessoalTodos.length ? pessoalTodos.map(x => `Pessoal_Folha!${colL(3 + m)}${x.totalRow + 1}`).join('+') : '0';
       return `-((${totalFolha})-(Kgiro_FC_Operacional!${colL(1 + m)}${rowDec13Total + 1})+(Kgiro_FC_Operacional!${colL(1 + m)}${rowPag13 + 1}))`;
     });
     addFdRow('(-) Pagamentos de Despesas', m => `-Kgiro_FC_Operacional!${colL(1 + m)}${rowDespesasCaixa + 1}`);
@@ -6383,7 +6502,7 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
   }
   const ccAtual = refUnidade.ccs.find(c => c.codigo === ccSel) || refUnidade.ccs[0];
   function chaveLinha(contaCodigo) { return `${ccSel}|${contaCodigo}`; }
-  function totalConta(contaCodigo) { return valorLinhaAnual(linhas[chaveLinha(contaCodigo)], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes); }
+  function totalConta(contaCodigo) { return valorLinhaAnual(linhas[chaveLinha(contaCodigo)], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes); }
   const gruposPacote = (refUnidade.pacotes || [])
     .map(p => ({ ...p, contas: contasDoPacoteNoCc(refUnidade.planoContas, p.id, ccAtual, unidadeId) }))
     .filter(g => g.contas.length > 0);
@@ -6393,7 +6512,9 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
   const folhaAtual = computeFolhaPessoalAnual(funcionariosCC.filter(f => f.origem === 'novo'), premissasPessoal);
   // Pessoal (2026-08-23): soma folha (CLT, só Novo Headcount) + contas do
   // pacote (Headcount Existente + Consultórias PJs no Corporativo).
-  const totalCC = gruposPacote.reduce((acc, g) => acc + g.contas.reduce((a, c) => a + totalConta(c.codigo), 0), 0) + folhaAtual.totalAnual;
+  const basesLeitura = { receitaBrutaMes: dre.receitaBrutaMes, receitaLiquidaMes: dre.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dre.volumeTotalKgMes, receitaHospedagemMes: dre.receitaHospedagemMes, receitaAebMes: dre.receitaAebMes };
+  const pessoalExtraLeitura = pessoalExtraPorCC({ custos: { linhas, funcionarios, premissasPessoal } }, refUnidade, ccSel, basesLeitura);
+  const totalCC = gruposPacote.reduce((acc, g) => acc + g.contas.reduce((a, c) => a + totalConta(c.codigo), 0), 0) + pessoalExtraLeitura.anual;
 
   return (
     <div>
@@ -9374,7 +9495,7 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
   );
 }
 
-function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, folhaCC, encargosNovoHcPct }) {
+function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, folhaCC, encargosNovoHcPct, calcPessoalCC }) {
   const [ccsAbertos, setCcsAbertos] = useState({});
   const [pacotesAbertos, setPacotesAbertos] = useState({});
 
@@ -9386,12 +9507,14 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
   function totalFolhaCCMes(ccCodigo, m) {
     const folhaNovo = (folhaCC(ccCodigo).mensal[m]?.total || 0) * _fatorEncNovoHc;
     const hcExistente = contasHCPessoal.reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0);
-    return folhaNovo + hcExistente;
+    const calc = calcPessoalCC(ccCodigo);
+    return folhaNovo + hcExistente + calc.totalMes[m] - (calc.licencaSoftware?.[m] || 0);
   }
   function totalPacoteCCMes(ccCodigo, pacoteId, m) {
     const contas = (refUnidade.planoContas[pacoteId] || []).filter(c => c.nome !== 'Headcount Existente');
     const totalContas = contas.reduce((acc, c) => acc + totalContaMesPorCC(ccCodigo, c.codigo, m), 0);
-    return totalContas + (pacoteId === 'pessoal' ? totalFolhaCCMes(ccCodigo, m) : 0);
+    const licenca = contas.some(c => c.codigo === 'CORP10') ? (calcPessoalCC(ccCodigo).licencaSoftware?.[m] || 0) : 0;
+    return totalContas + licenca + (pacoteId === 'pessoal' ? totalFolhaCCMes(ccCodigo, m) : 0);
   }
   function totalCCMes(ccCodigo, m) {
     return refUnidade.pacotes.reduce((acc, p) => acc + totalPacoteCCMes(ccCodigo, p.id, m), 0);
@@ -9571,10 +9694,10 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   // (ex.: Transporte de Pessoal é 'Custo' dentro de uma área majoritariamente
   // 'Adm'), por isso a origem é resolvida por CC, não herdada da área.
   function totalContaAnualCC(ccCodigo, contaCodigo) {
-    return valorLinhaAnual(linhas[`${ccCodigo}|${contaCodigo}`], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+    return valorLinhaAnual(linhas[`${ccCodigo}|${contaCodigo}`], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
   }
   function totalContaMesCC(ccCodigo, contaCodigo, m) {
-    return valorLinhaMes(linhas[`${ccCodigo}|${contaCodigo}`], m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+    return valorLinhaMes(linhas[`${ccCodigo}|${contaCodigo}`], m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
   }
   function contasDoCc(cc) {
     const mapeadas = (unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') ? CONTAS_POR_CC_AGRICOLA[cc.codigo] : undefined;
@@ -9583,15 +9706,23 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     return mapeadas ? rawContas.filter(c => c.nome === 'Headcount Existente' || mapeadas.includes(c.codigo)) : rawContas;
   }
   const _fatorEncNovoHc = 1 + parseNum(premissasPessoal?.encargosNovoHcPct) / 100;
+  const _basesPessoal = { receitaBrutaMes: dre.receitaBrutaMes, receitaLiquidaMes: dre.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dre.volumeTotalKgMes, receitaHospedagemMes: dre.receitaHospedagemMes, receitaAebMes: dre.receitaAebMes };
+  const _cacheCalcPessoal = {};
+  function calcPessoalCC(ccCodigo) {
+    if (!_cacheCalcPessoal[ccCodigo]) {
+      _cacheCalcPessoal[ccCodigo] = pessoalCalculadoPorCC({ custos: { linhas, funcionarios, premissasPessoal } }, refUnidade, ccCodigo, _basesPessoal);
+    }
+    return _cacheCalcPessoal[ccCodigo];
+  }
   function totalCcAnual(ccCodigo) {
     const cc = refUnidade.ccs.find(c => c.codigo === ccCodigo);
     if (!cc) return 0;
-    return contasDoCc(cc).reduce((acc, c) => acc + totalContaAnualCC(ccCodigo, c.codigo), 0) + folhaCC(ccCodigo).totalAnual * _fatorEncNovoHc;
+    return contasDoCc(cc).reduce((acc, c) => acc + totalContaAnualCC(ccCodigo, c.codigo), 0) + folhaCC(ccCodigo).totalAnual * _fatorEncNovoHc + calcPessoalCC(ccCodigo).totalAnual;
   }
   function totalCcMes(ccCodigo, m) {
     const cc = refUnidade.ccs.find(c => c.codigo === ccCodigo);
     if (!cc) return 0;
-    return contasDoCc(cc).reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0) + (folhaCC(ccCodigo).mensal[m]?.total || 0) * _fatorEncNovoHc;
+    return contasDoCc(cc).reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0) + (folhaCC(ccCodigo).mensal[m]?.total || 0) * _fatorEncNovoHc + calcPessoalCC(ccCodigo).totalMes[m];
   }
   function totalConta(contaCodigo) { return totalContaAnualCC(ccSel, contaCodigo); }
   function totalContaMes(contaCodigo, m) { return totalContaMesCC(ccSel, contaCodigo, m); }
@@ -9709,87 +9840,46 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const contasSemPacote = []; // Matriz_Governanca_OBZ_2027_4: 100% das contas Têxtil classificadas
   const todasContasCC = [...gruposPacote.flatMap(g => g.contas), ...contasSemPacote];
   const folhaAtual = folhaCC(ccSel);
-  const totalCC = todasContasCC.reduce((acc, c) => acc + totalConta(c.codigo), 0) + folhaAtual.totalAnual;
+  const totalPessoalExtraCcMes = MESES.map((_, m) => folhaAtual.mensal[m].total * _fatorEncNovoHc + calcPessoalCC(ccSel).totalMes[m]);
+  const totalCC = todasContasCC.reduce((acc, c) => acc + totalConta(c.codigo), 0) + totalPessoalExtraCcMes.reduce((a, v) => a + v, 0);
 
   // Linhas calculadas Pessoal — Corporativo (2026-09-19): Dissídio,
   // Meritocracia, Bônus e Encargos Novo HC — todas derivadas das
   // premissasPessoal da unidade (nenhum valor hardcoded).
   const _ppC = premissasPessoal || {};
-  const _hcExisteContaCorp = unidadeId === 'corporativo'
+  // Meritocracia/dissídio/bônus do HC Existente, Bônus PJs e licença vêm de
+  // pessoalCalculadoPorCC — a mesma função da DRE, então tela e DRE batem.
+  const _ehCorp = unidadeId === 'corporativo';
+  const _calcCC = calcPessoalCC(ccSel);
+  const _hcExisteContaCorp = _ehCorp
     ? (refUnidade.planoContas?.['pessoal'] || []).find(c => c.nome === 'Headcount Existente')
     : null;
-  const hcExistenteMesCorp = _hcExisteContaCorp
-    ? MESES.map((_, m) => totalContaMes(_hcExisteContaCorp.codigo, m))
-    : null;
   const _dissidioMesIdxC = _ppC.dissidioMes ? MESES.indexOf(_ppC.dissidioMes) : -1;
-  const _meritMesIdxC = _ppC.meritocraciaMes ? MESES.indexOf(_ppC.meritocraciaMes) : -1;
-  const _bonusMesIdxC = _ppC.bonusMes ? MESES.indexOf(_ppC.bonusMes) : -1;
-  const _bonusPjMesIdxC = _ppC.bonusPjMes ? MESES.indexOf(_ppC.bonusPjMes) : -1;
-  const meritocraciaRowCorp = hcExistenteMesCorp
-    ? MESES.map((_, m) => _meritMesIdxC >= 0 && m >= _meritMesIdxC ? hcExistenteMesCorp[m] * parseNum(_ppC.meritocraciaPct) / 100 : 0)
-    : null;
-  const dissidioRowCorp = hcExistenteMesCorp
-    ? MESES.map((_, m) => {
-        if (_dissidioMesIdxC < 0 || m < _dissidioMesIdxC) return 0;
-        const meritBase = meritocraciaRowCorp ? meritocraciaRowCorp[m] : 0;
-        return (hcExistenteMesCorp[m] + meritBase) * parseNum(_ppC.dissidioPct) / 100;
-      })
-    : null;
-  const bonusRowCorp = hcExistenteMesCorp
-    ? MESES.map((_, m) => _bonusMesIdxC >= 0 && m === _bonusMesIdxC ? hcExistenteMesCorp[_bonusMesIdxC] * parseNum(_ppC.bonusPct) / 100 : 0)
-    : null;
-  const encargosNovoHcRowCorp = unidadeId === 'corporativo'
+  const _dissidioMesIdx2T = _ppC.dissidioMes2 ? MESES.indexOf(_ppC.dissidioMes2) : -1;
+  const _somaRow = (row) => row ? row.reduce((a, v) => a + v, 0) : 0;
+
+  const hcExistenteMesCorp = _ehCorp ? _calcCC.hcExistenteMes : null;
+  const meritocraciaRowCorp = _ehCorp ? _calcCC.meritocracia : null;
+  const dissidioRowCorp = _ehCorp ? _calcCC.dissidio1 : null;
+  const bonusRowCorp = _ehCorp ? _calcCC.bonus : null;
+  const encargosNovoHcRowCorp = _ehCorp
     ? MESES.map((_, m) => folhaAtual.mensal[m].total * parseNum(_ppC.encargosNovoHcPct) / 100)
     : null;
-  const _somaRow = (row) => row ? row.reduce((a, v) => a + v, 0) : 0;
-  // Bônus PJs (CORP03, Corporativo): % de atingimento aplicado sobre o total
-  // anual lançado pelo gestor, pago no mês definido em Gestão do Orçamento.
-  const corp03MesCorp = unidadeId === 'corporativo'
-    ? MESES.map((_, m) => totalContaMes(CONTA_CONSULTORIA_PJ, m))
-    : null;
-  const bonusPjRowCorp = corp03MesCorp && _bonusPjMesIdxC >= 0
-    ? MESES.map((_, m) => m === _bonusPjMesIdxC ? (corp03MesCorp[_bonusPjMesIdxC] || 0) * parseNum(_ppC.bonusPjAtendimentoPct) / 100 : 0)
-    : null;
-  // Licença de software e CAPEX por novo headcount (2026-09-19): one-shot no
-  // mês de admissão. Conta novos HCs do CC selecionado por mês de entrada.
-  const novoHcPorMesCorp = unidadeId === 'corporativo'
-    ? MESES.map(mes => (funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo' && f.mesAdmissao === mes).length)
-    : null;
-  const licencaSoftwareNovoHcRowCorp = novoHcPorMesCorp
-    ? MESES.map((_, m) => novoHcPorMesCorp.slice(0, m + 1).reduce((a, v) => a + v, 0) * parseNum(_ppC.licencaSoftwareNovoHcValor || '2700') / 12)
-    : null;
-  const totalCalculadosCorp = _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp) + _somaRow(encargosNovoHcRowCorp) + _somaRow(bonusPjRowCorp);
+  const corp03MesCorp = _ehCorp ? MESES.map((_, m) => totalContaMes(CONTA_CONSULTORIA_PJ, m)) : null;
+  const bonusPjRowCorp = _ehCorp ? _calcCC.bonusPj : null;
+  const licencaSoftwareNovoHcRowCorp = _ehCorp ? _calcCC.licencaSoftware : null;
 
-  // Linhas calculadas Pessoal — unidades não-Corporativo (Têxtil, Resorts, Agrícola):
-  // Dissídio (dois ciclos), Meritocracia e Bônus derivados das premissasPessoal da unidade.
-  const _hcExisteContasTextil = unidadeId !== 'corporativo'
+  const _hcExisteContasTextil = !_ehCorp
     ? (refUnidade.planoContas?.['pessoal'] || []).filter(c => c.codigo.startsWith('HC_EXISTENTE'))
     : [];
-  const hcExistenteMesTextil = _hcExisteContasTextil.length > 0
-    ? MESES.map((_, m) => _hcExisteContasTextil.reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0))
-    : null;
-  const _dissidioMesIdx2T = _ppC.dissidioMes2 ? MESES.indexOf(_ppC.dissidioMes2) : -1;
-  const meritocraciaRowTextil = hcExistenteMesTextil
-    ? MESES.map((_, m) => _meritMesIdxC >= 0 && m >= _meritMesIdxC ? hcExistenteMesTextil[m] * parseNum(_ppC.meritocraciaPct) / 100 : 0)
-    : null;
-  const dissidioRow1Textil = hcExistenteMesTextil
-    ? MESES.map((_, m) => {
-        if (_dissidioMesIdxC < 0 || m < _dissidioMesIdxC) return 0;
-        const meritBase = meritocraciaRowTextil ? meritocraciaRowTextil[m] : 0;
-        return (hcExistenteMesTextil[m] + meritBase) * parseNum(_ppC.dissidioPct) / 100;
-      })
-    : null;
-  const dissidioRow2Textil = hcExistenteMesTextil
-    ? MESES.map((_, m) => {
-        if (_dissidioMesIdx2T < 0 || m < _dissidioMesIdx2T) return 0;
-        const meritBase = meritocraciaRowTextil ? meritocraciaRowTextil[m] : 0;
-        return (hcExistenteMesTextil[m] + meritBase) * parseNum(_ppC.dissidioPct2) / 100;
-      })
-    : null;
-  const bonusRowTextil = hcExistenteMesTextil
-    ? MESES.map((_, m) => _bonusMesIdxC >= 0 && m === _bonusMesIdxC ? hcExistenteMesTextil[_bonusMesIdxC] * parseNum(_ppC.bonusPct) / 100 : 0)
-    : null;
-  const totalCalculadosTextil = _somaRow(dissidioRow1Textil) + _somaRow(dissidioRow2Textil) + _somaRow(meritocraciaRowTextil) + _somaRow(bonusRowTextil);
+  const hcExistenteMesTextil = !_ehCorp ? _calcCC.hcExistenteMes : null;
+  const meritocraciaRowTextil = !_ehCorp ? _calcCC.meritocracia : null;
+  const dissidioRow1Textil = !_ehCorp ? _calcCC.dissidio1 : null;
+  const dissidioRow2Textil = !_ehCorp ? _calcCC.dissidio2 : null;
+  const bonusRowTextil = !_ehCorp ? _calcCC.bonus : null;
+  // Pessoal calculado do CC (folha Novo HC com encargos + linhas calculadas,
+  // sem a licença, que fica no pacote da CORP10) — mesma conta da DRE.
+  const pessoalCalculadoCcMes = MESES.map((_, m) => folhaAtual.mensal[m].total * _fatorEncNovoHc + _calcCC.totalMes[m] - (_calcCC.licencaSoftware?.[m] || 0));
   // Dissídio do Novo HC: folhaAtual já tem o salário reajustado (ver
   // computeFolhaPessoalMes), então a linha de dissídio é só o ACRÉSCIMO
   // (folha com − folha sem) e a linha de folha mostra o valor sem dissídio.
@@ -9881,7 +9971,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                 Soma de todos os Centros de Custo desta unidade, agrupada por CC → Conta sintética (Pacote) → Conta analítica —
                 clique numa linha com seta para abrir a quebra. Só visível para Admin FP&A.
               </p>
-              <VisaoConsolidadaPorCC refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} encargosNovoHcPct={premissasPessoal?.encargosNovoHcPct} />
+              <VisaoConsolidadaPorCC refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} encargosNovoHcPct={premissasPessoal?.encargosNovoHcPct} calcPessoalCC={calcPessoalCC} />
             </div>
           )}
         </div>
@@ -9916,10 +10006,8 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
               label: unidadeId === 'corporativo'
                 ? `${g.nome} (HC Existente + Novo Headcount + PJs)`
                 : `${g.nome} (CLT — folha calculada + Consultórias PJs)`,
-              valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + totalPacoteMes(g.contas, m)
-                + (unidadeId === 'corporativo' ? (dissidioRowCorp?.[m] || 0) + (meritocraciaRowCorp?.[m] || 0) + (bonusRowCorp?.[m] || 0) + (encargosNovoHcRowCorp?.[m] || 0) + (bonusPjRowCorp?.[m] || 0) + (licencaSoftwareNovoHcRowCorp?.[m] || 0) : 0)),
-              totalValor: folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
-                + (unidadeId === 'corporativo' ? totalCalculadosCorp : 0),
+              valoresMensal: MESES.map((_, m) => pessoalCalculadoCcMes[m] + totalPacoteMes(g.contas, m)),
+              totalValor: _somaRow(pessoalCalculadoCcMes) + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0),
               cor: COR.azul,
             } : {
               key: g.id,
@@ -9938,7 +10026,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             {
               key: '__total_cc__',
               label: `Total ${ccAtual.nome}`,
-              valoresMensal: MESES.map((_, m) => todasContasCC.reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0) + folhaAtual.mensal[m].total),
+              valoresMensal: MESES.map((_, m) => todasContasCC.reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0) + totalPessoalExtraCcMes[m]),
               totalValor: totalCC,
               cor: COR.laranja,
             },
@@ -10043,8 +10131,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
         // Pessoal (2026-08-23): CLT (folha calculada) + eventuais contas
         // analíticas do pacote (Consultórias PJs, só Corporativo).
         const totalPacote = g.id === 'pessoal'
-          ? folhaAtual.totalAnual + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
-            + (unidadeId === 'corporativo' ? totalCalculadosCorp : totalCalculadosTextil)
+          ? _somaRow(pessoalCalculadoCcMes) + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
           : g.contas.reduce((acc, c) => acc + totalConta(c.codigo) + (c.codigo === 'CORP10' && unidadeId === 'corporativo' ? _somaRow(licencaSoftwareNovoHcRowCorp) : 0), 0);
         const pacoteAberto = !!pacotesAbertos[g.id];
         return (
@@ -10103,7 +10190,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus — % do mês</label>
-                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPct ? `${_ppC.bonusPct}%` : '—'}</span>
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPct ? `${_ppC.bonusPct}%${_ppC.bonusMultiplicador ? ` × ${_ppC.bonusMultiplicador}` : ''}` : '—'}</span>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Encargos — Novo HC (%)</label>
@@ -10115,7 +10202,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus PJs — atingimento (%)</label>
-                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPjAtendimentoPct ? `${_ppC.bonusPjAtendimentoPct}%` : '—'}</span>
+                                <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPjAtendimentoPct ? `${_ppC.bonusPjAtendimentoPct}%${_ppC.bonusPjMultiplicador ? ` × ${_ppC.bonusPjMultiplicador}` : ''}` : '—'}</span>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                                 <label style={{ fontSize: 10.5, color: '#7A8088' }}>Licença Software — Novo HC (R$)</label>
@@ -10176,7 +10263,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                           { key: 'hcBase', label: 'Headcount Existente (DP)', valoresMensal: hcExistenteMesCorp, totalValor: _somaRow(hcExistenteMesCorp), cor: COR.texto },
                                           ...(meritocraciaRowCorp ? [{ key: 'meritocracia', label: `Meritocracia${_ppC.meritocraciaMes ? ` — a partir de ${_ppC.meritocraciaMes}, ${_ppC.meritocraciaPct || '0'}%` : ''}`, valoresMensal: meritocraciaRowCorp, totalValor: _somaRow(meritocraciaRowCorp), cor: COR.texto }] : []),
                                           ...(dissidioRowCorp ? [{ key: 'dissidio', label: `Dissídio${_ppC.dissidioMes ? ` — a partir de ${_ppC.dissidioMes}, ${_ppC.dissidioPct || '0'}%` : ''}`, valoresMensal: dissidioRowCorp, totalValor: _somaRow(dissidioRowCorp), cor: COR.texto }] : []),
-                                          ...(bonusRowCorp ? [{ key: 'bonus', label: `Bônus${_ppC.bonusMes ? ` — ${_ppC.bonusMes}, ${_ppC.bonusPct || '0'}%` : ''}`, valoresMensal: bonusRowCorp, totalValor: _somaRow(bonusRowCorp), cor: COR.texto }] : []),
+                                          ...(bonusRowCorp ? [{ key: 'bonus', label: `Bônus${_ppC.bonusMes ? ` — ${_ppC.bonusMes}, ${_ppC.bonusMultiplicador ? `${_ppC.bonusMultiplicador}× · ` : ''}${_ppC.bonusPct || '0'}%` : ''}`, valoresMensal: bonusRowCorp, totalValor: _somaRow(bonusRowCorp), cor: COR.texto }] : []),
                                           {
                                             key: 'totalHcEx', label: 'Total — HC Existente',
                                             valoresMensal: hcExistenteMesCorp.map((v, m) => v + (dissidioRowCorp?.[m] || 0) + (meritocraciaRowCorp?.[m] || 0) + (bonusRowCorp?.[m] || 0)),
@@ -10258,7 +10345,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               linhasCalculadas={bonusPjRowCorp ? [
                                 {
                                   key: 'bonusPj',
-                                  label: `Bônus PJs${_ppC.bonusPjMes ? ` — ${_ppC.bonusPjMes}, ${_ppC.bonusPjAtendimentoPct || '0'}% atingimento` : ''}`,
+                                  label: `Bônus PJs${_ppC.bonusPjMes ? ` — ${_ppC.bonusPjMes}, ${_ppC.bonusPjMultiplicador ? `${_ppC.bonusPjMultiplicador}× · ` : ''}${_ppC.bonusPjAtendimentoPct || '0'}% atingimento` : ''}`,
                                   valoresMensal: bonusPjRowCorp,
                                   totalValor: _somaRow(bonusPjRowCorp),
                                   cor: '#8A8F96',
@@ -10343,7 +10430,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                 </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                                   <label style={{ fontSize: 10.5, color: '#7A8088' }}>Bônus — %</label>
-                                  <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPct ? `${_ppC.bonusPct}%` : '—'}</span>
+                                  <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPct ? `${_ppC.bonusPct}%${_ppC.bonusMultiplicador ? ` × ${_ppC.bonusMultiplicador}` : ''}` : '—'}</span>
                                 </div>
                               </>}
                             </div>
@@ -10397,7 +10484,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                       ...(meritocraciaRowTextil ? [{ key: 'meritocracia', label: `Meritocracia${_ppC.meritocraciaMes ? ` — a partir de ${_ppC.meritocraciaMes}, ${_ppC.meritocraciaPct || '0'}%` : ''}`, valoresMensal: meritocraciaRowTextil, totalValor: _somaRow(meritocraciaRowTextil), cor: COR.texto }] : []),
                                       ...(dissidioRow1Textil ? [{ key: 'dissidio1', label: `Dissídio${_ppC.dissidioMes ? ` — a partir de ${_ppC.dissidioMes}, ${_ppC.dissidioPct || '0'}%` : ''}`, valoresMensal: dissidioRow1Textil, totalValor: _somaRow(dissidioRow1Textil), cor: COR.texto }] : []),
                                       ...(dissidioRow2Textil ? [{ key: 'dissidio2', label: `Dissídio 2${_ppC.dissidioMes2 ? ` — a partir de ${_ppC.dissidioMes2}, ${_ppC.dissidioPct2 || '0'}%` : ''}`, valoresMensal: dissidioRow2Textil, totalValor: _somaRow(dissidioRow2Textil), cor: COR.texto }] : []),
-                                      ...(bonusRowTextil ? [{ key: 'bonus', label: `Bônus${_ppC.bonusMes ? ` — ${_ppC.bonusMes}, ${_ppC.bonusPct || '0'}%` : ''}`, valoresMensal: bonusRowTextil, totalValor: _somaRow(bonusRowTextil), cor: COR.texto }] : []),
+                                      ...(bonusRowTextil ? [{ key: 'bonus', label: `Bônus${_ppC.bonusMes ? ` — ${_ppC.bonusMes}, ${_ppC.bonusMultiplicador ? `${_ppC.bonusMultiplicador}× · ` : ''}${_ppC.bonusPct || '0'}%` : ''}`, valoresMensal: bonusRowTextil, totalValor: _somaRow(bonusRowTextil), cor: COR.texto }] : []),
                                       {
                                         key: 'totalHcEx', label: 'Total — HC Existente',
                                         valoresMensal: hcExistenteMesTextil.map((v, m) => v + (dissidioRow1Textil?.[m] || 0) + (dissidioRow2Textil?.[m] || 0) + (meritocraciaRowTextil?.[m] || 0) + (bonusRowTextil?.[m] || 0)),
@@ -11035,11 +11122,12 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
     return Object.entries(dados.custos.linhas || {}).reduce((acc, [chave, linha]) => {
       const partes = chave.split('|');
       if (partes.length < 2 || partes[1] !== contaCodigo) return acc;
-      return acc + valorLinhaMes(linha, m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      return acc + valorLinhaMes(linha, m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
+  const pessoalExtraCC = pessoalExtraTodosCCs(dados, refUnidade, dre, ipcaAnualPct);
   const pessoalMes = MESES.map((_, m) => {
-    const folha = refUnidade.ccs.reduce((acc, cc) => acc + (folhaAnualPorCC(dados, cc.codigo).mensal[m]?.total || 0), 0);
+    const folha = refUnidade.ccs.reduce((acc, cc) => acc + (pessoalExtraCC[cc.codigo]?.mes[m] || 0), 0);
     const contasHCPac = (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente');
     const hc = contasHCPac.reduce((accC, c) => accC + competenciaMesContas(c.codigo, m), 0);
     return folha + hc;
@@ -11264,13 +11352,14 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
     return Object.entries(dados.custos.linhas || {}).reduce((acc, [chave, linha]) => {
       const partes = chave.split('|');
       if (partes.length < 2 || partes[1] !== contaCodigo) return acc;
-      return acc + valorLinhaMes(linha, m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      return acc + valorLinhaMes(linha, m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
 
   // Total Pessoal = folha CLT (novo HC) + HC Existente, todas as CCs.
+  const pessoalExtraCC = pessoalExtraTodosCCs(dados, refUnidade, dre, ipcaAnualPct);
   const pessoalMes = MESES.map((_, m) => {
-    const folha = refUnidade.ccs.reduce((acc, cc) => acc + (folhaAnualPorCC(dados, cc.codigo).mensal[m]?.total || 0), 0);
+    const folha = refUnidade.ccs.reduce((acc, cc) => acc + (pessoalExtraCC[cc.codigo]?.mes[m] || 0), 0);
     const contasHCPac = (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente');
     const hc = contasHCPac.reduce((accC, c) => accC + competenciaMesContas(c.codigo, m), 0);
     return folha + hc;
@@ -12734,7 +12823,7 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes, ipcaAnua
     const linhas = [];
     chaves.forEach((chave) => {
       const [ccCodigo, contaCodigo] = chave.split('|');
-      const totalAtual = valorLinhaAnual(linhasAtuais[chave], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      const totalAtual = valorLinhaAnual(linhasAtuais[chave], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
       const totalVersao = valorLinhaAnual(linhasVersao[chave], dreVersao.receitaBrutaMes, dreVersao.receitaLiquidaMes, ipcaAnualPct, dreVersao.volumeTotalKgMes);
       const diff = totalAtual - totalVersao;
       if (Math.abs(diff) < 0.01) return;
@@ -12948,7 +13037,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const _propInicial = useRef(false);
-  const COMPARTILHADOS_PREMISSAS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
+  const COMPARTILHADOS_PREMISSAS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'bonusMultiplicador', 'bonusPjMultiplicador', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
   const OUTRAS_UNIDADES = ['textil', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'];
   useEffect(() => {
     if (_propInicial.current) return;
@@ -13073,6 +13162,10 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus — % do mês</label>
                     <CampoNumero value={_pp.bonusPct} onChange={v => updatePremissasPessoalCorporativo('bonusPct', v)} sufixo="%" placeholder="0,00" />
                   </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }} title="Bônus = HC Existente do mês × multiplicador × % — vale para o Corporativo e todas as unidades">Bônus — multiplicador (×)</label>
+                    <CampoNumero value={_pp.bonusMultiplicador} onChange={v => updatePremissasPessoalCorporativo('bonusMultiplicador', v)} sufixo="×" placeholder="1,0" />
+                  </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos — Novo HC (%)</label>
                     <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => updatePremissasPessoalCorporativo('encargosNovoHcPct', v)} sufixo="%" placeholder="0,00" />
@@ -13085,6 +13178,10 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus PJs — atingimento (%)</label>
                     <CampoNumero value={_pp.bonusPjAtendimentoPct} onChange={v => updatePremissasPessoalCorporativo('bonusPjAtendimentoPct', v)} sufixo="%" placeholder="0,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }} title="Bônus PJs = Valor projetado do mês × multiplicador × % de atingimento">Bônus PJs — multiplicador (×)</label>
+                    <CampoNumero value={_pp.bonusPjMultiplicador} onChange={v => updatePremissasPessoalCorporativo('bonusPjMultiplicador', v)} sufixo="×" placeholder="1,0" />
                   </div>
                   <div style={{ width: '100%', borderTop: `1px solid ${COR.borda}`, margin: '8px 0' }} />
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>

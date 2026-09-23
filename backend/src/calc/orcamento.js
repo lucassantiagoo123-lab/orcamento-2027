@@ -426,6 +426,59 @@ export function computeFolhaPessoalAnual(funcionariosCC, premissas) {
 // nota completa lá): sai do cálculo por funcionário, vira a conta analítica
 // "Headcount Existente" do pacote Pessoal, somada como qualquer conta em
 // custos.linhas (ver cpv/despesasSemDA abaixo). Só 'novo' passa por aqui.
+// Espelho de pessoalCalculadoPorCC/pessoalExtraPorCC do frontend — ver nota lá.
+const CONTA_CONSULTORIA_PJ = 'CORP03';
+function multiplicadorBonus(v) {
+  return v === undefined || v === null || String(v).trim() === '' ? 1 : parseNum(v);
+}
+export function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
+  const pp = data.custos.premissasPessoal || {};
+  const linhas = data.custos.linhas || {};
+  const idx = (mes) => (mes ? MESES.indexOf(mes) : -1);
+  const valorContaMes = (conta, m) => valorLinhaMes(linhas[`${ccCodigo}|${conta}`], m, bases.receitaBrutaMes, bases.receitaLiquidaMes, bases.ipcaAnualPct, bases.volumeTotalKgMes, bases.receitaHospedagemMes, bases.receitaAebMes);
+  const ehCorporativo = !!ref.todasContas?.[CONTA_CONSULTORIA_PJ];
+  const contasPessoal = ref.planoContas?.pessoal || [];
+  const contasHc = ehCorporativo
+    ? contasPessoal.filter(c => c.nome === 'Headcount Existente').slice(0, 1)
+    : contasPessoal.filter(c => c.codigo.startsWith('HC_EXISTENTE'));
+  const hcMes = contasHc.length > 0 ? MESES.map((_, m) => contasHc.reduce((acc, c) => acc + valorContaMes(c.codigo, m), 0)) : null;
+
+  const iMerit = idx(pp.meritocraciaMes);
+  const iBonus = idx(pp.bonusMes);
+  const iBonusPj = idx(pp.bonusPjMes);
+  const meritocracia = hcMes ? MESES.map((_, m) => (iMerit >= 0 && m >= iMerit ? hcMes[m] * parseNum(pp.meritocraciaPct) / 100 : 0)) : null;
+  const dissidioSobreHc = (iD, pct) => MESES.map((_, m) => (iD < 0 || m < iD ? 0 : (hcMes[m] + (meritocracia?.[m] || 0)) * parseNum(pct) / 100));
+  const dissidio1 = hcMes ? dissidioSobreHc(idx(pp.dissidioMes), pp.dissidioPct) : null;
+  const dissidio2 = hcMes && !ehCorporativo ? dissidioSobreHc(idx(pp.dissidioMes2), pp.dissidioPct2) : null;
+  const bonus = hcMes
+    ? MESES.map((_, m) => (iBonus >= 0 && m === iBonus ? hcMes[iBonus] * multiplicadorBonus(pp.bonusMultiplicador) * parseNum(pp.bonusPct) / 100 : 0))
+    : null;
+  const bonusPj = ehCorporativo && iBonusPj >= 0
+    ? MESES.map((_, m) => (m === iBonusPj ? valorContaMes(CONTA_CONSULTORIA_PJ, iBonusPj) * multiplicadorBonus(pp.bonusPjMultiplicador) * parseNum(pp.bonusPjAtendimentoPct) / 100 : 0))
+    : null;
+  let licencaSoftware = null;
+  if (ehCorporativo) {
+    const novos = (data.custos.funcionarios || []).filter(f => f.ccCodigo === ccCodigo && f.origem === 'novo');
+    const valorAno = parseNum(pp.licencaSoftwareNovoHcValor || '2700');
+    licencaSoftware = MESES.map((_, m) => novos.filter(f => { const i = MESES.indexOf(f.mesAdmissao); return i >= 0 && i <= m; }).length * valorAno / 12);
+  }
+
+  const calculadas = { meritocracia, dissidio1, dissidio2, bonus, bonusPj, licencaSoftware };
+  const totalMes = MESES.map((_, m) => Object.values(calculadas).reduce((acc, row) => acc + (row?.[m] || 0), 0));
+  return { ...calculadas, hcExistenteMes: hcMes, totalMes, totalAnual: totalMes.reduce((a, v) => a + v, 0) };
+}
+export function pessoalExtraPorCC(data, ref, ccCodigo, bases) {
+  const fator = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
+  const folha = folhaAnualPorCC(data, ccCodigo);
+  const calc = pessoalCalculadoPorCC(data, ref, ccCodigo, bases);
+  const mes = MESES.map((_, m) => folha.mensal[m].total * fator + calc.totalMes[m]);
+  return { mes, anual: mes.reduce((a, v) => a + v, 0), folha, calc };
+}
+function pessoalExtraTodosCCs(data, ref, dre, ipcaAnualPct) {
+  const bases = { receitaBrutaMes: dre.receitaBrutaMes, receitaLiquidaMes: dre.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dre.volumeTotalKgMes, receitaHospedagemMes: dre.receitaHospedagemMes, receitaAebMes: dre.receitaAebMes };
+  return Object.fromEntries(ref.ccs.map(cc => [cc.codigo, pessoalExtraPorCC(data, ref, cc.codigo, bases)]));
+}
+
 export function folhaAnualPorCC(data, ccCodigo) {
   const funcs = (data.custos.funcionarios || []).filter(f => f.ccCodigo === ccCodigo && f.origem === 'novo');
   return computeFolhaPessoalAnual(funcs, data.custos.premissasPessoal);
@@ -527,8 +580,6 @@ function receitaBrutaPorMes(data, cambios) {
 }
 
 export function computeDRE(data, ref, ipcaAnualPct, cambios) {
-  // Encargos e benefícios do Novo HC (% sobre a folha) — espelho do frontend.
-  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data, cambios);
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
@@ -574,6 +625,10 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     ? MESES.map((_, m) => (linhasReceitaMes.aeb?.[m] || 0) + (linhasReceitaMes.cafePensao?.[m] || 0))
     : null;
 
+  // Folha do Novo HC com encargos + linhas calculadas de pessoal, por CC.
+  const basesPessoal = { receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes };
+  const pessoalExtraAnual = (cc) => pessoalExtraPorCC(data, ref, cc.codigo, basesPessoal).anual;
+
   // pacote 'pessoal' (2026-08-23): não exclui mais da soma — espelho de
   // frontend/src/OrcamentoARA.jsx, ver nota completa lá.
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
@@ -581,7 +636,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
-  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual * _fatorEncNovoHc, 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
 
@@ -591,7 +646,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
-  }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual * _fatorEncNovoHc, 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0);
   const ebitda = lucroBruto - despesasSemDA;
   const margemEbitda = receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0;
 
@@ -753,7 +808,7 @@ export function computeDFC(data, dre, ref, ipcaAnualPct) {
 // Fluxo de Caixa Indireto mensal, partindo do EBITDA — para a Revisão, Análise e Envio.
 // ---------------------------------------------------------------------------
 export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
-  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
+  const pessoalCC = pessoalExtraTodosCCs(data, ref, dre, ipcaAnualPct);
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -764,7 +819,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
   // Versão em caixa — espelho de frontend/src/OrcamentoARA.jsx.
@@ -774,16 +829,16 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
   // pacote 'pessoal' (2026-08-23): não exclui mais de totalLinhasMes — ver
   // nota completa em computeDRE.
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
-    + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
   const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao'], m)
-    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
   const ebitdaMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m] - despesasSemDAmes[m]);
 
   // depreciacaoMes/resultadoFinanceiroMes/outrasMes/ebtMes precisam vir
@@ -794,7 +849,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
-    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+    return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
   }, 0));
   const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
   const outrasMes = MESES.map((_, m) => parseNum(data.resultado.outrasReceitasDespesas?.[m]));
@@ -814,7 +869,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // Ajuste competência × caixa (2026-08-23) — espelho de
   // frontend/src/OrcamentoARA.jsx.
   const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m)
-    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
   const ajustePagamentoMes = MESES.map((_, m) => despesasSemDAmes[m] - despesasCaixaMes[m]);
 
   const cg = data.capitalGiro;
@@ -873,7 +928,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 // FC Operacional do método indireto — são duas leituras do mesmo número.
 // ---------------------------------------------------------------------------
 export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
-  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
+  const pessoalCC = pessoalExtraTodosCCs(data, ref, dre, ipcaAnualPct);
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -884,7 +939,7 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
   // Versão em caixa — espelho de frontend/src/OrcamentoARA.jsx.
@@ -894,7 +949,7 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
       if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
-      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes);
+      return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
   // pacote 'pessoal' (2026-08-23): não exclui mais — ver nota em computeDRE.
@@ -902,7 +957,7 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   // Pagamentos de despesas de fato (caixa) — 2026-08-23, espelho de
   // frontend/src/OrcamentoARA.jsx.
   const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m));
-  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
+  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
@@ -1137,7 +1192,7 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     const linhasProducao = linhasCustos.filter(([chave]) => {
       const cc = ref.ccs.find(c => c.codigo === chave.split('|')[0]);
       return cc?.tipo === 'producao';
-    }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0);
+    }).filter(([, linha]) => valorLinhaAnual(linha, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes) > 0);
     checks.push({
       label: 'CPV: ao menos uma linha analítica lançada em CC de produção',
       ok: linhasProducao.length > 0,
@@ -1160,7 +1215,7 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   // por conta quando há mais de um fornecedor dentro dela.
   const linhasComValorSemJustificativa = linhasCustos.filter(([, contaRaw]) =>
     normalizarConta(contaRaw).sublinhas.some(sub =>
-      valorLinhaAnual(sub, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes) > 0 && !(sub.justificativa || '').trim()
+      valorLinhaAnual(sub, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes) > 0 && !(sub.justificativa || '').trim()
     )
   );
   checks.push({
