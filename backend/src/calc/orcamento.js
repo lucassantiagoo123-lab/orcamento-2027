@@ -389,11 +389,13 @@ export function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
   const fgts = salarios * (parseNum(premissas?.fgtsPct) / 100);
   const ferias = salarios * (parseNum(premissas?.feriasPct) / 100);
   const decimoTerceiro = salarios * (parseNum(premissas?.decimoTerceiroPct) / 100);
-  const meritocracia = salarios * (parseNum(premissas?.meritocraciaPct) / 100);
+  // Novo Headcount não é elegível à meritocracia no ano (decisão de 2026-09-23,
+  // espelho do frontend).
+  const meritocracia = 0;
   const beneficiosPorFuncionario = parseNum(premissas?.valeTransporteValor) + parseNum(premissas?.cestaBasicaValor) + parseNum(premissas?.planoSaudeValor) + parseNum(premissas?.outrosBeneficiosValor);
   const beneficios = ativos.length * beneficiosPorFuncionario;
   const encargos = inss + fgts + ferias;
-  const total = salarios + encargos + decimoTerceiro + meritocracia + beneficios;
+  const total = salarios + encargos + decimoTerceiro + beneficios;
   return { qtdFuncionarios: ativos.length, salarios, inss, fgts, ferias, encargos, decimoTerceiro, meritocracia, beneficios, total };
 }
 export function computeFolhaPessoalAnual(funcionariosCC, premissas) {

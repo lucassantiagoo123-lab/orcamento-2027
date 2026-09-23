@@ -2330,11 +2330,14 @@ function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
   const fgts = salarios * (parseNum(premissas?.fgtsPct) / 100);
   const ferias = salarios * (parseNum(premissas?.feriasPct) / 100);
   const decimoTerceiro = salarios * (parseNum(premissas?.decimoTerceiroPct) / 100);
-  const meritocracia = salarios * (parseNum(premissas?.meritocraciaPct) / 100);
+  // Decisão de 2026-09-23: contratação de 2027 (Novo Headcount, único uso
+  // desta função) não é elegível à meritocracia no ano. A meritocracia vale
+  // só para o Headcount Existente, a partir de meritocraciaMes.
+  const meritocracia = 0;
   const beneficiosPorFuncionario = parseNum(premissas?.valeTransporteValor) + parseNum(premissas?.cestaBasicaValor) + parseNum(premissas?.planoSaudeValor) + parseNum(premissas?.outrosBeneficiosValor);
   const beneficios = ativos.length * beneficiosPorFuncionario;
   const encargos = inss + fgts + ferias;
-  const total = salarios + encargos + decimoTerceiro + meritocracia + beneficios;
+  const total = salarios + encargos + decimoTerceiro + beneficios;
   return { qtdFuncionarios: ativos.length, salarios, inss, fgts, ferias, encargos, decimoTerceiro, meritocracia, beneficios, total };
 }
 function computeFolhaPessoalAnual(funcionariosCC, premissas) {
@@ -5192,9 +5195,8 @@ export default function OrcamentoARA({ usuario }) {
       const rowSal = addFolhaRow('Salários', m => funcsCC.map(x => `Premissas_Pessoal!${colL(5 + m)}${x.row + 1}`).join('+'));
       const rowEnc = addFolhaRow('Encargos (INSS+FGTS+Férias)', m => `${colL(3 + m)}${rowSal + 1}*(Premissas_Pessoal!$B$${refEncargo.inssPct + 1}+Premissas_Pessoal!$B$${refEncargo.fgtsPct + 1}+Premissas_Pessoal!$B$${refEncargo.feriasPct + 1})/100`);
       const row13 = addFolhaRow('13º salário (provisão)', m => `${colL(3 + m)}${rowSal + 1}*Premissas_Pessoal!$B$${refEncargo.decimoTerceiroPct + 1}/100`);
-      const rowMerit = addFolhaRow('Meritocracia', m => `${colL(3 + m)}${rowSal + 1}*Premissas_Pessoal!$B$${refEncargo.meritocraciaPct + 1}/100`);
       const rowBenef = addFolhaRow('Benefícios', m => `(${funcsCC.map(x => `Premissas_Pessoal!${colL(17 + m)}${x.row + 1}`).join('+')})*(Premissas_Pessoal!$B$${refEncargo.valeTransporteValor + 1}+Premissas_Pessoal!$B$${refEncargo.cestaBasicaValor + 1}+Premissas_Pessoal!$B$${refEncargo.planoSaudeValor + 1}+Premissas_Pessoal!$B$${refEncargo.outrosBeneficiosValor + 1})`);
-      const rowTotal = addFolhaRow('Total da folha (CLT)', m => `${colL(3 + m)}${rowSal + 1}+${colL(3 + m)}${rowEnc + 1}+${colL(3 + m)}${row13 + 1}+${colL(3 + m)}${rowMerit + 1}+${colL(3 + m)}${rowBenef + 1}`);
+      const rowTotal = addFolhaRow('Total da folha (CLT)', m => `${colL(3 + m)}${rowSal + 1}+${colL(3 + m)}${rowEnc + 1}+${colL(3 + m)}${row13 + 1}+${colL(3 + m)}${rowBenef + 1}`);
       folhaRowsByCC[cc.codigo] = { cc, totalRow: rowTotal, dec13Row: row13 };
     });
     finish(wsFolha, rf, 16, undefined);
@@ -9788,14 +9790,22 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     ? MESES.map((_, m) => _bonusMesIdxC >= 0 && m === _bonusMesIdxC ? hcExistenteMesTextil[_bonusMesIdxC] * parseNum(_ppC.bonusPct) / 100 : 0)
     : null;
   const totalCalculadosTextil = _somaRow(dissidioRow1Textil) + _somaRow(dissidioRow2Textil) + _somaRow(meritocraciaRowTextil) + _somaRow(bonusRowTextil);
+  // Dissídio do Novo HC: folhaAtual já tem o salário reajustado (ver
+  // computeFolhaPessoalMes), então a linha de dissídio é só o ACRÉSCIMO
+  // (folha com − folha sem) e a linha de folha mostra o valor sem dissídio.
+  // Antes a linha somava mais um % por cima, contando o dissídio duas vezes.
+  const _funcsNovoCc = (funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo');
+  const folhaNovoSemDissidio = computeFolhaPessoalAnual(_funcsNovoCc, { ..._ppC, dissidioMes: '', dissidioMes2: '' });
+  const folhaNovoSoDissidio1 = computeFolhaPessoalAnual(_funcsNovoCc, { ..._ppC, dissidioMes2: '' });
+  const _acrescimo = (com, sem) => MESES.map((_, m) => com.mensal[m].total - sem.mensal[m].total);
   const dissidioNovoHcRowCorp = unidadeId === 'corporativo' && _dissidioMesIdxC >= 0 && parseNum(_ppC.dissidioPct)
-    ? MESES.map((_, m) => m < _dissidioMesIdxC ? 0 : folhaAtual.mensal[m].total * parseNum(_ppC.dissidioPct) / 100)
+    ? _acrescimo(folhaAtual, folhaNovoSemDissidio)
     : null;
   const dissidioNovoHcRow1Textil = _hcExisteContasTextil.length > 0 && _dissidioMesIdxC >= 0 && parseNum(_ppC.dissidioPct)
-    ? MESES.map((_, m) => m < _dissidioMesIdxC ? 0 : folhaAtual.mensal[m].total * parseNum(_ppC.dissidioPct) / 100)
+    ? _acrescimo(folhaNovoSoDissidio1, folhaNovoSemDissidio)
     : null;
   const dissidioNovoHcRow2Textil = _hcExisteContasTextil.length > 0 && _dissidioMesIdx2T >= 0 && parseNum(_ppC.dissidioPct2)
-    ? MESES.map((_, m) => m < _dissidioMesIdx2T ? 0 : folhaAtual.mensal[m].total * parseNum(_ppC.dissidioPct2) / 100)
+    ? _acrescimo(folhaAtual, folhaNovoSoDissidio1)
     : null;
   const encargosNovoHcRowTextil = _hcExisteContasTextil.length > 0 && parseNum(_ppC.encargosNovoHcPct)
     ? MESES.map((_, m) => folhaAtual.mensal[m].total * parseNum(_ppC.encargosNovoHcPct) / 100)
@@ -10195,7 +10205,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               <span style={{ fontWeight: 400, color: '#8A8F96', fontSize: 11 }}>({(funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo').length} funcionários)</span>
                             </span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>
-                              {formatBRL(folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp) + _somaRow(dissidioNovoHcRowCorp))}
+                              {formatBRL(folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp))}
                             </span>
                           </button>
                           {novoHcAberto && (
@@ -10211,13 +10221,13 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                 <TabelaMensal
                                   linhas={[]} onChangeCelula={() => {}}
                                   linhasCalculadas={[
-                                    { key: 'folhaNovo', label: 'Folha — Novo Headcount', valoresMensal: folhaAtual.mensal.map(m => m.total), totalValor: folhaAtual.totalAnual, cor: COR.texto },
-                                    ...(encargosNovoHcRowCorp ? [{ key: 'encargosNovo', label: `Encargos e Benefícios${_ppC.encargosNovoHcPct ? ` — ${_ppC.encargosNovoHcPct}%` : ''}`, valoresMensal: encargosNovoHcRowCorp, totalValor: _somaRow(encargosNovoHcRowCorp), cor: COR.texto }] : []),
+                                    { key: 'folhaNovo', label: 'Folha — Novo Headcount', valoresMensal: folhaNovoSemDissidio.mensal.map(m => m.total), totalValor: folhaNovoSemDissidio.totalAnual, cor: COR.texto },
                                     ...(dissidioNovoHcRowCorp ? [{ key: 'dissidioNovoHc', label: `Dissídio${_ppC.dissidioMes ? ` — ${_ppC.dissidioMes}` : ''}${_ppC.dissidioPct ? ` (${_ppC.dissidioPct}%)` : ''}`, valoresMensal: dissidioNovoHcRowCorp, totalValor: _somaRow(dissidioNovoHcRowCorp), cor: COR.texto }] : []),
+                                    ...(encargosNovoHcRowCorp ? [{ key: 'encargosNovo', label: `Encargos e Benefícios${_ppC.encargosNovoHcPct ? ` — ${_ppC.encargosNovoHcPct}%` : ''}`, valoresMensal: encargosNovoHcRowCorp, totalValor: _somaRow(encargosNovoHcRowCorp), cor: COR.texto }] : []),
                                     {
                                       key: 'totalNovoHc', label: 'Total — Novo HC',
-                                      valoresMensal: folhaAtual.mensal.map((m, i) => m.total + (encargosNovoHcRowCorp?.[i] || 0) + (dissidioNovoHcRowCorp?.[i] || 0)),
-                                      totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp) + _somaRow(dissidioNovoHcRowCorp),
+                                      valoresMensal: folhaAtual.mensal.map((m, i) => m.total + (encargosNovoHcRowCorp?.[i] || 0)),
+                                      totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp),
                                       cor: COR.laranja,
                                     },
                                   ]}
@@ -10413,7 +10423,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               1.2 Novo Headcount
                               <span style={{ fontWeight: 400, color: '#8A8F96', fontSize: 11 }}>({(funcionarios || []).filter(f => f.ccCodigo === ccSel && f.origem === 'novo').length} funcionários)</span>
                             </span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(folhaAtual.totalAnual + _somaRow(encargosNovoHcRowTextil) + _somaRow(dissidioNovoHcRow1Textil) + _somaRow(dissidioNovoHcRow2Textil))}</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(folhaAtual.totalAnual + _somaRow(encargosNovoHcRowTextil))}</span>
                           </button>
                           {novoHcAberto && (
                             <div style={{ padding: 10 }}>
@@ -10430,10 +10440,11 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                   <TabelaMensal
                                     linhas={[]} onChangeCelula={() => {}}
                                     linhasCalculadas={[
+                                      { key: 'folhaNovoTextil', label: 'Folha — Novo Headcount', valoresMensal: folhaNovoSemDissidio.mensal.map(m => m.total), totalValor: folhaNovoSemDissidio.totalAnual, cor: COR.texto },
                                       ...(dissidioNovoHcRow1Textil ? [{ key: 'dissidioNovoHc1', label: `Dissídio 1${_ppC.dissidioMes ? ` — ${_ppC.dissidioMes}` : ''}${_ppC.dissidioPct ? ` (${_ppC.dissidioPct}%)` : ''}`, valoresMensal: dissidioNovoHcRow1Textil, totalValor: _somaRow(dissidioNovoHcRow1Textil), cor: COR.texto }] : []),
                                       ...(dissidioNovoHcRow2Textil ? [{ key: 'dissidioNovoHc2', label: `Dissídio 2${_ppC.dissidioMes2 ? ` — ${_ppC.dissidioMes2}` : ''}${_ppC.dissidioPct2 ? ` (${_ppC.dissidioPct2}%)` : ''}`, valoresMensal: dissidioNovoHcRow2Textil, totalValor: _somaRow(dissidioNovoHcRow2Textil), cor: COR.texto }] : []),
                                       ...(encargosNovoHcRowTextil ? [{ key: 'encargosNovoHc', label: `Encargos e Benefícios${_ppC.encargosNovoHcPct ? ` — ${_ppC.encargosNovoHcPct}%` : ''}`, valoresMensal: encargosNovoHcRowTextil, totalValor: _somaRow(encargosNovoHcRowTextil), cor: COR.texto }] : []),
-                                      { key: 'totalNovoHcTextil', label: 'Total — Novo HC', valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + (encargosNovoHcRowTextil?.[m] || 0) + (dissidioNovoHcRow1Textil?.[m] || 0) + (dissidioNovoHcRow2Textil?.[m] || 0)), totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowTextil) + _somaRow(dissidioNovoHcRow1Textil) + _somaRow(dissidioNovoHcRow2Textil), cor: COR.laranja },
+                                      { key: 'totalNovoHcTextil', label: 'Total — Novo HC', valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + (encargosNovoHcRowTextil?.[m] || 0)), totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowTextil), cor: COR.laranja },
                                     ]}
                                   />
                                 </div>
