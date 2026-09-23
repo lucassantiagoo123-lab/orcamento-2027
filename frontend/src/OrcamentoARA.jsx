@@ -2475,6 +2475,10 @@ function receitaBrutaPorMes(data, cambios) {
 }
 
 function computeDRE(data, ref, ipcaAnualPct, cambios) {
+  // encargosNovoHcPct: custo adicional sobre a folha de novo headcount (PLR,
+  // benefícios extras etc. não capturados nas premissas de INSS/FGTS/férias).
+  // Fator >= 1; sem o campo preenchido fica 1 (sem efeito).
+  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data, cambios);
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
@@ -2534,7 +2538,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
-  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual * _fatorEncNovoHc, 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
 
@@ -2544,7 +2548,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
-  }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual * _fatorEncNovoHc, 0);
   const ebitda = lucroBruto - despesasSemDA;
   const margemEbitda = receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0;
 
@@ -2946,6 +2950,7 @@ function dreEDfcGrupoUnidade(statusUnidades, unidadeId, ipcaAnualPct, cambios) {
 //   acionistas da aba 7.
 // ---------------------------------------------------------------------------
 function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
+  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -2979,9 +2984,9 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // "de pessoal" de verdade — só não soma a folha calculada duas vezes.
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
-    + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
   const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao'], m)
-    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
   const ebitdaMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m] - despesasSemDAmes[m]);
 
   // depreciacaoMes/resultadoFinanceiroMes/outrasMes/ebtMes precisam vir
@@ -3023,7 +3028,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // Zero em qualquer linha sem o descasamento marcado (comportamento de
   // sempre, sem mudança).
   const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m)
-    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
   const ajustePagamentoMes = MESES.map((_, m) => despesasSemDAmes[m] - despesasCaixaMes[m]);
 
   const cg = data.capitalGiro;
@@ -3089,6 +3094,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 // FC Operacional do método indireto — são duas leituras do mesmo número.
 // ---------------------------------------------------------------------------
 function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
+  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -3120,7 +3126,7 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   // competência × caixa usam o valor de pagamento digitado à parte (ver
   // UNIDADES_COM_COMPETENCIA_CAIXA/valorLinhaMesCaixa).
   const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m));
-  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
@@ -4846,6 +4852,64 @@ export default function OrcamentoARA({ usuario }) {
     XLSX.writeFile(wb, `Orcamento_2027_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}_DadosBrutos.xlsx`);
   }
 
+  async function exportarExcelMeuCC() {
+    const meusCcs = new Set(
+      (usuario.ccsPermitidos || []).filter(p => p.unidadeId === unidadeAtual).map(p => p.codigo)
+    );
+    let d;
+    try {
+      const r = await getOrcamento(unidadeAtual);
+      d = r.orcamento?.dados;
+    } catch {
+      d = dados;
+    }
+    if (!d) { alert('Não foi possível carregar os dados.'); return; }
+
+    const refU = referenciaDaUnidade(unidadeAtual);
+    const dreU = computeDRE(d, refU, ipcaAnualPct, cambios);
+    const wb = XLSX.utils.book_new();
+
+    const linhasCustosExport = [['Unidade', 'Centro de Custo', 'Tipo', 'Pacote', 'Conta', 'Descrição da Conta', 'Tipo de Premissa', 'Mês', 'Valor Calculado', 'Justificativa', 'Status', 'Última Atualização', 'Autor']];
+    Object.entries(d.custos.linhas || {}).forEach(([chave, contaRaw]) => {
+      const [ccCodigo, contaCodigo] = chave.split('|');
+      if (!meusCcs.has(ccCodigo)) return;
+      const cc = refU.ccs.find(c => c.codigo === ccCodigo);
+      const conta = refU.todasContas[contaCodigo];
+      const pacote = (refU.pacotes || []).find(p => p.id === conta?.pacoteId);
+      normalizarConta(contaRaw).sublinhas.forEach(sub => {
+        const premissa = TIPOS_PREMISSA.find(t => t.id === sub.premissaTipo);
+        const descricaoConta = sub.descricao ? `${conta?.nome || ''} — ${sub.descricao}` : (conta?.nome || '');
+        MESES.forEach((m, mi) => {
+          const valor = valorSublinhaMes(sub, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes);
+          if (valor === 0) return;
+          linhasCustosExport.push([unidadeObj.nome, cc?.nome || ccCodigo, cc?.tipo === 'producao' ? 'Custo' : 'Despesa', pacote?.nome || 'Sem pacote', contaCodigo, descricaoConta, premissa?.nome || sub.premissaTipo, m, valor, sub.justificativa || '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
+        });
+      });
+    });
+    const _encPct = parseNum(d.custos.premissasPessoal?.encargosNovoHcPct);
+    refU.ccs.filter(cc => meusCcs.has(cc.codigo)).forEach(cc => {
+      const novos = (d.custos.funcionarios || []).filter(f => f.ccCodigo === cc.codigo && f.origem === 'novo');
+      if (novos.length === 0) return;
+      const folha = folhaAnualPorCC(d, cc.codigo);
+      const justificativa = novos.map(f => f.justificativa || f.cargo || '').filter(Boolean).join('; ');
+      MESES.forEach((m, mi) => {
+        const base = folha.mensal[mi]?.total || 0;
+        const v = base * (1 + _encPct / 100);
+        if (v === 0) return;
+        linhasCustosExport.push([unidadeObj.nome, cc.nome, cc.tipo === 'producao' ? 'Custo' : 'Despesa', 'Pessoal', 'Novo Headcount', 'Novo Headcount (calculado)', 'Calculado', m, v, justificativa, d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
+      });
+    });
+    const wsC = XLSX.utils.aoa_to_sheet(linhasCustosExport);
+    wsC['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 10 }, { wch: 26 }, { wch: 10 }, { wch: 30 }, { wch: 18 }, { wch: 8 }, { wch: 14 }, { wch: 40 }, { wch: 14 }, { wch: 20 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, wsC, 'Custos_Despesas');
+
+    const ccNomes = refU.ccs
+      .filter(cc => meusCcs.has(cc.codigo))
+      .map(cc => cc.nome.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, ''))
+      .join('_');
+    XLSX.writeFile(wb, `Orcamento_2027_${ccNomes || 'MeuCC'}_DadosBrutos.xlsx`);
+  }
+
   // Excel - Cálculo (2026-08-23, pedido: "precisa ser uma modelagem
   // financeira completa com todas as fórmulas e racionais presentes na
   // plataforma") — reescrito do zero: em vez de escrever os números já
@@ -5659,6 +5723,7 @@ export default function OrcamentoARA({ usuario }) {
           enviarVersao={enviarVersao} enviando={enviando} erro={erro}
           versoes={versoes} mostrarHistorico={mostrarHistorico} setMostrarHistorico={setMostrarHistorico}
           exportarExcel={exportarExcel} exportandoExcel={exportandoExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
+          exportarExcelMeuCC={exportarExcelMeuCC}
           abrirVersao={abrirVersao}
         />
       ) : (
@@ -5824,6 +5889,7 @@ function VisaoGerente(props) {
     atualizar, autorNome, setAutorNome,
     comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, erro,
     versoes, mostrarHistorico, setMostrarHistorico, exportarExcel, exportandoExcel, exportarExcelCalculo, solicitarResumoExecutivo,
+    exportarExcelMeuCC,
     abrirVersao,
   } = props;
 
@@ -6172,17 +6238,19 @@ function VisaoGerente(props) {
           <PainelAuditoria checks={checks} />
         </div>
         <div style={{ flex: '1 1 300px', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {/* 3 formatos de exportação (2026-08-23): Cálculo (projeções
-              calculadas, por aba, mês a mês — ver exportarExcelCalculo) ×
-              Dados Brutos (1 linha por mês por conta/produto, para
-              auditoria — exportarExcel) × Apresentação (PPT pro CAD). */}
-          {usuario.perfil !== 'gerente_cc_corporativo' && (
+          {/* Exportações: gerente_cc_corporativo só vê "Dados Brutos (Meu CC)"
+              — os demais vêem Cálculo + Dados Brutos + PPT. */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Botao variante="secundario" icone={FileSpreadsheet} onClick={() => exportarExcelCalculo()}>Excel — Cálculo</Botao>
-            <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Excel — Dados Brutos</Botao>
-            <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>Apresentação (PPT)</Botao>
+            {usuario.perfil === 'gerente_cc_corporativo' ? (
+              <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcelMeuCC}>Excel — Dados Brutos (Meu CC)</Botao>
+            ) : (
+              <>
+                <Botao variante="secundario" icone={FileSpreadsheet} onClick={() => exportarExcelCalculo()}>Excel — Cálculo</Botao>
+                <Botao variante="secundario" icone={FileSpreadsheet} onClick={exportarExcel}>Excel — Dados Brutos</Botao>
+                <Botao variante="secundario" icone={FileBarChart} onClick={solicitarResumoExecutivo}>Apresentação (PPT)</Botao>
+              </>
+            )}
           </div>
-          )}
           <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
             <button
               onClick={() => setMostrarHistorico(!mostrarHistorico)}
@@ -9335,16 +9403,17 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
   );
 }
 
-function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, folhaCC }) {
+function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, folhaCC, encargosNovoHcPct }) {
   const [ccsAbertos, setCcsAbertos] = useState({});
   const [pacotesAbertos, setPacotesAbertos] = useState({});
 
   function totalContaMesPorCC(ccCodigo, contaCodigo, m) {
     return totalContaMesCC(ccCodigo, contaCodigo, m);
   }
+  const _fatorEncNovoHc = 1 + parseNum(encargosNovoHcPct) / 100;
   const contasHCPessoal = (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente');
   function totalFolhaCCMes(ccCodigo, m) {
-    const folhaNovo = folhaCC(ccCodigo).mensal[m]?.total || 0;
+    const folhaNovo = (folhaCC(ccCodigo).mensal[m]?.total || 0) * _fatorEncNovoHc;
     const hcExistente = contasHCPessoal.reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0);
     return folhaNovo + hcExistente;
   }
@@ -9542,15 +9611,16 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     // HC Existente é conta sintética — não está em CONTAS_POR_CC_AGRICOLA mas deve sempre aparecer
     return mapeadas ? rawContas.filter(c => c.nome === 'Headcount Existente' || mapeadas.includes(c.codigo)) : rawContas;
   }
+  const _fatorEncNovoHc = 1 + parseNum(premissasPessoal?.encargosNovoHcPct) / 100;
   function totalCcAnual(ccCodigo) {
     const cc = refUnidade.ccs.find(c => c.codigo === ccCodigo);
     if (!cc) return 0;
-    return contasDoCc(cc).reduce((acc, c) => acc + totalContaAnualCC(ccCodigo, c.codigo), 0) + folhaCC(ccCodigo).totalAnual;
+    return contasDoCc(cc).reduce((acc, c) => acc + totalContaAnualCC(ccCodigo, c.codigo), 0) + folhaCC(ccCodigo).totalAnual * _fatorEncNovoHc;
   }
   function totalCcMes(ccCodigo, m) {
     const cc = refUnidade.ccs.find(c => c.codigo === ccCodigo);
     if (!cc) return 0;
-    return contasDoCc(cc).reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0) + (folhaCC(ccCodigo).mensal[m]?.total || 0);
+    return contasDoCc(cc).reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0) + (folhaCC(ccCodigo).mensal[m]?.total || 0) * _fatorEncNovoHc;
   }
   function totalConta(contaCodigo) { return totalContaAnualCC(ccSel, contaCodigo); }
   function totalContaMes(contaCodigo, m) { return totalContaMesCC(ccSel, contaCodigo, m); }
@@ -9832,7 +9902,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                 Soma de todos os Centros de Custo desta unidade, agrupada por CC → Conta sintética (Pacote) → Conta analítica —
                 clique numa linha com seta para abrir a quebra. Só visível para Admin FP&A.
               </p>
-              <VisaoConsolidadaPorCC refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} />
+              <VisaoConsolidadaPorCC refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} encargosNovoHcPct={premissasPessoal?.encargosNovoHcPct} />
             </div>
           )}
         </div>
