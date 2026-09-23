@@ -66,6 +66,16 @@ function mesclarPorId(base, atualBanco, novoCliente) {
   return [...resultadoMap.values()];
 }
 
+// capex.projetos por id: preserva edição de campo (desembolsos, nome…) feita
+// por outro usuário num projeto que este cliente só está reenviando sem mudar.
+export function mesclarCapex(capexBase, capexAtualBanco, capexCliente) {
+  const semProjetos = (c) => { const { projetos, ...resto } = c || {}; return resto; };
+  return {
+    ...mesclarPorChave(semProjetos(capexBase), semProjetos(capexAtualBanco), semProjetos(capexCliente)),
+    projetos: mesclarPorId(capexBase?.projetos, capexAtualBanco?.projetos, capexCliente?.projetos),
+  };
+}
+
 export function mesclarCustos(custosBase, custosAtualBanco, custosCliente) {
   return {
     linhas: mesclarPorChave(custosBase?.linhas, custosAtualBanco?.linhas, custosCliente?.linhas),

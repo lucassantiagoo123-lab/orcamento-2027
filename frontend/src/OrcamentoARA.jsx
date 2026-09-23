@@ -3983,13 +3983,9 @@ export default function OrcamentoARA({ usuario }) {
   const [dados, setDados] = useState(emptyFormData());
   const [versoes, setVersoes] = useState([]);
   const [statusUnidades, setStatusUnidades] = useState({});
-  // custosBase por unidade (carregarFPA): o custos que existia no banco quando
-  // o FP&A carregou a página — passado ao putOrcamento como custosBase para
-  // que o backend aplique apenas o diff de premissasPessoal, sem sobrescrever
-  // edições simultâneas dos gestores de CC em custos.linhas.
-  const custosBaseUnidadesRef = useRef({});
-  const capexBaseUnidadesRef = useRef({});
-  const premissasPendentesRef = useRef({});
+  // { [unidadeId]: { campo: valor } } — só os campos de premissasPessoal que o
+  // FP&A editou e ainda não foram salvos (ver salvarPremissasPessoalNoServidor).
+  const premissasCamposPendentesRef = useRef({});
   const premissasSaveTimersRef = useRef({});
   const premissasMacroTimersRef = useRef({});
   const premissasMacroPendentesRef = useRef({});
@@ -4069,22 +4065,16 @@ export default function OrcamentoARA({ usuario }) {
     setCarregando(true);
     const mapa = {};
     const mapaAguardando = {};
-    const novoBase = {};
     for (const u of UNIDADES) {
       try {
         const r = await getOrcamento(u.id);
         mapa[u.id] = r.orcamento.dados;
-        novoBase[u.id] = r.orcamento.dados.custos;
-        capexBaseUnidadesRef.current[u.id] = r.orcamento.dados.capex;
         mapaAguardando[u.id] = r.orcamento.aguardando_liberacao || false;
       } catch (e) {
         mapa[u.id] = emptyFormData();
-        novoBase[u.id] = emptyFormData().custos;
-        capexBaseUnidadesRef.current[u.id] = emptyFormData().capex;
         mapaAguardando[u.id] = false;
       }
     }
-    custosBaseUnidadesRef.current = novoBase;
     setStatusUnidades(mapa);
     setAguardandoLiberacaoPorUnidade(mapaAguardando);
     // Backlog (2026-08-23, ampliado em 2026-09-08): combina envios de versão
@@ -4162,8 +4152,7 @@ export default function OrcamentoARA({ usuario }) {
       // Flush premissas pessoal — cancela timers e persiste imediatamente
       Object.entries(premissasSaveTimersRef.current).forEach(([uid, t]) => {
         clearTimeout(t);
-        const d = premissasPendentesRef.current[uid];
-        if (d) putOrcamento(uid, d, undefined, custosBaseUnidadesRef.current[uid], capexBaseUnidadesRef.current[uid]).catch(() => {});
+        salvarPremissasPessoalNoServidor(uid).catch(() => {});
       });
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4202,6 +4191,27 @@ export default function OrcamentoARA({ usuario }) {
     }
   }
 
+  // Parte do estado ATUAL do servidor, não da cópia carregada na tela do FP&A:
+  // reenviar essa cópia desatualizada revertia/apagava o que os gestores
+  // salvaram depois (CapEx e Custos). Só os campos editados de premissasPessoal mudam.
+  async function salvarPremissasPessoalNoServidor(uid) {
+    const campos = premissasCamposPendentesRef.current[uid];
+    if (!campos) return;
+    delete premissasCamposPendentesRef.current[uid];
+    try {
+      const { orcamento } = await getOrcamento(uid);
+      const atual = orcamento.dados;
+      const dadosNovos = {
+        ...atual,
+        custos: { ...atual.custos, premissasPessoal: { ...(atual.custos?.premissasPessoal || {}), ...campos } },
+      };
+      await putOrcamento(uid, dadosNovos, undefined, atual.custos, atual.capex);
+    } catch (e) {
+      premissasCamposPendentesRef.current[uid] = { ...campos, ...(premissasCamposPendentesRef.current[uid] || {}) };
+      throw e;
+    }
+  }
+
   // Edição de premissas de pessoal por unidade — disponível apenas em
   // Gestão do Orçamento (VisaoFPA). Aceita array de unidadeIds para
   // atualizar Resorts (beach+villa) e Agrícola (tds+fds) em bloco.
@@ -4213,15 +4223,12 @@ export default function OrcamentoARA({ usuario }) {
       const next = { ...prev };
       ids.forEach(uid => {
         const u = prev[uid] || {};
-        const novoDados = { ...u, custos: { ...u.custos, premissasPessoal: { ...(u.custos?.premissasPessoal || {}), [campo]: valor } } };
-        next[uid] = novoDados;
-        // Guarda o dado mais recente para o timer de save (evita race
-        // condition: cada keystroke cancelava o timer e reagendava, mas
-        // três chamadas simultâneas à API podem chegar fora de ordem e
-        // a segunda sobreescrever a terceira no banco).
-        premissasPendentesRef.current[uid] = novoDados;
+        next[uid] = { ...u, custos: { ...u.custos, premissasPessoal: { ...(u.custos?.premissasPessoal || {}), [campo]: valor } } };
       });
       return next;
+    });
+    ids.forEach(uid => {
+      premissasCamposPendentesRef.current[uid] = { ...(premissasCamposPendentesRef.current[uid] || {}), [campo]: valor };
     });
     // Debounce o PUT — só persiste após 800ms sem nova alteração.
     ids.forEach(uid => {
@@ -4230,19 +4237,8 @@ export default function OrcamentoARA({ usuario }) {
       setSalvandoPremissas(true);
       clearTimeout(premissasSaveTimersRef.current[uid]);
       premissasSaveTimersRef.current[uid] = setTimeout(async () => {
-        const d = premissasPendentesRef.current[uid];
-        if (!d) {
-          pendingSaveSlotsRef.current.delete(slotKey);
-          if (pendingSaveSlotsRef.current.size === 0) setSalvandoPremissas(false);
-          return;
-        }
         try {
-          const resultado = await putOrcamento(uid, d, undefined, custosBaseUnidadesRef.current[uid], capexBaseUnidadesRef.current[uid]);
-          // Atualiza as bases de comparação com o resultado mesclado do servidor —
-          // sem isso, saves subsequentes de premissas sobrescreveriam CapEx adicionado
-          // por outro usuário (gestor) entre o carregamento da tela do FP&A e este save.
-          if (resultado?.orcamento?.dados?.custos) custosBaseUnidadesRef.current[uid] = resultado.orcamento.dados.custos;
-          if (resultado?.orcamento?.dados?.capex)  capexBaseUnidadesRef.current[uid]  = resultado.orcamento.dados.capex;
+          await salvarPremissasPessoalNoServidor(uid);
         } catch (_) {}
         pendingSaveSlotsRef.current.delete(slotKey);
         if (pendingSaveSlotsRef.current.size === 0) setSalvandoPremissas(false);
@@ -4609,6 +4605,7 @@ export default function OrcamentoARA({ usuario }) {
       const { orcamento } = await enviarVersaoApi(unidadeAtual, comentarioEnvio.trim());
       setDados(orcamento.dados);
       custosBaseRef.current = orcamento.dados.custos;
+      capexBaseRef.current = orcamento.dados.capex;
       setAguardandoLiberacao(orcamento.aguardando_liberacao || false);
       setVersoes(await listarVersoes(unidadeAtual));
 

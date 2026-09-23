@@ -14,7 +14,7 @@
 // está "carregando junto" sem querer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mesclarCustos } from '../src/db/mesclarCustos.js';
+import { mesclarCustos, mesclarCapex } from '../src/db/mesclarCustos.js';
 
 function linha(valores) {
   return { tipo: 'valor', valores };
@@ -80,6 +80,38 @@ test('funcionarios: este cliente remove um funcionário que ele mesmo tinha cria
 
   const ids = resultado.funcionarios.map((f) => f.id);
   assert.deepEqual(ids, ['f2'], 'f1 removido por este cliente, f2 do outro usuário preservado');
+});
+
+test('capex: edição de valores de outro usuário sobrevive quando este cliente só reenvia o projeto sem mudar', () => {
+  const projetoGabriela = { id: 'p1', nome: 'Projeto G', desembolsos: ['0'] };
+  const base = { projetos: [projetoGabriela] };
+  const atualBanco = { projetos: [{ ...projetoGabriela, desembolsos: ['50000'] }] }; // Gabriela preencheu
+  const novoCliente = { projetos: [projetoGabriela, { id: 'p2', nome: 'Projeto A' }] }; // outro gestor adicionou p2
+
+  const resultado = mesclarCapex(base, atualBanco, novoCliente);
+
+  assert.deepEqual(resultado.projetos.find((p) => p.id === 'p1').desembolsos, ['50000']);
+  assert.ok(resultado.projetos.some((p) => p.id === 'p2'));
+});
+
+test('capex: projeto adicionado por outro usuário não é apagado por cliente com cópia antiga', () => {
+  const base = { projetos: [] };
+  const atualBanco = { projetos: [{ id: 'p1', nome: 'Novo do gestor' }] };
+  const novoCliente = { projetos: [] };
+
+  const resultado = mesclarCapex(base, atualBanco, novoCliente);
+
+  assert.deepEqual(resultado.projetos.map((p) => p.id), ['p1']);
+});
+
+test('capex: este cliente remove o próprio projeto', () => {
+  const base = { projetos: [{ id: 'p1' }] };
+  const atualBanco = { projetos: [{ id: 'p1' }, { id: 'p2' }] };
+  const novoCliente = { projetos: [] };
+
+  const resultado = mesclarCapex(base, atualBanco, novoCliente);
+
+  assert.deepEqual(resultado.projetos.map((p) => p.id), ['p2']);
 });
 
 test('sem custosBase (compatibilidade): comportamento não é chamado — verificado na rota, não aqui', () => {

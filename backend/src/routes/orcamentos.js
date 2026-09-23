@@ -6,20 +6,7 @@ import { Router } from 'express';
 import { exigirUnidade, exigirPerfil, exigirAcessoNaoExpirado } from '../middleware/authorize.js';
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
-import { mesclarCustos } from '../db/mesclarCustos.js';
-
-// Merge 3-way de projetos CapEx por ID: preserva projetos adicionados por
-// outro usuário entre o carregamento e o salvamento deste cliente.
-function mesclarCapex(capexBase, capexAntes, capexNovo) {
-  const projetosBase  = (capexBase?.projetos  || []);
-  const projetosAntes = (capexAntes?.projetos || []);
-  const projetosNovo  = (capexNovo?.projetos  || []);
-  const idsBase = new Set(projetosBase.map(p => p.id));
-  const idsNovo = new Set(projetosNovo.map(p => p.id));
-  // Projetos adicionados por outro usuário após este carregou a página
-  const concorrentes = projetosAntes.filter(p => !idsBase.has(p.id) && !idsNovo.has(p.id));
-  return { ...capexNovo, projetos: [...projetosNovo, ...concorrentes] };
-}
+import { mesclarCustos, mesclarCapex } from '../db/mesclarCustos.js';
 import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade, ehSnapshotConsolidado } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
 import { notificarEnvioParaFpa } from '../email/notificacoes.js';
