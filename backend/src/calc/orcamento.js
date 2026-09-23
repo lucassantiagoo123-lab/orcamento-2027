@@ -119,7 +119,7 @@ export function ipcaMensalDe(ipcaAnualPct) {
 // (tipo 'custo_por_kg') são opcionais — quando quem chama não os informa,
 // o cálculo degrada sem quebrar: reajuste_inflacao cai pro valor-base sem
 // reajuste (equivalente a IPCA 0%) e custo_por_kg cai pra zero.
-export function valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+export function valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes) {
   if (!sublinha) return 0;
   if (sublinha.premissaTipo === 'qtd_valor') {
     return parseNum(sublinha.quantidades?.[m]) * parseNum(sublinha.valoresUnit?.[m]);
@@ -130,6 +130,17 @@ export function valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes
     if (sublinha.baseTipo === 'receita_bruta') base = receitaBrutaMes?.[m] || 0;
     else if (sublinha.baseTipo === 'receita_liquida') base = receitaLiquidaMes?.[m] || 0;
     else base = parseNum(sublinha.baseManual?.[m]);
+    return base * pct;
+  }
+  // Resorts: % sobre a receita de Hospedagem / de A&B (espelho do frontend).
+  if (sublinha.premissaTipo === 'rateio_hospedagem') {
+    const pct = parseNum(sublinha.percentuais?.[m]) / 100;
+    const base = receitaHospedagemMes?.[m] || 0;
+    return base * pct;
+  }
+  if (sublinha.premissaTipo === 'rateio_aeb') {
+    const pct = parseNum(sublinha.percentuais?.[m]) / 100;
+    const base = receitaAebMes?.[m] || 0;
     return base * pct;
   }
   if (sublinha.premissaTipo === 'reajuste_inflacao') {
@@ -155,23 +166,23 @@ export function valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes
 // resto do arquivo (computeDRE, runAuditoria, FC, etc.) continua chamando
 // exatamente como chamava, sem saber que por baixo pode haver mais de uma
 // sublinha. Espelho de frontend/src/OrcamentoARA.jsx.
-export function valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+export function valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes) {
   if (!contaRaw) return 0;
-  return normalizarConta(contaRaw).sublinhas.reduce((acc, sub) => acc + valorSublinhaMes(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
+  return normalizarConta(contaRaw).sublinhas.reduce((acc, sub) => acc + valorSublinhaMes(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes), 0);
 }
-export function valorLinhaAnual(contaRaw, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
-  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
+export function valorLinhaAnual(contaRaw, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes) {
+  return MESES.reduce((acc, _, m) => acc + valorLinhaMes(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes), 0);
 }
 // Valor de CAIXA (pagamento) de uma sublinha num mês — usado só pelo Fluxo de
 // Caixa, nunca pela DRE. Espelho exato de frontend/src/OrcamentoARA.jsx.
-export function valorSublinhaMesCaixa(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+export function valorSublinhaMesCaixa(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes) {
   if (!sublinha) return 0;
   if (sublinha.pagamentoDiferente) return parseNum(sublinha.valoresPagamento?.[m]);
-  return valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
+  return valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
 }
-export function valorLinhaMesCaixa(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes) {
+export function valorLinhaMesCaixa(contaRaw, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes) {
   if (!contaRaw) return 0;
-  return normalizarConta(contaRaw).sublinhas.reduce((acc, sub) => acc + valorSublinhaMesCaixa(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes), 0);
+  return normalizarConta(contaRaw).sublinhas.reduce((acc, sub) => acc + valorSublinhaMesCaixa(sub, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes), 0);
 }
 // Checagem de coerência: premissa qtd_valor/rateio com apenas um dos dois campos preenchido em algum mês.
 export function linhaIncoerente(linha) {
@@ -383,7 +394,10 @@ export function computeFolhaPessoalMes(funcionariosCC, premissas, mIdx) {
   });
 
   const idxDissidio = premissas?.dissidioMes ? MESES.indexOf(premissas.dissidioMes) : -1;
-  const fatorDissidio = (idxDissidio >= 0 && mIdx >= idxDissidio) ? (1 + parseNum(premissas?.dissidioPct) / 100) : 1;
+  const idxDissidio2 = premissas?.dissidioMes2 ? MESES.indexOf(premissas.dissidioMes2) : -1;
+  const fatorDissidio =
+    (idxDissidio >= 0 && mIdx >= idxDissidio ? (1 + parseNum(premissas?.dissidioPct) / 100) : 1) *
+    (idxDissidio2 >= 0 && mIdx >= idxDissidio2 ? (1 + parseNum(premissas?.dissidioPct2) / 100) : 1);
   const salarios = ativos.reduce((acc, f) => acc + parseNum(f.salario) * fatorDissidio, 0);
   const inss = salarios * (parseNum(premissas?.inssPct) / 100);
   const fgts = salarios * (parseNum(premissas?.fgtsPct) / 100);
@@ -513,6 +527,8 @@ function receitaBrutaPorMes(data, cambios) {
 }
 
 export function computeDRE(data, ref, ipcaAnualPct, cambios) {
+  // Encargos e benefícios do Novo HC (% sobre a folha) — espelho do frontend.
+  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data, cambios);
   const receitaBruta = receitaBrutaMes.reduce((a, v) => a + v, 0);
@@ -553,14 +569,19 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
 
   const linhasCustos = Object.entries(data.custos.linhas || {});
 
+  const receitaHospedagemMes = linhasReceitaMes?.hospedagem || null;
+  const receitaAebMes = linhasReceitaMes
+    ? MESES.map((_, m) => (linhasReceitaMes.aeb?.[m] || 0) + (linhasReceitaMes.cafePensao?.[m] || 0))
+    : null;
+
   // pacote 'pessoal' (2026-08-23): não exclui mais da soma — espelho de
   // frontend/src/OrcamentoARA.jsx, ver nota completa lá.
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || cc.tipo !== 'producao') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
-  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual * _fatorEncNovoHc, 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
 
@@ -569,8 +590,8 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
-  }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual, 0);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).totalAnual * _fatorEncNovoHc, 0);
   const ebitda = lucroBruto - despesasSemDA;
   const margemEbitda = receitaLiquida ? (ebitda / receitaLiquida) * 100 : 0;
 
@@ -579,7 +600,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
     if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
-    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes);
+    return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0);
 
   const resultadoFinanceiro = somaMes(data.resultado.receitaFinanceira) - somaMes(data.resultado.despesaFinanceira);
@@ -597,6 +618,8 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     despesasSemDA, ebitda, margemEbitda, depreciacao, resultadoFinanceiro, outras,
     ebt, ircsl, lucroLiquido, margemLiquida, capexTotal,
     receitaBrutaMes, receitaLiquidaMes,
+    receitaHospedagemMes,
+    receitaAebMes,
     // Exposto pra quem precisa recalcular valorLinhaMes/valorLinhaAnual de
     // uma linha específica fora daqui sem duplicar o cálculo de volume —
     // mesmo racional de receitaBrutaMes/receitaLiquidaMes.
@@ -730,6 +753,7 @@ export function computeDFC(data, dre, ref, ipcaAnualPct) {
 // Fluxo de Caixa Indireto mensal, partindo do EBITDA — para a Revisão, Análise e Envio.
 // ---------------------------------------------------------------------------
 export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
+  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -757,9 +781,9 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // nota completa em computeDRE.
   const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
-    + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
   const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao'], m)
-    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
   const ebitdaMes = MESES.map((_, m) => receitaLiquidaMes[m] - cpvMes[m] - despesasSemDAmes[m]);
 
   // depreciacaoMes/resultadoFinanceiroMes/outrasMes/ebtMes precisam vir
@@ -790,7 +814,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // Ajuste competência × caixa (2026-08-23) — espelho de
   // frontend/src/OrcamentoARA.jsx.
   const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m)
-    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
   const ajustePagamentoMes = MESES.map((_, m) => despesasSemDAmes[m] - despesasCaixaMes[m]);
 
   const cg = data.capitalGiro;
@@ -849,6 +873,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 // FC Operacional do método indireto — são duas leituras do mesmo número.
 // ---------------------------------------------------------------------------
 export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
+  const _fatorEncNovoHc = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
   const receitaLiquidaMes = dre.receitaLiquidaMes;
   const receitaBrutaMes = dre.receitaBrutaMes;
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -877,7 +902,7 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   // Pagamentos de despesas de fato (caixa) — 2026-08-23, espelho de
   // frontend/src/OrcamentoARA.jsx.
   const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m));
-  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total, 0));
+  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].total * _fatorEncNovoHc, 0));
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
