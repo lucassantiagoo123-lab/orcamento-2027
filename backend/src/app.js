@@ -17,6 +17,16 @@ export function criarApp() {
 
   app.use(helmet());
   app.use(cors({ origin: config.frontendOrigin, credentials: true }));
+  // Modo de manutenção (MAINTENANCE_MODE=true no Railway) — bloqueia todos
+  // os endpoints exceto /health (usado pelo Railway para checar se o serviço
+  // está vivo). Qualquer chamada à API retorna 503 com erro 'manutencao'.
+  const manutencaoAtiva = process.env.MAINTENANCE_MODE === 'true';
+  if (manutencaoAtiva) {
+    app.use((req, res, next) => {
+      if (req.path === '/health') return next();
+      res.status(503).json({ erro: 'manutencao', mensagem: 'Sistema em manutenção pelo FP&A. Por favor aguarde — voltamos em breve.' });
+    });
+  }
   // limit (2026-09-09, bug real: PayloadTooLargeError travando o autosave de
   // Samoa Beach assim que a gestora abria a unidade) — o padrão do Express é
   // 100kb, e o documento de orçamento (JSONB único por unidade, com
@@ -33,7 +43,7 @@ export function criarApp() {
   // a inatividade com o MESMO número que o backend usa pra expirar a sessão
   // (ver middleware/authenticate.js, renovação deslizante) — nunca um valor
   // fixo no cliente que poderia divergir se essa env var mudar no Railway.
-  app.get('/health', (req, res) => res.json({ ok: true, ssoConfigurado, loginDevDisponivel, sessionTtlMinutes: config.session.ttlMinutes }));
+  app.get('/health', (req, res) => res.json({ ok: true, ssoConfigurado, loginDevDisponivel, sessionTtlMinutes: config.session.ttlMinutes, manutencaoAtiva }));
 
   app.use('/auth', authRouter);
 

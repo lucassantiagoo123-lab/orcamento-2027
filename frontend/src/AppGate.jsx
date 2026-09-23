@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { getMe, irParaLogin } from './api/auth.js';
 import { verificarStatusBackend } from './api/devLogin.js';
 import { loginSenha } from './api/senha.js';
-import { ApiError, definirCallbackSessaoExpirada, obterUltimaAtividade } from './api/client.js';
+import { ApiError, definirCallbackSessaoExpirada, definirCallbackManutencaoAtiva, obterUltimaAtividade } from './api/client.js';
 import OrcamentoARA from './OrcamentoARA.jsx';
 import AdminPanel from './AdminPanel.jsx';
 
@@ -18,6 +18,24 @@ const COR_LARANJA = '#FFA707';
 // tradução). É "independente" porque é renderizado por cima de qualquer
 // tela (orçamento, admin, o que for) via `sessaoExpirada` no App inteiro,
 // não um estado local de uma tela específica.
+function TelaManutencao() {
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', fontFamily: "'Segoe UI', system-ui, sans-serif",
+      textAlign: 'center', padding: 24, background: '#F4F6FA',
+    }}>
+      <img src="/logos/grupo-ara.jpg" alt="Grupo ARA" style={{ height: 90, marginBottom: 20 }} />
+      <div style={{ fontSize: 40, marginBottom: 12 }}>🔧</div>
+      <h1 style={{ fontSize: 20, color: COR_AZUL, margin: '0 0 10px' }}>Sistema em manutenção</h1>
+      <p style={{ fontSize: 14, color: '#494949', maxWidth: 380, lineHeight: 1.6, margin: 0 }}>
+        O FP&A está realizando uma manutenção programada. A plataforma voltará em breve.<br />
+        Se tiver dúvidas, entre em contato com o time de FP&A.
+      </p>
+    </div>
+  );
+}
+
 function PopUpSessaoExpirada({ minutos }) {
   return (
     <div style={{
@@ -59,6 +77,7 @@ export default function AppGate() {
   const [tela, setTela] = useState('orcamento'); // 'orcamento' | 'admin' — só admin_fpa alcança 'admin'
   const [statusBackend, setStatusBackend] = useState(null); // { ssoConfigurado, sessionTtlMinutes } — loginDevDisponivel também vem do /health, mas não é mais usado aqui (ver nota abaixo de LoginSenha)
   const [sessaoExpirada, setSessaoExpirada] = useState(false);
+  const [manutencaoAtiva, setManutencaoAtiva] = useState(false);
 
   useEffect(() => {
     getMe()
@@ -67,7 +86,7 @@ export default function AppGate() {
         else setEstado('deslogado');
       })
       .catch(() => setEstado('deslogado'));
-    verificarStatusBackend().then(setStatusBackend);
+    verificarStatusBackend().then(s => { setStatusBackend(s); if (s?.manutencaoAtiva) setManutencaoAtiva(true); });
   }, []);
 
   // Reativo: qualquer chamada à API (autosave incluso, que roda sozinho em
@@ -81,7 +100,8 @@ export default function AppGate() {
     definirCallbackSessaoExpirada(() => {
       if (estadoRef.current === 'logado') setSessaoExpirada(true);
     });
-    return () => definirCallbackSessaoExpirada(null);
+    definirCallbackManutencaoAtiva(() => setManutencaoAtiva(true));
+    return () => { definirCallbackSessaoExpirada(null); definirCallbackManutencaoAtiva(null); };
   }, []);
 
   // Proativo: cronometra a partir da última requisição autenticada com
@@ -99,6 +119,8 @@ export default function AppGate() {
     }, 15000);
     return () => clearInterval(t);
   }, [estado, statusBackend?.sessionTtlMinutes]);
+
+  if (manutencaoAtiva) return <TelaManutencao />;
 
   if (estado === 'carregando') {
     return <TelaCentral texto="Carregando sessão…" />;

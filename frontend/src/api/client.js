@@ -24,6 +24,11 @@ export function definirCallbackSessaoExpirada(fn) {
   onSessaoExpirada = fn;
 }
 
+let onManutencaoAtiva = null;
+export function definirCallbackManutencaoAtiva(fn) {
+  onManutencaoAtiva = fn;
+}
+
 // Última vez que uma requisição autenticada teve sucesso (2026-09-10) — usa
 // pra estimar no cliente quando a sessão deve expirar por inatividade
 // (renovação deslizante, ver backend/src/middleware/authenticate.js: todo
@@ -84,6 +89,7 @@ export async function apiFetch(path, options = {}) {
 
   if (!res.ok) {
     if (res.status === 401 && body?.erro === 'nao_autenticado') onSessaoExpirada?.();
+    if (res.status === 503 && body?.erro === 'manutencao') onManutencaoAtiva?.();
     throw new ApiError(res.status, body);
   }
   return body;
