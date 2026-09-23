@@ -18,6 +18,7 @@ import { listarAlertas, contarAlertasPendentes, resolverAlerta } from '../db/ale
 import { totalProjeto } from '../db/detectarPerdas.js';
 import { iguais } from '../db/mesclarDados.js';
 import { recalcularTotaisVersoes } from '../db/recalcularTotaisVersoes.js';
+import { listarPeriodosEdicao, definirPeriodoEdicao } from '../db/periodoEdicao.js';
 
 const ANO_ORCAMENTO = 2027;
 
@@ -225,6 +226,31 @@ adminRouter.post('/migracoes/plano-contas-resorts', async (req, res, next) => {
     const aplicar = req.body?.aplicar === true;
     const resultado = await migrarPlanoContasResorts({ aplicar, usuarioId: req.usuario.id });
     res.json(resultado);
+  } catch (err) { next(err); }
+});
+
+// --- Período de edição dos Gestores de CC, por unidade (2026-09-23) ---
+const UNIDADES_PERIODO_EDICAO = ['textil', 'agricola_tds', 'agricola_fds', 'samoa_beach', 'samoa_villa', 'corporativo'];
+
+adminRouter.get('/periodo-edicao', async (req, res, next) => {
+  try {
+    const salvos = new Map((await listarPeriodosEdicao()).map((p) => [p.unidade_id, p]));
+    res.json({
+      periodos: UNIDADES_PERIODO_EDICAO.map((id) => ({
+        unidade_id: id,
+        encerrado: salvos.get(id)?.encerrado === true,
+        alterado_em: salvos.get(id)?.alterado_em || null,
+        alterado_por_nome: salvos.get(id)?.alterado_por_nome || null,
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
+adminRouter.put('/periodo-edicao/:unidadeId', async (req, res, next) => {
+  try {
+    if (!UNIDADES_PERIODO_EDICAO.includes(req.params.unidadeId)) return res.status(400).json({ erro: 'unidade_invalida' });
+    if (typeof req.body?.encerrado !== 'boolean') return res.status(400).json({ erro: 'encerrado_obrigatorio' });
+    res.json({ periodo: await definirPeriodoEdicao(req.params.unidadeId, req.body.encerrado, req.usuario.id) });
   } catch (err) { next(err); }
 });
 

@@ -225,3 +225,12 @@ CREATE TABLE IF NOT EXISTS alertas_dados (
   resolvido_por UUID REFERENCES usuarios(id)
 );
 CREATE INDEX IF NOT EXISTS alertas_dados_pendentes_idx ON alertas_dados (criado_em DESC) WHERE resolvido_em IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- Período de edição dos Gestores de CC, por unidade (migração 0011_periodo_edicao.sql)
+CREATE TABLE IF NOT EXISTS periodo_edicao_cc (
+  unidade_id    TEXT PRIMARY KEY,
+  encerrado     BOOLEAN NOT NULL DEFAULT false,
+  alterado_em   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  alterado_por  UUID REFERENCES usuarios(id)
+);

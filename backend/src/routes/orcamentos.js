@@ -13,6 +13,7 @@ import { buscarReferencia } from '../calc/registroUnidades.js';
 import { notificarEnvioParaFpa, notificarAlertaPerda } from '../email/notificacoes.js';
 import { detectarPerdas } from '../db/detectarPerdas.js';
 import { registrarAlertas } from '../db/alertasDados.js';
+import { edicaoEncerrada } from '../db/periodoEdicao.js';
 import { listarPremissasMacro } from '../db/premissasMacro.js';
 
 // IPCA anual (%) da premissa macro do FP&A Corporativo — usado pelo tipo de
@@ -83,6 +84,20 @@ function verificarPerdasAposSalvar(req, antes, depois) {
 // qualquer unidade (grava o snapshot combinado antes de enviar — não têm
 // formulário de premissa próprio, só essas duas chamadas).
 const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo'];
+
+// Período de edição encerrado pelo Admin FP&A (por unidade): Gestor de CC
+// só visualiza. Demais perfis seguem editando.
+async function exigirPeriodoEdicaoAberto(req, res, next) {
+  try {
+    if (req.usuario.perfil === 'gerente_cc_corporativo' && await edicaoEncerrada(req.params.unidadeId)) {
+      return res.status(403).json({
+        erro: 'periodo_edicao_encerrado',
+        mensagem: 'Período de edição finalizado — liberado apenas visualização.',
+      });
+    }
+    next();
+  } catch (err) { next(err); }
+}
 
 function exigirLancamentoHabilitado(req, res, next) {
   const { unidadeId } = req.params;
@@ -231,6 +246,7 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
     const dre = dreDaUnidade(orcamento.dados, unidadeId, ref, ipcaAnualPct, cambios);
     res.json({
       orcamento,
+      periodoEdicaoEncerrado: await edicaoEncerrada(unidadeId),
       dre,
       dfc: ehConsolidado ? null : computeDFC(orcamento.dados, dre, ref, ipcaAnualPct),
       fluxoIndiretoMensal: ehConsolidado ? null : computeFluxoIndiretoMensal(orcamento.dados, dre, ref, ipcaAnualPct),
@@ -240,7 +256,7 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
   } catch (err) { next(err); }
 });
 
-orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoExpirado, exigirLancamentoHabilitado, async (req, res, next) => {
+orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoExpirado, exigirPeriodoEdicaoAberto, exigirLancamentoHabilitado, async (req, res, next) => {
   try {
     const { dados, motivo, custosBase, capexBase, dadosBase } = req.body;
     if (!dados) return res.status(400).json({ erro: 'dados_obrigatorio' });
@@ -310,7 +326,7 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoE
   } catch (err) { next(err); }
 });
 
-orcamentosRouter.post('/:unidadeId/enviar', exigirUnidade('unidadeId'), exigirAcessoNaoExpirado, exigirLancamentoHabilitado, async (req, res, next) => {
+orcamentosRouter.post('/:unidadeId/enviar', exigirUnidade('unidadeId'), exigirAcessoNaoExpirado, exigirPeriodoEdicaoAberto, exigirLancamentoHabilitado, async (req, res, next) => {
   try {
     const atual = await buscarOuCriarOrcamento(req.params.unidadeId, ANO_ATUAL);
     // Pedido de 2026-08-16: trava reenvio até um admin_fpa liberar — o

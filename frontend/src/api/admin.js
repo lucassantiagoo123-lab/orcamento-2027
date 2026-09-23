@@ -41,6 +41,11 @@ export const listarAlertas = (todos = false) => apiFetch(`/api/admin/alertas${to
 export const contarAlertasPendentes = () => apiFetch('/api/admin/alertas/contagem');
 export const resolverAlerta = (id) => apiFetch(`/api/admin/alertas/${id}/resolver`, { method: 'POST' });
 
+// Período de edição dos Gestores de CC, por unidade (2026-09-23).
+export const listarPeriodosEdicao = () => apiFetch('/api/admin/periodo-edicao');
+export const definirPeriodoEdicao = (unidadeId, encerrado) =>
+  apiFetch(`/api/admin/periodo-edicao/${unidadeId}`, { method: 'PUT', body: { encerrado } });
+
 // Recalcular totais das versões já enviadas (2026-09-23). aplicar=false só simula.
 export const recalcularTotaisVersoes = (aplicar = false) =>
   apiFetch('/api/admin/versoes/recalcular-totais', { method: 'POST', body: { aplicar } });

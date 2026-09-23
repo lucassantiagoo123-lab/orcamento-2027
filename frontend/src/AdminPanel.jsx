@@ -8,7 +8,7 @@ import {
   vincularCc, desvincularCc, removerTodosCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
   definirAcessoUsuario, listarSnapshots, restaurarSnapshot,
   listarAlertas, resolverAlerta, listarHistoricoCapex, detalharHistoricoCapex, restaurarProjetosCapex,
-  recalcularTotaisVersoes,
+  recalcularTotaisVersoes, listarPeriodosEdicao, definirPeriodoEdicao,
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
@@ -89,6 +89,7 @@ export default function AdminPanel({ voltar }) {
       {carregando ? <p>Carregando…</p> : (
         <>
           <SecaoAlertas />
+          <SecaoPeriodoEdicao />
           <SecaoUsuarios usuarios={usuarios} onMudou={carregar} />
           <SecaoConcessoes usuarios={usuarios} concessoes={concessoes} onMudou={carregar} />
           <SecaoHistoricoCapex />
@@ -854,6 +855,84 @@ function SecaoAlertas() {
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Período de edição dos Gestores de CC, por unidade (2026-09-23). Encerrado =
+// Gestor de CC só visualiza (trava no servidor, ver exigirPeriodoEdicaoAberto).
+function SecaoPeriodoEdicao() {
+  const [periodos, setPeriodos] = useState(null);
+  const [salvando, setSalvando] = useState(null);
+  const [erro, setErro] = useState(null);
+
+  async function carregar() {
+    try {
+      setPeriodos((await listarPeriodosEdicao()).periodos);
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : 'Falha ao carregar o período de edição.');
+    }
+  }
+  useEffect(() => { carregar(); }, []);
+
+  async function alternar(p) {
+    const nome = UNIDADE_LABEL[p.unidade_id] || p.unidade_id;
+    const encerrar = !p.encerrado;
+    const ok = window.confirm(encerrar
+      ? `Encerrar o período de edição de ${nome}?\n\nOs Gestores de CC dessa unidade passam a ver o orçamento apenas para consulta — não conseguem mais salvar nem enviar. Admin FP&A e Gestor da Unidade continuam editando.`
+      : `Reabrir o período de edição de ${nome} para os Gestores de CC?`);
+    if (!ok) return;
+    setSalvando(p.unidade_id);
+    setErro(null);
+    try {
+      await definirPeriodoEdicao(p.unidade_id, encerrar);
+      await carregar();
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : 'Falha ao alterar o período de edição.');
+    }
+    setSalvando(null);
+  }
+
+  return (
+    <div style={{ marginBottom: 28, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 14 }}>
+      <h2 style={{ fontSize: 15, color: COR.azul, margin: '0 0 4px' }}>Período de edição — Gestores de CC</h2>
+      <p style={{ fontSize: 12, color: '#7A8088', margin: '0 0 12px' }}>
+        Com o período <strong>encerrado</strong>, os Gestores de CC da unidade veem "Período de edição finalizado — liberado apenas visualização"
+        e não conseguem mais salvar nem enviar. Admin FP&amp;A e Gestor da Unidade não são afetados.
+      </p>
+      {erro && <p style={{ fontSize: 12, color: '#C00000' }}>{erro}</p>}
+      {periodos === null ? <p style={{ fontSize: 12 }}>Carregando…</p> : (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={th}>Unidade</th>
+              <th style={th}>Situação</th>
+              <th style={th}>Última alteração</th>
+              <th style={th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {periodos.map((p) => (
+              <tr key={p.unidade_id}>
+                <td style={td}>{UNIDADE_LABEL[p.unidade_id] || p.unidade_id}</td>
+                <td style={td}>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, color: p.encerrado ? '#C00000' : '#2E7D32', background: p.encerrado ? '#FDECEC' : '#E8F5E9' }}>
+                    {p.encerrado ? '🔒 Encerrado — só visualização' : 'Aberto para edição'}
+                  </span>
+                </td>
+                <td style={{ ...td, fontSize: 11.5, color: '#7A8088' }}>
+                  {p.alterado_em ? `${dataHora(p.alterado_em)}${p.alterado_por_nome ? ` — ${p.alterado_por_nome}` : ''}` : '—'}
+                </td>
+                <td style={td}>
+                  <button onClick={() => alternar(p)} disabled={salvando === p.unidade_id} style={p.encerrado ? botaoSecundario : { ...botaoSecundario, color: '#C00000' }}>
+                    {salvando === p.unidade_id ? '…' : p.encerrado ? 'Reabrir edição' : 'Encerrar edição'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );

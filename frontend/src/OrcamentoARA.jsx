@@ -4119,6 +4119,12 @@ export default function OrcamentoARA({ usuario }) {
   // versão, resposta de cada salvamento) — nunca os edits locais. A
   // diferença entre ele e `dados` é exatamente o que ESTE usuário editou.
   const dadosBaseRef = useRef(null);
+  // Período de edição encerrado pelo Admin FP&A para a unidade (só afeta
+  // Gestor de CC): tela vira somente visualização. A trava real é no servidor.
+  const [edicaoEncerrada, setEdicaoEncerrada] = useState(false);
+  const edicaoEncerradaRef = useRef(false);
+  edicaoEncerradaRef.current = edicaoEncerrada;
+  const ehGestorCc = usuario.perfil === 'gerente_cc_corporativo';
 
   const carregarUnidade = useCallback(async (idUnidade) => {
     setCarregando(true);
@@ -4128,11 +4134,13 @@ export default function OrcamentoARA({ usuario }) {
       setDados(r.orcamento.dados);
       dadosBaseRef.current = r.orcamento.dados;
       setAguardandoLiberacao(r.orcamento.aguardando_liberacao || false);
+      setEdicaoEncerrada(ehGestorCc && r.periodoEdicaoEncerrado === true);
     } catch (e) {
       const vazio = emptyFormData();
       setDados(vazio);
       dadosBaseRef.current = vazio;
       setAguardandoLiberacao(false);
+      setEdicaoEncerrada(false);
     }
     try {
       setVersoes(await listarVersoes(idUnidade));
@@ -4379,7 +4387,7 @@ export default function OrcamentoARA({ usuario }) {
   const savePostponeCountRef = useRef(0);
 
   useEffect(() => {
-    if (role !== 'gerente' || carregando) return;
+    if (role !== 'gerente' || carregando || edicaoEncerrada) return;
     // Agrícola/Resorts/Corporativo: painel de referência, sem escrita — o
     // backend rejeitaria (409) mesmo se tentássemos, então nem tentamos.
     if (!UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual)) return;
@@ -4430,7 +4438,11 @@ export default function OrcamentoARA({ usuario }) {
         // só 403), inclusive orcamento_bloqueado/motivo_obrigatorio (aqui
         // o autosave não tenta reenviar sozinho com motivo — só sinaliza
         // pra o gestor usar o botão "Salvar rascunho" e justificar ali).
-        if (e instanceof ApiError) {
+        if (e instanceof ApiError && e.body?.erro === 'periodo_edicao_encerrado') {
+          // FP&A encerrou o período com a tela aberta: vira somente visualização, sem erro.
+          setEdicaoEncerrada(true);
+          setErro(null);
+        } else if (e instanceof ApiError) {
           setErro(e.message);
           setPedindoMotivo(e.body?.erro === 'motivo_obrigatorio' || e.body?.erro === 'orcamento_bloqueado');
         } else {
@@ -4450,7 +4462,7 @@ export default function OrcamentoARA({ usuario }) {
       maxWaitTimerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dados, unidadeAtual, role, carregando]);
+  }, [dados, unidadeAtual, role, carregando, edicaoEncerrada]);
 
   // Botão explícito de "Salvar rascunho" — o autosave acima já salva sozinho
   // (debounced, 900ms depois da última pausa — ou no máximo 2s durante uma
@@ -4473,6 +4485,7 @@ export default function OrcamentoARA({ usuario }) {
   const [motivoBloqueio, setMotivoBloqueio] = useState('');
   const [pedindoMotivo, setPedindoMotivo] = useState(false);
   async function salvarRascunhoAgora(motivo) {
+    if (edicaoEncerrada) return;
     setSalvandoRascunho(true);
     setErro(null);
     try {
@@ -4486,7 +4499,9 @@ export default function OrcamentoARA({ usuario }) {
       setPedindoMotivo(false);
       setMotivoBloqueio('');
     } catch (e) {
-      if (e instanceof ApiError) {
+      if (e instanceof ApiError && e.body?.erro === 'periodo_edicao_encerrado') {
+        setEdicaoEncerrada(true);
+      } else if (e instanceof ApiError) {
         setErro(e.message);
         setPedindoMotivo(e.body?.erro === 'motivo_obrigatorio' || e.body?.erro === 'orcamento_bloqueado');
       } else {
@@ -4523,6 +4538,7 @@ export default function OrcamentoARA({ usuario }) {
   const tudoOk = checks.filter(c => c.obrigatorio !== false).every(c => c.ok);
 
   function atualizar(caminho, valor) {
+    if (edicaoEncerradaRef.current) return;
     setDados(prev => {
       const novo = { ...prev };
       let ref = novo;
@@ -4651,6 +4667,7 @@ export default function OrcamentoARA({ usuario }) {
   }
 
   async function enviarVersao() {
+    if (edicaoEncerrada) return;
     if (!tudoOk || !autorNome.trim()) {
       if (!autorNome.trim()) setErro('Informe seu nome antes de enviar.');
       return;
@@ -5815,6 +5832,7 @@ export default function OrcamentoARA({ usuario }) {
           exportarExcel={exportarExcel} exportandoExcel={exportandoExcel} exportarExcelCalculo={exportarExcelCalculo} solicitarResumoExecutivo={solicitarResumoExecutivo}
           exportarExcelMeuCC={exportarExcelMeuCC}
           abrirVersao={abrirVersao}
+          edicaoEncerrada={edicaoEncerrada}
         />
       ) : (
         <VisaoFPA
@@ -5981,6 +5999,7 @@ function VisaoGerente(props) {
     versoes, mostrarHistorico, setMostrarHistorico, exportarExcel, exportandoExcel, exportarExcelCalculo, solicitarResumoExecutivo,
     exportarExcelMeuCC,
     abrirVersao,
+    edicaoEncerrada,
   } = props;
 
   // IPCA (2026-08-20, tipo de premissa 'reajuste_inflacao') — ver nota
@@ -6108,16 +6127,18 @@ function VisaoGerente(props) {
                   >Salvar com justificativa</button>
                 </>
               )}
-              <button
-                onClick={() => salvarRascunhoAgora()} disabled={salvandoRascunho}
-                style={{
-                  fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 7,
-                  border: `1px solid ${COR.azul}`, background: '#fff', color: COR.azul, cursor: salvandoRascunho ? 'default' : 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                {salvandoRascunho ? 'Salvando…' : '💾 Salvar rascunho'}
-              </button>
+              {!edicaoEncerrada && (
+                <button
+                  onClick={() => salvarRascunhoAgora()} disabled={salvandoRascunho}
+                  style={{
+                    fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '7px 12px', borderRadius: 7,
+                    border: `1px solid ${COR.azul}`, background: '#fff', color: COR.azul, cursor: salvandoRascunho ? 'default' : 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  {salvandoRascunho ? 'Salvando…' : '💾 Salvar rascunho'}
+                </button>
+              )}
             </>
           )}
           <StatusBadge status={dados.meta?.status} />
@@ -6142,6 +6163,16 @@ function VisaoGerente(props) {
           ))}
         </div>
       ))}
+
+      {edicaoEncerrada && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FFF4DC', border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontFamily: FONT }}>
+          <span style={{ fontSize: 18 }}>🔒</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: COR.azul }}>Período de edição finalizado — liberado apenas visualização</div>
+            <div style={{ fontSize: 11.5, color: COR.texto }}>Você pode consultar e exportar o orçamento, mas não é possível alterar valores. Em caso de dúvida, fale com o FP&amp;A.</div>
+          </div>
+        </div>
+      )}
 
       {/* Decisão de 2026-08-09: Agrícola e Resorts saíram do painel de
           referência e ganharam o formulário completo, com CC placeholder
@@ -6317,7 +6348,7 @@ function VisaoGerente(props) {
             // Pedido de 2026-09-07: sites individuais de Agrícola/Resorts só
             // analisam, quem envia é o Consolidado (evita duas versões
             // divergentes da mesma família disputando o backlog do FP&A).
-            podeEnviar={!IDS_MULTISITE_FILHOS.includes(unidadeAtual)}
+            podeEnviar={!IDS_MULTISITE_FILHOS.includes(unidadeAtual) && !edicaoEncerrada}
           />
         )}
       </div>
