@@ -214,6 +214,8 @@ const PREMISSAS_RECEBIMENTO_REF = [
 // Critérios de timing de pagamento para a seção 5.2 (2026-09-13).
 const OPCOES_TIMING_PAGAMENTO = [
   { id: 'competencia_caixa', nome: 'Competência igual a caixa' },
+  { id: 'm1', nome: 'M+1 — 100% no mês seguinte' },
+  { id: 'defasada', nome: 'Competência defasada (% no mês / restante no mês seguinte)' },
   { id: 'percentual_mes', nome: 'Percentual por mês' },
   { id: 'valor_direto', nome: 'Valor direto' },
 ];
@@ -3118,8 +3120,12 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // subtraiu despesasSemDAmes) e refletir a saída de caixa real do mês.
   // Zero em qualquer linha sem o descasamento marcado (comportamento de
   // sempre, sem mudança).
+  // + ajuste das contas em M+1/defasada (5.2), CPV e despesas — mesmo número
+  // que o FC Direto aplica, então os dois métodos continuam batendo.
+  const ajustePrazoConta = ajustePrazoPorContaMes(data, ref, dre, ipcaAnualPct);
   const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m)
-    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0)
+    + ajustePrazoConta.despesaMes[m] + ajustePrazoConta.producaoMes[m]);
   const ajustePagamentoMes = MESES.map((_, m) => despesasSemDAmes[m] - despesasCaixaMes[m]);
 
   const cg = data.capitalGiro;
@@ -3284,6 +3290,43 @@ function computeRecebimentosResorts(data) {
   };
 }
 
+// 5.2 — "M+1" (100% no mês seguinte) e "Competência defasada" (% no mês e o
+// restante no mês seguinte; vazio = 50%). Ex.: A&B dos Resorts 50/50 =
+// metade da competência do mês anterior + metade da do mês vigente. A parte
+// "mês seguinte" de Dez/2027 fica para 2028; a de Dez/2026 não existe no modelo.
+function pctPagoNoMes(config) {
+  if (config?.tipo === 'm1') return 0;
+  if (config?.tipo !== 'defasada') return 1;
+  const v = config.pctMes;
+  return v === undefined || v === null || String(v).trim() === '' ? 0.5 : parseNum(v) / 100;
+}
+function pagamentoDefasadoMes(compMes, pctMes) {
+  return MESES.map((_, m) => compMes[m] * pctMes + (m > 0 ? compMes[m - 1] * (1 - pctMes) : 0));
+}
+// Diferença pagamento − competência das contas em M+1/defasada, separada por
+// CC de produção (CPV) e de despesa. Zero quando nenhuma conta usa essas opções.
+function ajustePrazoPorContaMes(data, ref, dre, ipcaAnualPct) {
+  const producaoMes = MESES.map(() => 0);
+  const despesaMes = MESES.map(() => 0);
+  const porConta = data.capitalGiro?.premissasPagamento2?.porConta || {};
+  const pctPorConta = {};
+  Object.entries(porConta).forEach(([codigo, config]) => {
+    if (config && (config.tipo === 'm1' || config.tipo === 'defasada')) pctPorConta[codigo] = pctPagoNoMes(config);
+  });
+  if (Object.keys(pctPorConta).length === 0) return { producaoMes, despesaMes };
+  Object.entries(data.custos.linhas || {}).forEach(([chave, linha]) => {
+    const [ccCodigo, contaCodigo] = chave.split('|');
+    if (!(contaCodigo in pctPorConta)) return;
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+    if (!cc || ref.todasContas[contaCodigo]?.pacoteId === 'depreciacao') return;
+    const comp = MESES.map((_, m) => valorLinhaMes(linha, m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes));
+    const pag = pagamentoDefasadoMes(comp, pctPorConta[contaCodigo]);
+    const alvo = cc.tipo === 'producao' ? producaoMes : despesaMes;
+    MESES.forEach((_, m) => { alvo[m] += pag[m] - comp[m]; });
+  });
+  return { producaoMes, despesaMes };
+}
+
 function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   const pessoalCC = pessoalExtraTodosCCs(data, ref, dre, ipcaAnualPct);
   const receitaLiquidaMes = dre.receitaLiquidaMes;
@@ -3348,12 +3391,13 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
     recebimentosClientesMes = computeRecebimentosResorts(data).totalMes;
   }
 
+  const ajustePrazoConta = ajustePrazoPorContaMes(data, ref, dre, ipcaAnualPct);
   const pagamentosFornecedoresMes = MESES.map((_, m) => {
     const apAnt = m === 0 ? apInicial : apMes[m - 1];
     const estAnt = m === 0 ? estoqueInicial : estoqueMes[m - 1];
-    return cpvSemPessoalMes[m] + (estoqueMes[m] - estAnt) - (apMes[m] - apAnt);
+    return cpvSemPessoalMes[m] + (estoqueMes[m] - estAnt) - (apMes[m] - apAnt) + ajustePrazoConta.producaoMes[m];
   });
-  const pagamentosDespesasMes = despesasCaixaSemPessoalMes;
+  const pagamentosDespesasMes = MESES.map((_, m) => despesasCaixaSemPessoalMes[m] + ajustePrazoConta.despesaMes[m]);
   // Bug corrigido em 2026-08-30 ("IRCSL calculado mesmo sem apresentar
   // receita") — mesmo racional do método Indireto (ver
   // computeFluxoIndiretoMensal): não dividir dre.ircsl (total anual) por
@@ -11589,6 +11633,8 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
                   {contasPacote.map((c, ci) => {
                     const config = getContaConfig(c.codigo);
                     const compMes = MESES.map((_, m) => competenciaMesContas(c.codigo, m));
+                    // Mostra o caixa do mês: igual à competência, exceto M+1/defasada.
+                    const pagMes = pagamentoDefasadoMes(compMes, pctPagoNoMes(config));
                     const compTotal = compMes.reduce((a, v) => a + v, 0);
                     const vals = config.valores || mesesVazios();
                     const valsTotal = vals.reduce((a, v) => a + parseNum(v), 0);
@@ -11615,6 +11661,19 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
                                 <span style={{ fontSize: 10, color: '#8A8F96' }}>%</span>
                               </>
                             )}
+                            {config.tipo === 'defasada' && (
+                              <>
+                                <div style={{ width: 48 }}>
+                                  <InputNumerico
+                                    value={config.pctMes || ''}
+                                    onChange={v => updatePremissaConta(c.codigo, 'pctMes', v)}
+                                    placeholder="50"
+                                    style={{ width: '100%', fontFamily: FONT, fontSize: 10.5, padding: '3px 4px', border: `1px solid ${COR.borda}`, borderRadius: 4, textAlign: 'right' }}
+                                  />
+                                </div>
+                                <span style={{ fontSize: 10, color: '#8A8F96' }} title="% da competência pago no próprio mês; o restante é pago no mês seguinte">% no mês</span>
+                              </>
+                            )}
                           </div>
                         </td>
                         {MESES.map((_, m) => (
@@ -11627,14 +11686,14 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
                                 style={{ width: 52, fontFamily: FONT, fontSize: 10, padding: '2px 3px', border: `1px solid ${COR.borda}`, borderRadius: 3, textAlign: 'right' }}
                               />
                             ) : (
-                              <span style={{ color: compMes[m] !== 0 ? COR.texto : '#C8CBD0' }}>
-                                {compMes[m] !== 0 ? formatBRL(compMes[m]) : '—'}
+                              <span style={{ color: pagMes[m] !== 0 ? COR.texto : '#C8CBD0' }}>
+                                {pagMes[m] !== 0 ? formatBRL(pagMes[m]) : '—'}
                               </span>
                             )}
                           </td>
                         ))}
                         <td style={{ ...TD, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>
-                          {formatBRL(config.tipo === 'valor_direto' ? valsTotal : compTotal)}
+                          {formatBRL(config.tipo === 'valor_direto' ? valsTotal : pagMes.reduce((a, v) => a + v, 0))}
                         </td>
                       </tr>
                     );
@@ -11854,6 +11913,8 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
                   {contasPacote.map((c, ci) => {
                     const config = getContaConfig(c.codigo);
                     const compMes = MESES.map((_, m) => competenciaMesContas(c.codigo, m));
+                    // Mostra o caixa do mês: igual à competência, exceto M+1/defasada.
+                    const pagMes = pagamentoDefasadoMes(compMes, pctPagoNoMes(config));
                     const compTotal = compMes.reduce((a, v) => a + v, 0);
                     const vals = config.valores || mesesVazios();
                     const valsTotal = vals.reduce((a, v) => a + parseNum(v), 0);
@@ -11880,6 +11941,19 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
                                 <span style={{ fontSize: 10, color: '#8A8F96' }}>%</span>
                               </>
                             )}
+                            {config.tipo === 'defasada' && (
+                              <>
+                                <div style={{ width: 48 }}>
+                                  <InputNumerico
+                                    value={config.pctMes || ''}
+                                    onChange={v => updatePremissaConta(c.codigo, 'pctMes', v)}
+                                    placeholder="50"
+                                    style={{ width: '100%', fontFamily: FONT, fontSize: 10.5, padding: '3px 4px', border: `1px solid ${COR.borda}`, borderRadius: 4, textAlign: 'right' }}
+                                  />
+                                </div>
+                                <span style={{ fontSize: 10, color: '#8A8F96' }} title="% da competência pago no próprio mês; o restante é pago no mês seguinte">% no mês</span>
+                              </>
+                            )}
                           </div>
                         </td>
                         {MESES.map((_, m) => (
@@ -11892,14 +11966,14 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
                                 style={{ width: 52, fontFamily: FONT, fontSize: 10, padding: '2px 3px', border: `1px solid ${COR.borda}`, borderRadius: 3, textAlign: 'right' }}
                               />
                             ) : (
-                              <span style={{ color: compMes[m] !== 0 ? COR.texto : '#C8CBD0' }}>
-                                {compMes[m] !== 0 ? formatBRL(compMes[m]) : '—'}
+                              <span style={{ color: pagMes[m] !== 0 ? COR.texto : '#C8CBD0' }}>
+                                {pagMes[m] !== 0 ? formatBRL(pagMes[m]) : '—'}
                               </span>
                             )}
                           </td>
                         ))}
                         <td style={{ ...TD, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>
-                          {formatBRL(config.tipo === 'valor_direto' ? valsTotal : compTotal)}
+                          {formatBRL(config.tipo === 'valor_direto' ? valsTotal : pagMes.reduce((a, v) => a + v, 0))}
                         </td>
                       </tr>
                     );
