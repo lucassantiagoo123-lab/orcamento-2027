@@ -2007,6 +2007,12 @@ function formatBRL(v) {
   const s = abs.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return n < 0 ? `(R$ ${s})` : `R$ ${s}`;
 }
+// Valor em R$ sem o símbolo — células de tabela; o "R$" fica no título da tabela.
+function formatValor(v) {
+  const n = Number(v) || 0;
+  const s = Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n < 0 ? `(${s})` : s;
+}
 function formatPct(v, casas = 1) {
   const n = Number(v) || 0;
   return `${n.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
@@ -3778,6 +3784,13 @@ function CampoJustificativa({ value, onChange, placeholder, obrigatorio }) {
 // que precisa aparecer no topo da tabela, como o % Externo derivado do %
 // Interno (ver AbaReceitaAgricola, 2.3 Vendas — Mercado Externo).
 function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal, linhasCalculadas, linhasCalculadasAntes, colunaExtra, colunaTexto }) {
+  // "(R$)" no título quando a tabela mostra valores em reais (formato padrão
+  // das linhas calculadas ou total em R$). Linhas com outra unidade (t, %,
+  // dias) já trazem a unidade no próprio rótulo.
+  const calculadas = [...(linhasCalculadasAntes || []), ...(linhasCalculadas || []), ...linhas.filter(l => l.calculada)];
+  const emReais = formatarTotal === formatValor
+    || linhas.some(l => l.formatarTotal === formatValor)
+    || calculadas.some(l => !l.formatarCelula || l.formatarCelula === formatValor);
   // colunaTexto (2026-09-25): coluna de texto ao lado da descrição (ex.:
   // "Responsável"). Editável quando colunaTexto.onChange existe e a linha tem
   // a chave; linhas sem a chave ficam em branco.
@@ -3829,11 +3842,11 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
         {colunaExtra && celulaExtra(linha, 0)}
         {linha.valoresMensal.map((v, mi) => (
           <td key={mi} style={{ padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right', color: linha.cor || COR.texto, fontWeight: 700 }}>
-            {(linha.formatarCelula || formatBRL)(v)}
+            {(linha.formatarCelula || formatValor)(v)}
           </td>
         ))}
         <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontWeight: 700, fontSize: 11, color: linha.cor || COR.azul, textAlign: 'right' }}>
-          {(linha.formatarTotal || formatBRL)(linha.totalValor)}
+          {(linha.formatarTotal || formatValor)(linha.totalValor)}
         </td>
       </tr>
     );
@@ -3843,7 +3856,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
       <table>
         <thead>
           <tr>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: 'left', minWidth: 150, position: 'sticky', left: 0 }}>Linha</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: 'left', minWidth: 150, position: 'sticky', left: 0 }}>{emReais ? 'Linha (R$)' : 'Linha'}</th>
             {colunaTexto && (
               <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 6px', textAlign: 'left', minWidth: 110 }}>{colunaTexto.titulo}</th>
             )}
@@ -6639,7 +6652,7 @@ function FolhaPessoalLeitura({ funcionarios, premissasPessoal }) {
       {ListaLeitura(novos)}
       <div style={{ overflowX: 'auto', marginTop: 6 }}>
         <table>
-          <CabecalhoMensalLeitura />
+          <CabecalhoMensalLeitura rotuloPrimeiraColuna="Linha (R$)" />
           <tbody>
             <LinhaCalculadaMensal label="Folha — Novo Headcount" valoresMensal={folhaNovo.mensal.map(m => m.total)} />
           </tbody>
@@ -6855,12 +6868,12 @@ function ReceitaLeituraVersao({ dados, cambios }) {
               {/* Volume Externo (2026-09-11) é o input; Interno é o residual — ver AbaReceitaAgricola/computeReceitaAgricola. */}
               {linha('Volume Mercado Externo (Kg)', r.volumeExternoTotalKgMes)}
               {linha('% de Ton. vendida (Mercado Externo)', r.pctExternoMes, fmtPct)}
-              {['gbp', 'eur', 'usd'].map(m => linha(`Receita ${m.toUpperCase()} (R$)`, r[m].receitaMes, formatBRL))}
-              {linha('Receita Mercado Externo (R$)', r.receitaExternaMes, formatBRL)}
+              {['gbp', 'eur', 'usd'].map(m => linha(`Receita ${m.toUpperCase()} (R$)`, r[m].receitaMes, formatValor))}
+              {linha('Receita Mercado Externo (R$)', r.receitaExternaMes, formatValor)}
               {linha('Volume Mercado Interno (Kg)', r.volumeInternoKgMes)}
               {linha('% de Ton. vendida (Mercado Interno)', r.pctInternoMes, fmtPct)}
-              {linha('Preço Interno (R$/Kg)', (receita.agricola.vendaInterna?.precoKg || mesesVazios()).map(parseNum), formatBRL)}
-              {linha('Receita Mercado Interno (R$)', r.receitaInternaMes, formatBRL)}
+              {linha('Preço Interno (R$/Kg)', (receita.agricola.vendaInterna?.precoKg || mesesVazios()).map(parseNum), formatValor)}
+              {linha('Receita Mercado Interno (R$)', r.receitaInternaMes, formatValor)}
             </tbody>
           </table>
         </div>
@@ -6979,9 +6992,9 @@ function CapexLeituraVersao({ dados }) {
             {p.justificativa && <div style={{ fontSize: 10.5, color: COR.texto, marginBottom: 6 }}>{p.justificativa}</div>}
             <div style={{ overflowX: 'auto' }}>
               <table>
-                <CabecalhoMensalLeitura />
+                <CabecalhoMensalLeitura rotuloPrimeiraColuna="Linha (R$)" />
                 <tbody>
-                  <LinhaCalculadaMensal label="Desembolso (R$)" valoresMensal={desembolsos.map(parseNum)} formatarCelula={formatBRL} />
+                  <LinhaCalculadaMensal label="Desembolso (R$)" valoresMensal={desembolsos.map(parseNum)} formatarCelula={formatValor} />
                 </tbody>
               </table>
             </div>
@@ -7012,7 +7025,7 @@ function ProvisoesLeituraVersao({ dados }) {
       <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Resultado financeiro e outras receitas/despesas</h4>
       <div style={{ overflowX: 'auto' }}>
         <table>
-          <CabecalhoMensalLeitura />
+          <CabecalhoMensalLeitura rotuloPrimeiraColuna="Linha (R$)" />
           <tbody>
             <LinhaCalculadaMensal label="Receita financeira" valoresMensal={(resultado.receitaFinanceira || mesesVazios()).map(parseNum)} />
             <LinhaCalculadaMensal label="Despesa financeira" valoresMensal={(resultado.despesaFinanceira || mesesVazios()).map(parseNum)} />
@@ -7348,7 +7361,7 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
           foi removida em 2026-09-07 (pedido: "já é suficiente, não precisa
           ter a DRE acima") — essa tabela cobre a mesma informação, com
           drill-down por unidade a mais. */}
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética</h4>
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por Terra do Sol (TDS) e Frutos do Sol (FDS).</p>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
         {CONTAS_SINTETICAS_DRE.map(conta => (
@@ -7640,7 +7653,7 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
           foi removida em 2026-09-07 (pedido: "já é suficiente, não precisa
           ter a DRE acima") — essa tabela cobre a mesma informação, com
           drill-down por unidade a mais. */}
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética</h4>
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por Samoa Beach e Samoa Villa.</p>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
         {CONTAS_SINTETICAS_DRE.map(conta => (
@@ -8041,7 +8054,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
                 { key: 'precoMoeda', label: `Preço (${moedaNome}/t)`, valores: p.precoMoeda, totalValor: precoPonderadoProduto(p.precoMoeda), formatarTotal: v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
               ] : [
                 { key: 'volume', label: 'Volume (t)', valores: p.volumes },
-                { key: 'preco', label: 'Preço (R$/t)', valores: p.precos, totalValor: precoPonderadoProduto(p.precos), formatarTotal: v => formatBRL(v) },
+                { key: 'preco', label: 'Preço (R$/t)', valores: p.precos, totalValor: precoPonderadoProduto(p.precos), formatarTotal: v => formatValor(v) },
               ]}
               onChangeCelula={(linhaKey, mesIdx, valor) => {
                 if (!externo) {
@@ -8060,7 +8073,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
                 { key: 'receita', label: 'Receita (R$)', valoresMensal: receitaMensal, totalValor: totalProduto, cor: COR.verde },
                 ...(REFERENCIA_2026_TEXTIL.volume[p.nome] ? [
                   { key: 'volume2026', label: 'Volume 2026 (referência, t)', valoresMensal: REFERENCIA_2026_TEXTIL.volume[p.nome], totalValor: REFERENCIA_2026_TEXTIL.volume[p.nome].reduce((a, v) => a + v, 0), cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) },
-                  { key: 'preco2026', label: 'Preço 2026 (referência, R$/t)', valoresMensal: REFERENCIA_2026_TEXTIL.preco[p.nome], totalValor: REFERENCIA_2026_TEXTIL.preco[p.nome].reduce((a, v) => a + v, 0) / 12, cor: '#8A8F96', formatarCelula: v => formatBRL(v), formatarTotal: v => formatBRL(v) },
+                  { key: 'preco2026', label: 'Preço 2026 (referência, R$/t)', valoresMensal: REFERENCIA_2026_TEXTIL.preco[p.nome], totalValor: REFERENCIA_2026_TEXTIL.preco[p.nome].reduce((a, v) => a + v, 0) / 12, cor: '#8A8F96', formatarCelula: v => formatValor(v), formatarTotal: v => formatValor(v) },
                 ] : []),
               ]}
             />
@@ -8075,7 +8088,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
         onChangeCelula={() => {}}
         linhasCalculadas={[
           { key: 'volumeTotal', label: 'Volume total (t)', valoresMensal: volumeTotalMes, totalValor: volumeTotalAnual, cor: COR.azul, formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) },
-          { key: 'precoPonderado', label: 'Preço ponderado (R$/t)', valoresMensal: precoPonderadoMes, totalValor: precoPonderadoAnual, cor: COR.texto, formatarCelula: v => formatBRL(v), formatarTotal: v => formatBRL(v) },
+          { key: 'precoPonderado', label: 'Preço ponderado (R$/t)', valoresMensal: precoPonderadoMes, totalValor: precoPonderadoAnual, cor: COR.texto, formatarCelula: v => formatValor(v), formatarTotal: v => formatValor(v) },
           { key: 'receitaBruta', label: 'Receita Operacional Bruta (R$)', valoresMensal: dre.receitaBrutaMes, totalValor: dre.receitaBruta, cor: COR.verde },
         ]}
       />
@@ -8443,12 +8456,12 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
           ? [
               { key: 'totalAcomodacoes', label: 'Total de Acomodações (#) — UH × dias do mês', valores: linha.totalAcomodacoes || mesesVazios() },
               { key: 'taxaOcupacao', label: 'Taxa de Ocupação (%)', valores: linha.taxaOcupacao || mesesVazios(), totalValor: taxaOcupacaoPonderada, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` },
-              { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit, totalValor: valorUnitPonderado, formatarTotal: v => formatBRL(v) },
+              { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit, totalValor: valorUnitPonderado, formatarTotal: v => formatValor(v) },
             ]
           : def.tipo === 'qtd_valor'
           ? [
               { key: 'quantidade', label: def.rotuloQtd, valores: linha.quantidades },
-              { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit, totalValor: valorUnitPonderado, formatarTotal: v => formatBRL(v) },
+              { key: 'valorUnit', label: def.rotuloValor, valores: linha.valoresUnit, totalValor: valorUnitPonderado, formatarTotal: v => formatValor(v) },
             ]
           : [
               { key: 'valor', label: 'Valor (R$)', valores: linha.valores },
@@ -8497,7 +8510,7 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
                       return disponiveis > 0 ? r / disponiveis : 0;
                     }),
                     totalValor: totalAcomodacoesAnual > 0 ? totalLinha / totalAcomodacoesAnual : 0,
-                    cor: COR.azul, formatarCelula: v => formatBRL(v), formatarTotal: v => formatBRL(v),
+                    cor: COR.azul, formatarCelula: v => formatValor(v), formatarTotal: v => formatValor(v),
                   },
                 ] : []),
               ]}
@@ -8680,8 +8693,8 @@ function GradeMensalLinha({ label, valores, onChange, formatarTotal }) {
 // ver LinhaContaLeitura e a visualização de versão do histórico.
 function LinhaCalculadaMensal({ label, valoresMensal, formatarCelula, formatarTotal }) {
   const total = valoresMensal.reduce((a, v) => a + (v || 0), 0);
-  const fCelula = formatarCelula || formatBRL;
-  const fTotal = formatarTotal || formatarCelula || formatBRL;
+  const fCelula = formatarCelula || formatValor;
+  const fTotal = formatarTotal || formatarCelula || formatValor;
   return (
     <tr>
       <td style={{ fontSize: 10.5, fontWeight: 700, color: COR.azul, padding: '4px 8px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.total, whiteSpace: 'nowrap' }}>{label}</td>
@@ -9358,7 +9371,7 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
           <CampoTexto value={f.cargo || ''} onChange={v => updateFuncionario(f.id, 'cargo', v)} placeholder="Cargo" />
         </td>
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-          <CampoNumero value={f.salario} onChange={v => updateFuncionario(f.id, 'salario', v)} prefixo="R$" placeholder="0,00" />
+          <CampoNumero value={f.salario} onChange={v => updateFuncionario(f.id, 'salario', v)} placeholder="0,00" />
         </td>
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
           <Selecao value={f.mesAdmissao} onChange={v => updateFuncionario(f.id, 'mesAdmissao', v)} opcoes={MESES.map(m => ({ id: m, nome: m }))} />
@@ -9385,7 +9398,7 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
         <thead>
           <tr>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', minWidth: 110 }}>Cargo</th>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Salário previsto</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Salário previsto (R$)</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 110 }}>Mês de admissão</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', minWidth: 160 }}>Justificativa</th>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', minWidth: 30 }}></th>
@@ -9607,11 +9620,11 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
         </td>
         {valoresMensal.map((v, mi) => (
           <td key={mi} style={{ padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right', color: cor || COR.texto, fontWeight: bold ? 700 : 400 }}>
-            {formatBRL(v)}
+            {formatValor(v)}
           </td>
         ))}
         <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontWeight: 700, fontSize: 11, color: cor || COR.azul, textAlign: 'right' }}>
-          {formatBRL(total)}
+          {formatValor(total)}
         </td>
       </tr>
     );
@@ -9625,7 +9638,7 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
       <table>
         <thead>
           <tr>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 10px', textAlign: 'left', minWidth: 230, position: 'sticky', left: 0 }}>Pacote / Conta / CC</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 10px', textAlign: 'left', minWidth: 230, position: 'sticky', left: 0 }}>Pacote / Conta / CC (R$)</th>
             {MESES.map(m => <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '7px 4px', minWidth: 58 }}>{m}</th>)}
             <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10, padding: '7px 8px', minWidth: 84 }}>Total</th>
           </tr>
@@ -9768,11 +9781,11 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
         </td>
         {valoresMensal.map((v, mi) => (
           <td key={mi} style={{ padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right', color: cor || COR.texto, fontWeight: bold ? 700 : 400 }}>
-            {formatBRL(v)}
+            {formatValor(v)}
           </td>
         ))}
         <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontWeight: 700, fontSize: 11, color: cor || COR.azul, textAlign: 'right' }}>
-          {formatBRL(total)}
+          {formatValor(total)}
         </td>
       </tr>
     );
@@ -9783,7 +9796,7 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
       <table>
         <thead>
           <tr>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 10px', textAlign: 'left', minWidth: 230, position: 'sticky', left: 0 }}>CC / Conta sintética / Conta analítica</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 10px', textAlign: 'left', minWidth: 230, position: 'sticky', left: 0 }}>CC / Conta sintética / Conta analítica (R$)</th>
             {MESES.map(m => <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '7px 4px', minWidth: 58 }}>{m}</th>)}
             <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10, padding: '7px 8px', minWidth: 84 }}>Total</th>
           </tr>
@@ -11226,7 +11239,7 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
         <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT, fontSize: 10.5 }}>
           <thead>
             <tr>
-              <th style={{ ...TH, textAlign: 'left', minWidth: 160, padding: '4px 8px', position: 'sticky', left: 0 }}>Conta</th>
+              <th style={{ ...TH, textAlign: 'left', minWidth: 160, padding: '4px 8px', position: 'sticky', left: 0 }}>Conta (R$)</th>
               {MESES.map(m => <th key={m} style={{ ...TH, minWidth: 54 }}>{m}</th>)}
               <th style={{ ...TH, background: COR.laranja, minWidth: 72, padding: '4px 8px' }}>Total</th>
               <th style={{ ...TH, background: '#7A8088', minWidth: 28 }}></th>
@@ -11246,7 +11259,7 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
                   />
                 </td>
               ))}
-              <td style={{ ...TD, background: COR.claro, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>{formatBRL(totalFlat)}</td>
+              <td style={{ ...TD, background: COR.claro, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>{formatValor(totalFlat)}</td>
               <td style={{ ...TD, background: COR.claro }}></td>
             </tr>
             {/* linhas por conta */}
@@ -11274,7 +11287,7 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
                       />
                     </td>
                   ))}
-                  <td style={{ ...TD, background: COR.branco, fontWeight: 600, color: COR.laranja, padding: '2px 8px' }}>{formatBRL(tot)}</td>
+                  <td style={{ ...TD, background: COR.branco, fontWeight: 600, color: COR.laranja, padding: '2px 8px' }}>{formatValor(tot)}</td>
                   <td style={{ ...TD, background: COR.branco, textAlign: 'center' }}>
                     <button
                       onClick={() => onRemove(idx)}
@@ -11289,9 +11302,9 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
               <td style={{ ...TD, textAlign: 'left', padding: '3px 8px', fontWeight: 700, color: COR.vermelho, background: '#FFF0F0', position: 'sticky', left: 0 }}>Total {titulo}</td>
               {MESES.map((_, m) => {
                 const v = parseNum((flatValores || [])[m]) + (linhas || []).reduce((a, l) => a + parseNum((l.valores || [])[m]), 0);
-                return <td key={m} style={{ ...TD, background: '#FFF0F0', fontWeight: 600, color: COR.vermelho }}>{formatBRL(v)}</td>;
+                return <td key={m} style={{ ...TD, background: '#FFF0F0', fontWeight: 600, color: COR.vermelho }}>{formatValor(v)}</td>;
               })}
-              <td style={{ ...TD, background: '#FFF0F0', fontWeight: 700, color: COR.vermelho, padding: '3px 8px' }}>{formatBRL(totalFlat + totalLinhas)}</td>
+              <td style={{ ...TD, background: '#FFF0F0', fontWeight: 700, color: COR.vermelho, padding: '3px 8px' }}>{formatValor(totalFlat + totalLinhas)}</td>
               <td style={{ ...TD, background: '#FFF0F0' }}></td>
             </tr>
           </tbody>
@@ -11431,7 +11444,7 @@ function PremissasRecebimentoResorts({ capitalGiro, atualizar, dados }) {
 
       <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '4px 0 6px' }}>Total de Recebimentos</div>
       <TabelaMensal
-        formatarTotal={formatBRL}
+        formatarTotal={formatValor}
         colunaTexto={colunaResponsavel}
         onChangeCelula={(key, idx, v) => {
           if (key.startsWith('enc_')) { const id = key.slice(4); setLinha(['encarteirado', id], rr.encarteirado?.[id], idx, v); }
@@ -11455,7 +11468,7 @@ function PremissasRecebimentoResorts({ capitalGiro, atualizar, dados }) {
 
       <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '18px 0 6px' }}>1. Faturamento (Hospedagem e A&amp;B) e forma de pagamento</div>
       <TabelaMensal
-        formatarTotal={formatBRL}
+        formatarTotal={formatValor}
         colunaTexto={colunaResponsavel}
         onChangeCelula={(key, idx, v) => setLinha([CAMINHO[key]], rr[CAMINHO[key]], idx, v, PCT_EDITAVEL.has(key))}
         linhas={[
@@ -11623,7 +11636,7 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
               <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT, fontSize: 10.5 }}>
                 <thead>
                   <tr>
-                    <th style={{ ...TH, textAlign: 'left', minWidth: 130, padding: '5px 8px', position: 'sticky', left: 0 }}>Conta</th>
+                    <th style={{ ...TH, textAlign: 'left', minWidth: 130, padding: '5px 8px', position: 'sticky', left: 0 }}>Conta (R$)</th>
                     <th style={{ ...TH, textAlign: 'left', minWidth: 195, padding: '5px 6px' }}>Critério</th>
                     {MESES.map(m => <th key={m} style={{ ...TH, minWidth: 55 }}>{m}</th>)}
                     <th style={{ ...TH, background: COR.laranja, minWidth: 72, padding: '5px 8px' }}>Total</th>
@@ -11687,13 +11700,13 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
                               />
                             ) : (
                               <span style={{ color: pagMes[m] !== 0 ? COR.texto : '#C8CBD0' }}>
-                                {pagMes[m] !== 0 ? formatBRL(pagMes[m]) : '—'}
+                                {pagMes[m] !== 0 ? formatValor(pagMes[m]) : '—'}
                               </span>
                             )}
                           </td>
                         ))}
                         <td style={{ ...TD, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>
-                          {formatBRL(config.tipo === 'valor_direto' ? valsTotal : pagMes.reduce((a, v) => a + v, 0))}
+                          {formatValor(config.tipo === 'valor_direto' ? valsTotal : pagMes.reduce((a, v) => a + v, 0))}
                         </td>
                       </tr>
                     );
@@ -11903,7 +11916,7 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
               <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT, fontSize: 10.5 }}>
                 <thead>
                   <tr>
-                    <th style={{ ...TH, textAlign: 'left', minWidth: 130, padding: '5px 8px', position: 'sticky', left: 0 }}>Conta</th>
+                    <th style={{ ...TH, textAlign: 'left', minWidth: 130, padding: '5px 8px', position: 'sticky', left: 0 }}>Conta (R$)</th>
                     <th style={{ ...TH, textAlign: 'left', minWidth: 195, padding: '5px 6px' }}>Critério</th>
                     {MESES.map(m => <th key={m} style={{ ...TH, minWidth: 55 }}>{m}</th>)}
                     <th style={{ ...TH, background: COR.laranja, minWidth: 72, padding: '5px 8px' }}>Total</th>
@@ -11967,13 +11980,13 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
                               />
                             ) : (
                               <span style={{ color: pagMes[m] !== 0 ? COR.texto : '#C8CBD0' }}>
-                                {pagMes[m] !== 0 ? formatBRL(pagMes[m]) : '—'}
+                                {pagMes[m] !== 0 ? formatValor(pagMes[m]) : '—'}
                               </span>
                             )}
                           </td>
                         ))}
                         <td style={{ ...TD, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>
-                          {formatBRL(config.tipo === 'valor_direto' ? valsTotal : pagMes.reduce((a, v) => a + v, 0))}
+                          {formatValor(config.tipo === 'valor_direto' ? valsTotal : pagMes.reduce((a, v) => a + v, 0))}
                         </td>
                       </tr>
                     );
@@ -12119,7 +12132,7 @@ function LinhaFinanciamento({ linha, aberta, onToggle, onUpdate, onRemove }) {
             <table>
               <thead>
                 <tr>
-                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Linha</th>
+                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Linha (R$)</th>
                   {MESES.map(m => (
                     <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', minWidth: 58 }}>{m}</th>
                   ))}
@@ -12127,11 +12140,11 @@ function LinhaFinanciamento({ linha, aberta, onToggle, onUpdate, onRemove }) {
                 </tr>
               </thead>
               <tbody>
-                <GradeMensalLinha label="Captações (R$)" valores={linha.captacoes} onChange={(mi, v) => onUpdate('captacoes', atualizarArray(linha.captacoes, mi, v))} formatarTotal={formatBRL} />
-                <GradeMensalLinha label="Amortizações (R$)" valores={linha.amortizacoes} onChange={(mi, v) => onUpdate('amortizacoes', atualizarArray(linha.amortizacoes, mi, v))} formatarTotal={formatBRL} />
-                <GradeMensalLinha label="Juros pagos (R$)" valores={linha.jurosPagos} onChange={(mi, v) => onUpdate('jurosPagos', atualizarArray(linha.jurosPagos, mi, v))} formatarTotal={formatBRL} />
-                <GradeMensalLinha label="Variação cambial (R$)" valores={linha.variacaoCambial} onChange={(mi, v) => onUpdate('variacaoCambial', atualizarArray(linha.variacaoCambial, mi, v))} formatarTotal={formatBRL} />
-                <GradeMensalLinha label="Provisão desp. financeira p/ Resultado (R$)" valores={linha.provisaoDespesaFinanceira} onChange={(mi, v) => onUpdate('provisaoDespesaFinanceira', atualizarArray(linha.provisaoDespesaFinanceira, mi, v))} formatarTotal={formatBRL} />
+                <GradeMensalLinha label="Captações (R$)" valores={linha.captacoes} onChange={(mi, v) => onUpdate('captacoes', atualizarArray(linha.captacoes, mi, v))} formatarTotal={formatValor} />
+                <GradeMensalLinha label="Amortizações (R$)" valores={linha.amortizacoes} onChange={(mi, v) => onUpdate('amortizacoes', atualizarArray(linha.amortizacoes, mi, v))} formatarTotal={formatValor} />
+                <GradeMensalLinha label="Juros pagos (R$)" valores={linha.jurosPagos} onChange={(mi, v) => onUpdate('jurosPagos', atualizarArray(linha.jurosPagos, mi, v))} formatarTotal={formatValor} />
+                <GradeMensalLinha label="Variação cambial (R$)" valores={linha.variacaoCambial} onChange={(mi, v) => onUpdate('variacaoCambial', atualizarArray(linha.variacaoCambial, mi, v))} formatarTotal={formatValor} />
+                <GradeMensalLinha label="Provisão desp. financeira p/ Resultado (R$)" valores={linha.provisaoDespesaFinanceira} onChange={(mi, v) => onUpdate('provisaoDespesaFinanceira', atualizarArray(linha.provisaoDespesaFinanceira, mi, v))} formatarTotal={formatValor} />
               </tbody>
             </table>
           </div>
@@ -12413,6 +12426,7 @@ function CascataDRE({ dre, ifrs18, extras }) {
 
   return (
     <div>
+      <div style={{ fontSize: 10.5, color: '#7A8088', textAlign: 'right', marginBottom: 4 }}>Valores em R$</div>
       {ifrs18 && (
         <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 6, padding: '8px 10px', marginBottom: 8, fontSize: 10.5, color: COR.texto }}>
           IFRS 18 (vigente para exercícios iniciados em 1º/jan/2027): EBITDA deixa de ser subtotal padrão e passa a MPM (medida definida pela administração) —
@@ -12444,7 +12458,7 @@ function CascataDRE({ dre, ifrs18, extras }) {
               )}
             </span>
             <span style={{ color: l.valor < 0 && l.tipo !== 'margem' ? COR.vermelho : (isSubtotalForte ? COR.azul : COR.texto) }}>
-              {isMargem ? formatPct(l.valor) : formatBRL(l.valor)}
+              {isMargem ? formatPct(l.valor) : formatValor(l.valor)}
             </span>
           </div>
         );
@@ -12512,11 +12526,11 @@ function DREMensalConsolidada({ lados, unidadeKind, ipcaAnualPct, cambios }) {
         </td>
         {valoresMensal.map((v, mi) => (
           <td key={mi} style={{ padding: '6px 4px', border: `1px solid ${COR.borda}`, fontSize: 10, textAlign: 'right', color: cor || COR.texto, fontWeight: bold ? 700 : 400 }}>
-            {formatBRL(v)}
+            {formatValor(v)}
           </td>
         ))}
         <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontWeight: 700, fontSize: 10.5, color: cor || COR.azul, textAlign: 'right' }}>
-          {formatBRL(total(valoresMensal))}
+          {formatValor(total(valoresMensal))}
         </td>
       </tr>
     );
@@ -12552,7 +12566,7 @@ function DREMensalConsolidada({ lados, unidadeKind, ipcaAnualPct, cambios }) {
       <table>
         <thead>
           <tr>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 10px', textAlign: 'left', minWidth: 230, position: 'sticky', left: 0 }}>Linha</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 10px', textAlign: 'left', minWidth: 230, position: 'sticky', left: 0 }}>Linha (R$)</th>
             {MESES.map(m => <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '7px 4px', minWidth: 58 }}>{m}</th>)}
             <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10, padding: '7px 8px', minWidth: 84 }}>Total ano</th>
           </tr>
@@ -12605,6 +12619,7 @@ function CascataDFC({ dfc }) {
   ];
   return (
     <div>
+      <div style={{ fontSize: 10.5, color: '#7A8088', textAlign: 'right', marginBottom: 4 }}>Valores em R$</div>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
         {linhas.map((l, i) => {
           const isPendencia = l.tipo === 'pendencia';
@@ -12623,7 +12638,7 @@ function CascataDFC({ dfc }) {
             >
               <span>{l.label}{isPendencia && <AlertTriangle size={11} color={COR.vermelho} style={{ marginLeft: 5, verticalAlign: 'middle' }} />}</span>
               <span style={{ color: isPendencia ? '#8A8F96' : (l.valor < 0 ? COR.vermelho : (isSubtotalForte ? COR.azul : COR.texto)) }}>
-                {formatBRL(l.valor)}
+                {formatValor(l.valor)}
               </span>
             </div>
           );
@@ -12754,7 +12769,7 @@ function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggl
           fontSize: isMargem ? 10.5 : 12.5, fontWeight: isForte ? 700 : 400,
           color: isPendencia ? '#8A8F96' : (valorGrupo < 0 && !isMargem ? COR.vermelho : (isForte ? COR.azul : COR.texto)),
         }}>
-          {isMargem ? formatPct(valorGrupo) : formatBRL(valorGrupo)}
+          {isMargem ? formatPct(valorGrupo) : formatValor(valorGrupo)}
         </span>
       </button>
       {aberto && (
@@ -12768,7 +12783,7 @@ function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggl
                   {conta.label} | {u.nome}
                 </span>
                 <span style={{ color: isMargem ? '#8A8F96' : (v < 0 ? COR.vermelho : COR.texto) }}>
-                  {isMargem ? formatPct(v) : formatBRL(v)}
+                  {isMargem ? formatPct(v) : formatValor(v)}
                 </span>
               </div>
             );
@@ -12828,7 +12843,7 @@ function AbaPlano5Y({ dre, plano5y, updatePremissa5Y, atualizar }) {
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>Cascata consolidada</h4>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 20 }}>
         <div style={{ ...linhaEstilo(0, true), background: COR.azul, color: COR.branco }}>
-          <div>Conta sintética</div>
+          <div>Conta sintética (R$)</div>
           {TODOS_ANOS.map(a => <div key={a} style={{ textAlign: 'center' }}>{a}</div>)}
         </div>
         {[
@@ -12846,7 +12861,7 @@ function AbaPlano5Y({ dre, plano5y, updatePremissa5Y, atualizar }) {
               const v = resultados[ano][linha.campo] * (linha.inverter ? -1 : 1);
               return (
                 <div key={ano} style={{ textAlign: 'center', color: v < 0 ? COR.vermelho : (linha.forte ? COR.azul : COR.texto) }}>
-                  {formatBRL(v)}
+                  {formatValor(v)}
                 </div>
               );
             })}
@@ -12888,14 +12903,14 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
   });
 
   const indicadores = [
-    { campo: 'receita', label: 'Receita', formatar: formatBRL },
-    { campo: 'ebitda', label: 'EBITDA', formatar: formatBRL, forte: true },
+    { campo: 'receita', label: 'Receita', formatar: formatValor },
+    { campo: 'ebitda', label: 'EBITDA', formatar: formatValor, forte: true },
     { campo: 'margemEbitda', label: 'Margem EBITDA', formatar: formatPct },
-    { campo: 'lucroLiquido', label: 'Resultado (Lucro Líquido)', formatar: formatBRL, forte: true },
-    { campo: 'fco', label: 'Fluxo de Caixa Operacional', formatar: formatBRL },
-    { campo: 'fcl', label: 'Fluxo de Caixa Livre (FCO - CAPEX)', formatar: formatBRL, forte: true },
-    { campo: 'capitalGiroLiquido', label: 'Capital de Giro (AR + Estoque - AP)', formatar: formatBRL },
-    { campo: 'necessidadeCaixa', label: 'Necessidade de Caixa', formatar: formatBRL },
+    { campo: 'lucroLiquido', label: 'Resultado (Lucro Líquido)', formatar: formatValor, forte: true },
+    { campo: 'fco', label: 'Fluxo de Caixa Operacional', formatar: formatValor },
+    { campo: 'fcl', label: 'Fluxo de Caixa Livre (FCO - CAPEX)', formatar: formatValor, forte: true },
+    { campo: 'capitalGiroLiquido', label: 'Capital de Giro (AR + Estoque - AP)', formatar: formatValor },
+    { campo: 'necessidadeCaixa', label: 'Necessidade de Caixa', formatar: formatValor },
   ];
 
   return (
@@ -12929,7 +12944,7 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
 
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 10 }}>
         <div style={{ ...linhaEstilo(0, true), background: COR.laranja, color: COR.branco }}>
-          <div>Impacto nos indicadores</div>
+          <div>Impacto nos indicadores (R$)</div>
           <div style={{ textAlign: 'center' }}>Base</div>
           <div style={{ textAlign: 'center' }}>Otimista</div>
           <div style={{ textAlign: 'center' }}>Pessimista</div>
@@ -13133,7 +13148,7 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
             { key: 'fcinv', label: '(=) FC Investimentos', valoresMensal: fd.fcInvestimentoMes, totalValor: totalFcInvestimento, cor: COR.vermelho },
             { key: 'fcfin', label: '(=) FC Financiamentos', valoresMensal: fd.fcFinanciamentoMes, totalValor: totalFcFinanciamento, cor: COR.azul },
             { key: 'varcaixa', label: '(=) Variação de Caixa no Mês', valoresMensal: fd.variacaoCaixaMes, totalValor: totalVariacaoCaixa, cor: COR.laranja },
-            { key: 'caixaacum', label: 'Caixa Acumulado', valoresMensal: fd.caixaAcumuladoMes, totalValor: fd.caixaAcumuladoMes[11], cor: COR.azul, formatarTotal: v => formatBRL(fd.caixaAcumuladoMes[11]) },
+            { key: 'caixaacum', label: 'Caixa Acumulado', valoresMensal: fd.caixaAcumuladoMes, totalValor: fd.caixaAcumuladoMes[11], cor: COR.azul, formatarTotal: v => formatValor(fd.caixaAcumuladoMes[11]) },
           ]}
         />
       </div>
@@ -13292,9 +13307,9 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes, ipcaAnua
     return (
       <tr key={label} style={{ background: COR.branco }}>
         <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco }}>{label}</td>
-        <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{formatBRL(atual)}</td>
-        <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{formatBRL(versao)}</td>
-        <td style={{ fontSize: 11, fontWeight: 700, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right', color: cor }}>{diff > 0 ? '+' : ''}{formatBRL(diff)}</td>
+        <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{formatValor(atual)}</td>
+        <td style={{ fontSize: 11, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{formatValor(versao)}</td>
+        <td style={{ fontSize: 11, fontWeight: 700, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right', color: cor }}>{diff > 0 ? '+' : ''}{formatValor(diff)}</td>
         <td style={{ fontSize: 11, fontWeight: 700, padding: '5px 8px', border: `1px solid ${COR.borda}`, textAlign: 'right', color: cor }}>{diffPct === null ? '—' : `${diffPct > 0 ? '+' : ''}${diffPct.toFixed(1)}%`}</td>
       </tr>
     );
@@ -13331,7 +13346,7 @@ function AnaliseVariacoes({ dados, dre, refUnidade, unidadeId, versoes, ipcaAnua
             <table>
               <thead>
                 <tr>
-                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '6px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Linha</th>
+                  <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '6px 8px', textAlign: 'left', position: 'sticky', left: 0 }}>Linha (R$)</th>
                   <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 100 }}>Atual</th>
                   <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 100 }}>Versão enviada</th>
                   <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10, padding: '6px 8px', minWidth: 100 }}>Diferença (R$)</th>
@@ -13961,7 +13976,7 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct,
         <CardTotal label="Lucro líquido do Grupo" valor={totalGrupo.lucroLiquido} cor={COR.azul} />
       </div>
 
-      <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>DRE Consolidada do Grupo — por conta sintética</h3>
+      <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>DRE Consolidada do Grupo — por conta sintética (R$)</h3>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir o drill-down por unidade.</p>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 26 }}>
         {CONTAS_SINTETICAS_DRE.map(conta => (
