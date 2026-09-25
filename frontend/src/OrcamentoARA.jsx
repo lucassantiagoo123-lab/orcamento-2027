@@ -3192,17 +3192,57 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 //   Operadora = vendas × % de check-out M+k × (1 − cancelamento), pago no mês
 //   seguinte ao check-out. Total = Encarteirado + Novos + Antecipados.
 const ENCARTEIRADO_RESORTS = [
-  { id: 'getnet', nome: 'Contas a Receber Getnet', fonte: 'CR' },
-  { id: 'operadoraCR', nome: 'Operadora CR', fonte: 'Relatório CM' },
-  { id: 'operadoraVHF', nome: 'Operadora VHF', fonte: 'Comercial' },
-  { id: 'alugueis', nome: 'Aluguéis', fonte: '' },
+  { id: 'getnet', nome: 'Contas a Receber Getnet' },
+  { id: 'operadoraCR', nome: 'Operadora CR' },
+  { id: 'operadoraVHF', nome: 'Operadora VHF' },
+  { id: 'alugueis', nome: 'Aluguéis' },
 ];
+// Responsável padrão por linha (coluna "Setor" da planilha) — editável na tela.
+const RESPONSAVEL_PADRAO_RESORTS = {
+  getnet: 'CR', operadoraCR: 'Relatório CM', operadoraVHF: 'Comercial', alugueis: '',
+  vendasNovDez: '', antecipados: 'CR', baseReservas: 'Comercial', crescimentoReservasPct: 'Comercial',
+};
 const MESES_RELATIVOS = Array.from({ length: 13 }, (_, k) => `M+${k}`);
+
+// Percentuais padrão da planilha do FP&A (% por mês de venda × M+0..M+12).
+// Valem enquanto o site não gravar os seus; a primeira edição grava a matriz.
+const PCT_CARTAO_PADRAO_RESORTS = [
+  [0.34649951, 56.44208745, 6.90750267, 5.81454833, 5.09807636, 4.57370532, 3.89771055, 3.33013401, 3.27681468, 3.15731766, 3.0955987, 2.03632743, 2.02367735],
+  [0.21559047, 53.6949845, 7.48075324, 5.95063914, 5.4358247, 4.84772276, 4.37732317, 3.7226761, 3.59527938, 3.33088103, 3.27402889, 2.05152755, 2.02276909],
+  [0.23190383, 32.05823344, 10.28705138, 8.88156886, 8.07710295, 7.20326301, 6.51817324, 5.60908446, 5.26172495, 4.8502364, 4.6171692, 3.23201668, 3.17247159],
+  [0.44831068, 55.03164024, 7.33953502, 6.14551057, 5.03861799, 4.44151713, 4.16309637, 3.49370691, 3.33367866, 3.19476393, 3.19030036, 2.09421916, 2.08510299],
+  [0.37454686, 39.73422108, 9.72881387, 8.42247404, 7.36435104, 6.58278926, 5.88377839, 4.7510894, 4.37896265, 4.01462052, 3.99606646, 2.40896824, 2.35931818],
+  [0.1762029, 41.1440815, 11.24810061, 8.26535785, 7.04691634, 6.02714981, 5.14749172, 4.26058599, 4.09186158, 3.89851233, 3.89851233, 2.44299066, 2.35223638],
+  [0.2814648, 53.26576266, 8.27988346, 6.89590321, 5.87879093, 4.91485705, 4.03226126, 3.29696509, 3.27091593, 3.17376421, 3.15331555, 1.77805793, 1.77805793],
+  [0.30182199, 42.35155242, 9.88604525, 8.39358811, 7.42872464, 6.09345507, 5.33382862, 4.03944157, 3.86678185, 3.72261301, 3.71848883, 2.43182931, 2.43182931],
+  [0.2778056, 40.08818469, 9.48584961, 8.39707886, 7.11028586, 6.66353853, 5.75674495, 4.47404894, 4.35831865, 4.08174921, 4.08174921, 2.62146684, 2.60317905],
+  [0.36105898, 45.44697982, 9.48680354, 7.71365133, 6.50722029, 5.45780117, 4.80764036, 3.97589001, 3.87807746, 3.61518259, 3.61518259, 2.56725593, 2.56725593],
+  [0.07750027, 22.85646025, 10.62184144, 9.61036397, 8.77951971, 8.05002545, 7.50629596, 6.5745997, 6.36391785, 5.92906235, 5.78470114, 3.96386661, 3.8818453],
+  [0.36105898, 45.44697982, 9.48680354, 7.71365133, 6.50722029, 5.45780117, 4.80764036, 3.97589001, 3.87807746, 3.61518259, 3.61518259, 2.56725593, 2.56725593],
+];
+const CANCEL_CARTAO_PADRAO_RESORTS = Array(12).fill(5);
+const PCT_OPERADORA_PADRAO_RESORTS = [
+  ...Array.from({ length: 6 }, () => Array(13).fill(0)),
+  [3.8277512, 6.22009569, 10.52631579, 33.01435407, 10.52631579, 16.26794258, 11.00478469, 5.26315789, 1.9138756, 0.4784689, 0.4784689, 0.4784689, 0],
+  [4.32692308, 11.05769231, 21.15384615, 15.38461538, 12.01923077, 12.5, 16.34615385, 3.84615385, 1.44230769, 0.48076923, 1.44230769, 0, 0],
+  [3.15186246, 9.16905444, 10.0286533, 13.75358166, 22.63610315, 23.78223496, 8.30945559, 2.86532951, 4.29799427, 0.5730659, 1.14613181, 0.28653295, 0],
+  [7.46753247, 17.53246753, 16.55844156, 20.77922078, 13.31168831, 11.68831169, 5.84415584, 2.27272727, 1.94805195, 1.2987013, 0.64935065, 0.64935065, 0],
+  [6.0483871, 12.09677419, 12.5, 16.12903226, 12.90322581, 12.09677419, 13.70967742, 6.4516129, 0.80645161, 0.40322581, 2.41935484, 4.42580645, 0],
+  [7.5, 30, 35, 7.5, 3.75, 3.75, 2.5, 6.25, 2.5, 1.25, 0, 0, 0],
+];
+const CANCEL_OPERADORA_PADRAO_RESORTS = Array(12).fill(0);
+const paraTextoPct = (n) => (n ? String(n).replace('.', ',') : '');
+function matrizPctEfetiva(salva, padrao) {
+  return salva || padrao.map(linha => linha.map(paraTextoPct));
+}
+function cancelPctEfetivo(salvo, padrao) {
+  return salvo || padrao.map(paraTextoPct);
+}
 
 function recebimentosResortsPreenchido(rr) {
   if (!rr) return false;
   const temValor = (arr) => (arr || []).some(v => parseNum(v) !== 0);
-  return ENCARTEIRADO_RESORTS.some(l => temValor(rr.encarteirado?.[l.id])) || temValor(rr.baseReservas) || temValor(rr.antecipados);
+  return ENCARTEIRADO_RESORTS.some(l => temValor(rr.encarteirado?.[l.id])) || temValor(rr.vendasNovDez) || temValor(rr.baseReservas) || temValor(rr.antecipados);
 }
 
 function computeRecebimentosResorts(data) {
@@ -3226,18 +3266,21 @@ function computeRecebimentosResorts(data) {
     const totalMes = MESES.map((_, c) => porVenda.reduce((acc, linha) => acc + linha[c], 0));
     return { porVenda, totalMes };
   }
-  const cartao = distribuir(vendasCartaoMes, rr.cartaoPct, rr.cartaoCancelPct);
-  const checkout = distribuir(vendasOperadoraMes, rr.operadoraPct, rr.operadoraCancelPct);
+  const cartao = distribuir(vendasCartaoMes,
+    matrizPctEfetiva(rr.cartaoPct, PCT_CARTAO_PADRAO_RESORTS), cancelPctEfetivo(rr.cartaoCancelPct, CANCEL_CARTAO_PADRAO_RESORTS));
+  const checkout = distribuir(vendasOperadoraMes,
+    matrizPctEfetiva(rr.operadoraPct, PCT_OPERADORA_PADRAO_RESORTS), cancelPctEfetivo(rr.operadoraCancelPct, CANCEL_OPERADORA_PADRAO_RESORTS));
   const operadoraMes = MESES.map((_, m) => (m === 0 ? 0 : checkout.totalMes[m - 1]));
 
   const encarteiradoPorLinha = Object.fromEntries(ENCARTEIRADO_RESORTS.map(l => [l.id, MESES.map((_, m) => parseNum(rr.encarteirado?.[l.id]?.[m]))]));
   const encarteiradoMes = MESES.map((_, m) => ENCARTEIRADO_RESORTS.reduce((acc, l) => acc + encarteiradoPorLinha[l.id][m], 0));
+  const vendasNovDezMes = MESES.map((_, m) => parseNum(rr.vendasNovDez?.[m]));
   const novosMes = MESES.map((_, m) => aVistaMes[m] + cartao.totalMes[m] + operadoraMes[m]);
   const antecipadosMes = MESES.map((_, m) => parseNum(rr.antecipados?.[m]));
-  const totalMes = MESES.map((_, m) => encarteiradoMes[m] + novosMes[m] + antecipadosMes[m]);
+  const totalMes = MESES.map((_, m) => encarteiradoMes[m] + vendasNovDezMes[m] + novosMes[m] + antecipadosMes[m]);
   return {
     aebMes, reservasMes, totalFaturadoMes, aVistaMes, vendasCartaoMes, vendasOperadoraMes,
-    cartao, checkout, operadoraMes, encarteiradoPorLinha, encarteiradoMes, novosMes, antecipadosMes, totalMes,
+    cartao, checkout, operadoraMes, encarteiradoPorLinha, encarteiradoMes, vendasNovDezMes, novosMes, antecipadosMes, totalMes,
   };
 }
 
@@ -3690,7 +3733,27 @@ function CampoJustificativa({ value, onChange, placeholder, obrigatorio }) {
 // que desenha ANTES de `linhas` — pra uma linha calculada (não editável)
 // que precisa aparecer no topo da tabela, como o % Externo derivado do %
 // Interno (ver AbaReceitaAgricola, 2.3 Vendas — Mercado Externo).
-function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal, linhasCalculadas, linhasCalculadasAntes, colunaExtra }) {
+function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal, linhasCalculadas, linhasCalculadasAntes, colunaExtra, colunaTexto }) {
+  // colunaTexto (2026-09-25): coluna de texto ao lado da descrição (ex.:
+  // "Responsável"). Editável quando colunaTexto.onChange existe e a linha tem
+  // a chave; linhas sem a chave ficam em branco.
+  function celulaTexto(linha) {
+    if (!colunaTexto) return null;
+    const valor = linha[colunaTexto.chave];
+    return (
+      <td style={{ padding: 3, border: `1px solid ${COR.borda}`, background: COR.branco, minWidth: 110 }}>
+        {valor !== undefined && colunaTexto.onChange ? (
+          <input
+            type="text" value={valor} placeholder="—"
+            onChange={e => colunaTexto.onChange(linha.key, e.target.value)}
+            style={{ width: '100%', border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 11, color: '#7A8088', background: 'transparent', boxSizing: 'border-box' }}
+          />
+        ) : (
+          <div style={{ padding: '5px 4px', fontSize: 11, color: '#7A8088' }}>{valor || ''}</div>
+        )}
+      </td>
+    );
+  }
   function celulaExtra(linha, i) {
     const dado = colunaExtra && linha[colunaExtra.chave];
     return (
@@ -3718,6 +3781,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
             </span>
           ) : linha.label}
         </td>
+        {celulaTexto(linha)}
         {colunaExtra && celulaExtra(linha, 0)}
         {linha.valoresMensal.map((v, mi) => (
           <td key={mi} style={{ padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right', color: linha.cor || COR.texto, fontWeight: 700 }}>
@@ -3736,6 +3800,9 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
         <thead>
           <tr>
             <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: 'left', minWidth: 150, position: 'sticky', left: 0 }}>Linha</th>
+            {colunaTexto && (
+              <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 6px', textAlign: 'left', minWidth: 110 }}>{colunaTexto.titulo}</th>
+            )}
             {colunaExtra && (
               <th style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 6px', minWidth: 70 }}>{colunaExtra.titulo}</th>
             )}
@@ -3766,6 +3833,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
             return (
               <tr key={linha.key} style={{ background: COR.branco }}>
                 <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco }}>{linha.label}</td>
+                {celulaTexto(linha)}
                 {colunaExtra && celulaExtra(linha, i)}
                 {MESES.map((m, mi) => (
                   <td key={m} style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
@@ -11269,13 +11337,19 @@ function PremissasRecebimentoResorts({ capitalGiro, atualizar, dados }) {
   function setLinha(caminho, atual, idx, valor, ehPct) {
     atualizar([...base, ...caminho], atualizarArray(atual || mesesVazios(), idx, ehPct ? limparPct(valor) : valor));
   }
-  function setMatriz(chave, chaveCancel, celulas) {
+  const matrizCartao = matrizPctEfetiva(rr.cartaoPct, PCT_CARTAO_PADRAO_RESORTS);
+  const cancelCartao = cancelPctEfetivo(rr.cartaoCancelPct, CANCEL_CARTAO_PADRAO_RESORTS);
+  const matrizOperadora = matrizPctEfetiva(rr.operadoraPct, PCT_OPERADORA_PADRAO_RESORTS);
+  const cancelOperadora = cancelPctEfetivo(rr.operadoraCancelPct, CANCEL_OPERADORA_PADRAO_RESORTS);
+  // Parte da matriz em uso (salva ou padrão da planilha), então editar uma
+  // célula grava a matriz inteira sem zerar as demais.
+  function setMatriz(chave, chaveCancel, matrizAtual, cancelAtual, celulas) {
     const nova = MESES.map((_, r) => {
-      const l = [...((rr[chave] || [])[r] || [])];
+      const l = [...(matrizAtual[r] || [])];
       while (l.length < 13) l.push('');
       return l;
     });
-    const novoCancel = [...(rr[chaveCancel] || mesesVazios())];
+    const novoCancel = [...cancelAtual];
     let mudouMatriz = false;
     let mudouCancel = false;
     celulas.forEach(({ r, k, v }) => {
@@ -11292,6 +11366,16 @@ function PremissasRecebimentoResorts({ capitalGiro, atualizar, dados }) {
   const linhaCalc = (key, label, valores, cor) => ({ key, label, calculada: true, valoresMensal: valores, totalValor: soma(valores), cor });
   const PCT_EDITAVEL = new Set(['cresc', 'pAvista', 'pCartao', 'pOper']);
   const CAMINHO = { base: 'baseReservas', cresc: 'crescimentoReservasPct', pAvista: 'mixAVistaPct', pCartao: 'mixCartaoPct', pOper: 'mixOperadoraPct' };
+  const responsavel = (id) => rr.responsaveis?.[id] ?? RESPONSAVEL_PADRAO_RESORTS[id] ?? '';
+  const ID_RESPONSAVEL = { base: 'baseReservas', cresc: 'crescimentoReservasPct', antecipados: 'antecipados', vendasNovDez: 'vendasNovDez' };
+  const colunaResponsavel = {
+    titulo: 'Responsável',
+    chave: 'responsavel',
+    onChange: (key, valor) => {
+      const id = key.startsWith('enc_') ? key.slice(4) : ID_RESPONSAVEL[key];
+      if (id) atualizar([...base, 'responsaveis', id], valor);
+    },
+  };
 
   return (
     <div style={{ marginBottom: 24 }}>
@@ -11304,21 +11388,23 @@ function PremissasRecebimentoResorts({ capitalGiro, atualizar, dados }) {
       <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '4px 0 6px' }}>Total de Recebimentos</div>
       <TabelaMensal
         formatarTotal={formatBRL}
+        colunaTexto={colunaResponsavel}
         onChangeCelula={(key, idx, v) => {
           if (key.startsWith('enc_')) { const id = key.slice(4); setLinha(['encarteirado', id], rr.encarteirado?.[id], idx, v); }
-          else if (key === 'antecipados') setLinha(['antecipados'], rr.antecipados, idx, v);
+          else if (key === 'antecipados' || key === 'vendasNovDez') setLinha([key], rr[key], idx, v);
         }}
         linhas={[
           linhaCalc('encart', 'Encarteirado (Existente)', calc.encarteiradoMes, COR.azul),
           ...ENCARTEIRADO_RESORTS.map(l => ({
-            key: `enc_${l.id}`, label: recuo(`${l.nome}${l.fonte ? ` — ${l.fonte}` : ''}`),
+            key: `enc_${l.id}`, label: recuo(l.nome), responsavel: responsavel(l.id),
             valores: rr.encarteirado?.[l.id] || mesesVazios(),
           })),
+          { key: 'vendasNovDez', label: 'Vendas Nov e Dez', responsavel: responsavel('vendasNovDez'), valores: rr.vendasNovDez || mesesVazios() },
           linhaCalc('novos', 'Novos Recebimentos', calc.novosMes, COR.azul),
           linhaCalc('avista', recuo('Vendas à Vista'), calc.aVistaMes, COR.texto),
           linhaCalc('cartao', recuo('Cartão'), calc.cartao.totalMes, COR.texto),
           linhaCalc('operadora', recuo('Operadora'), calc.operadoraMes, COR.texto),
-          { key: 'antecipados', label: 'Valores Antecipados — CR', valores: rr.antecipados || mesesVazios() },
+          { key: 'antecipados', label: 'Valores Antecipados', responsavel: responsavel('antecipados'), valores: rr.antecipados || mesesVazios() },
         ]}
         linhasCalculadas={[linhaCalc('total', 'Total de Recebimentos', calc.totalMes, COR.laranja)]}
       />
@@ -11326,10 +11412,11 @@ function PremissasRecebimentoResorts({ capitalGiro, atualizar, dados }) {
       <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '18px 0 6px' }}>1. Faturamento (Hospedagem e A&amp;B) e forma de pagamento</div>
       <TabelaMensal
         formatarTotal={formatBRL}
+        colunaTexto={colunaResponsavel}
         onChangeCelula={(key, idx, v) => setLinha([CAMINHO[key]], rr[CAMINHO[key]], idx, v, PCT_EDITAVEL.has(key))}
         linhas={[
-          { key: 'base', label: 'Base de reservas (R$)', valores: rr.baseReservas || mesesVazios() },
-          { key: 'cresc', label: 'Crescimento de reservas vs base (%)', valores: rr.crescimentoReservasPct || mesesVazios(), formatarTotal: semTotal },
+          { key: 'base', label: 'Base de reservas (R$)', responsavel: responsavel('baseReservas'), valores: rr.baseReservas || mesesVazios() },
+          { key: 'cresc', label: 'Crescimento de reservas vs base (%)', responsavel: responsavel('crescimentoReservasPct'), valores: rr.crescimentoReservasPct || mesesVazios(), formatarTotal: semTotal },
           linhaCalc('reservas', 'Reservas projetadas (Hospedagem)', calc.reservasMes, COR.azul),
           linhaCalc('aeb', 'Faturamento A&B (Receita — 1.2.1 Alimentação e Bebidas)', calc.aebMes, COR.azul),
           linhaCalc('totfat', 'Total Faturado', calc.totalFaturadoMes, COR.azul),
@@ -11345,7 +11432,7 @@ function PremissasRecebimentoResorts({ capitalGiro, atualizar, dados }) {
 
       <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '18px 0 2px' }}>2. Recebimento Cartão — % recebido por mês de venda</div>
       <p style={{ fontSize: 11, color: '#7A8088', margin: '0 0 6px' }}>Recebimento = vendas no cartão × % do M+k × (1 − % cancelamento).</p>
-      <MatrizPctRecebimento matriz={rr.cartaoPct} cancel={rr.cartaoCancelPct} onChangeCelulas={cel => setMatriz('cartaoPct', 'cartaoCancelPct', cel)} />
+      <MatrizPctRecebimento matriz={matrizCartao} cancel={cancelCartao} onChangeCelulas={cel => setMatriz('cartaoPct', 'cartaoCancelPct', matrizCartao, cancelCartao, cel)} />
       <TabelaMensal
         linhas={[]} onChangeCelula={() => {}}
         linhasCalculadas={[
@@ -11356,7 +11443,7 @@ function PremissasRecebimentoResorts({ capitalGiro, atualizar, dados }) {
 
       <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '18px 0 2px' }}>3. Recebimento Operadora — % de check-out por mês de venda</div>
       <p style={{ fontSize: 11, color: '#7A8088', margin: '0 0 6px' }}>Check-out = vendas via operadora × % do M+k × (1 − % cancelamento). A operadora paga no mês seguinte ao check-out.</p>
-      <MatrizPctRecebimento matriz={rr.operadoraPct} cancel={rr.operadoraCancelPct} onChangeCelulas={cel => setMatriz('operadoraPct', 'operadoraCancelPct', cel)} />
+      <MatrizPctRecebimento matriz={matrizOperadora} cancel={cancelOperadora} onChangeCelulas={cel => setMatriz('operadoraPct', 'operadoraCancelPct', matrizOperadora, cancelOperadora, cel)} />
       <TabelaMensal
         linhas={[]} onChangeCelula={() => {}}
         linhasCalculadas={[
