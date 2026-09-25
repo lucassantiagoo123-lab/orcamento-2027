@@ -3184,6 +3184,63 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 // folha, capital de giro, 13º), então reconcilia matematicamente com o
 // FC Operacional do método indireto — são duas leituras do mesmo número.
 // ---------------------------------------------------------------------------
+// Premissa de recebimentos da ARA Resorts (2026-09-25, modelo "Projecao_
+// Recebimentos" do FP&A). Só Samoa Beach/Samoa Villa, em
+// capitalGiro.recebimentosResorts. Percentuais guardados em % (ex.: '56,4').
+//   Total faturado = reservas (base × (1 + crescimento)) + A&B da Receita (1.2.1)
+//   À vista recebe no mês; Cartão = vendas × % M+k × (1 − cancelamento);
+//   Operadora = vendas × % de check-out M+k × (1 − cancelamento), pago no mês
+//   seguinte ao check-out. Total = Encarteirado + Novos + Antecipados.
+const ENCARTEIRADO_RESORTS = [
+  { id: 'getnet', nome: 'Contas a Receber Getnet', fonte: 'CR' },
+  { id: 'operadoraCR', nome: 'Operadora CR', fonte: 'Relatório CM' },
+  { id: 'operadoraVHF', nome: 'Operadora VHF', fonte: 'Comercial' },
+  { id: 'alugueis', nome: 'Aluguéis', fonte: '' },
+];
+const MESES_RELATIVOS = Array.from({ length: 13 }, (_, k) => `M+${k}`);
+
+function recebimentosResortsPreenchido(rr) {
+  if (!rr) return false;
+  const temValor = (arr) => (arr || []).some(v => parseNum(v) !== 0);
+  return ENCARTEIRADO_RESORTS.some(l => temValor(rr.encarteirado?.[l.id])) || temValor(rr.baseReservas) || temValor(rr.antecipados);
+}
+
+function computeRecebimentosResorts(data) {
+  const rr = data.capitalGiro?.recebimentosResorts || {};
+  const pct = (v) => parseNum(v) / 100;
+  const linhaAeb = data.receita?.linhas?.aeb;
+  const aebMes = MESES.map((_, m) => (linhaAeb ? valorLinhaMes({ ...linhaAeb, premissaTipo: tipoLinhaReceitaResorts('aeb') }, m, null, null) : 0));
+  const reservasMes = MESES.map((_, m) => parseNum(rr.baseReservas?.[m]) * (1 + pct(rr.crescimentoReservasPct?.[m])));
+  const totalFaturadoMes = MESES.map((_, m) => reservasMes[m] + aebMes[m]);
+  const aVistaMes = MESES.map((_, m) => totalFaturadoMes[m] * pct(rr.mixAVistaPct?.[m]));
+  const vendasCartaoMes = MESES.map((_, m) => totalFaturadoMes[m] * pct(rr.mixCartaoPct?.[m]));
+  const vendasOperadoraMes = MESES.map((_, m) => totalFaturadoMes[m] * pct(rr.mixOperadoraPct?.[m]));
+
+  // Linha = mês da venda (r); coluna M+k cai no mês r+k (o que passa de Dez fica fora do ano).
+  function distribuir(vendasMes, matriz, cancelPct) {
+    const porVenda = MESES.map((_, r) => MESES.map((_, c) => {
+      const k = c - r;
+      if (k < 0 || k > 12) return 0;
+      return vendasMes[r] * pct(matriz?.[r]?.[k]) * (1 - pct(cancelPct?.[r]));
+    }));
+    const totalMes = MESES.map((_, c) => porVenda.reduce((acc, linha) => acc + linha[c], 0));
+    return { porVenda, totalMes };
+  }
+  const cartao = distribuir(vendasCartaoMes, rr.cartaoPct, rr.cartaoCancelPct);
+  const checkout = distribuir(vendasOperadoraMes, rr.operadoraPct, rr.operadoraCancelPct);
+  const operadoraMes = MESES.map((_, m) => (m === 0 ? 0 : checkout.totalMes[m - 1]));
+
+  const encarteiradoPorLinha = Object.fromEntries(ENCARTEIRADO_RESORTS.map(l => [l.id, MESES.map((_, m) => parseNum(rr.encarteirado?.[l.id]?.[m]))]));
+  const encarteiradoMes = MESES.map((_, m) => ENCARTEIRADO_RESORTS.reduce((acc, l) => acc + encarteiradoPorLinha[l.id][m], 0));
+  const novosMes = MESES.map((_, m) => aVistaMes[m] + cartao.totalMes[m] + operadoraMes[m]);
+  const antecipadosMes = MESES.map((_, m) => parseNum(rr.antecipados?.[m]));
+  const totalMes = MESES.map((_, m) => encarteiradoMes[m] + novosMes[m] + antecipadosMes[m]);
+  return {
+    aebMes, reservasMes, totalFaturadoMes, aVistaMes, vendasCartaoMes, vendasOperadoraMes,
+    cartao, checkout, operadoraMes, encarteiradoPorLinha, encarteiradoMes, novosMes, antecipadosMes, totalMes,
+  };
+}
+
 function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   const pessoalCC = pessoalExtraTodosCCs(data, ref, dre, ipcaAnualPct);
   const receitaLiquidaMes = dre.receitaLiquidaMes;
@@ -3241,6 +3298,11 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   });
   if (cg.premissasRecebimento) {
     recebimentosClientesMes = computeRecebimentosKgiroMensal(data, dre).totalMes;
+  }
+  // ARA Resorts: premissa de recebimentos própria, só depois de preenchida
+  // (antes disso o FC segue na aproximação por prazo, sem mudança).
+  if (recebimentosResortsPreenchido(cg.recebimentosResorts)) {
+    recebimentosClientesMes = computeRecebimentosResorts(data).totalMes;
   }
 
   const pagamentosFornecedoresMes = MESES.map((_, m) => {
@@ -7367,6 +7429,14 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
   const fdBeach = computeFluxoIndiretoMensal(dadosBeach, dreBeach, refBeach, ipcaAnualPct);
   const fdVilla = computeFluxoIndiretoMensal(dadosVilla, dreVilla, refVilla, ipcaAnualPct);
   const totalFcOperacional = fdBeach.fcOperacionalMes.reduce((a, v) => a + v, 0) + fdVilla.fcOperacionalMes.reduce((a, v) => a + v, 0);
+  // FC Direto do Consolidado = soma dos dois resorts (premissas ficam nos sites).
+  const linhasFcdBeach = linhasFcDireto(computeFluxoCaixaDiretoMensal(dadosBeach, dreBeach, refBeach, ipcaAnualPct));
+  const linhasFcdVilla = linhasFcDireto(computeFluxoCaixaDiretoMensal(dadosVilla, dreVilla, refVilla, ipcaAnualPct));
+  const linhasFcdConsolidado = linhasFcdBeach.map((l, i) => ({
+    ...l,
+    valoresMensal: l.valoresMensal.map((v, m) => v + linhasFcdVilla[i].valoresMensal[m]),
+    totalValor: l.totalValor + linhasFcdVilla[i].totalValor,
+  }));
   const bridgeReceitaEbitda = [
     { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'inicio' },
     { label: 'Deduções/Impostos', valor: -dre.deducoes, tipo: 'incremento' },
@@ -7500,6 +7570,12 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
           lados={[{ nome: 'Samoa Beach', dados: dadosBeach, dre: dreBeach, fd: fdBeach, ref: refBeach }, { nome: 'Samoa Villa', dados: dadosVilla, dre: dreVilla, fd: fdVilla, ref: refVilla }]}
           unidadeKind="resorts" ipcaAnualPct={ipcaAnualPct} cambios={cambios}
         />
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal (Samoa Beach + Samoa Villa)</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Soma dos dois resorts. As premissas de recebimento e pagamento ficam na aba Kgiro de cada resort.</p>
+      <div style={{ marginBottom: 24 }}>
+        <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={linhasFcdConsolidado} />
       </div>
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>Detalhe por resort (Receita e Custos e Despesas)</h4>
@@ -10986,7 +11062,7 @@ function AbaGiro({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct,
   // Agrícola e Resorts (sites editáveis): 5.1 placeholder + 5.2 premissas de pagamento.
   // Corporativo excluído (pendência De/Para conta×CC, estrutura diferente).
   if (unidadeId !== 'corporativo' && refUnidade.pacotes?.length > 0) {
-    return <AbaGiroPacotes capitalGiro={capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={refUnidade} ipcaAnualPct={ipcaAnualPct} />;
+    return <AbaGiroPacotes capitalGiro={capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={refUnidade} ipcaAnualPct={ipcaAnualPct} unidadeId={unidadeId} />;
   }
   return (
     <div>
@@ -11123,7 +11199,177 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
 // Agrícola (TDS/FDS) e Resorts (Beach/Villa) — 5.1 placeholder + 5.2 premissas de pagamento
 // com o mesmo racional da AbaGiroTextil: carteira + Nov/Dez + tabela compacta por conta.
 // 5.1 (recebimentos) ainda não construída para essas unidades.
-function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct }) {
+const limparPct = (v) => (Array.isArray(v) ? v.map(limparPct) : String(v ?? '').replace(/%/g, '').trim());
+const recuo = (texto) => `   ${texto}`;
+const semTotal = () => '—';
+
+// Matriz % por mês de venda (linhas Jan–Dez) × M+0..M+12, com % de
+// cancelamento e total por linha. Colar um bloco do Excel (linhas × colunas)
+// preenche a partir da célula; a 14ª coluna colada vai para o cancelamento.
+function MatrizPctRecebimento({ matriz, cancel, onChangeCelulas }) {
+  function colar(e, r0, k0) {
+    const texto = (e.clipboardData?.getData('text') || '').replace(/\r/g, '');
+    const linhas = texto.split('\n').filter((l, i, arr) => !(l === '' && i === arr.length - 1));
+    if (linhas.length <= 1 && !linhas[0]?.includes('\t')) return;
+    e.preventDefault();
+    const celulas = [];
+    linhas.forEach((l, i) => l.split('\t').forEach((v, j) => celulas.push({ r: r0 + i, k: k0 + j, v })));
+    onChangeCelulas(celulas);
+  }
+  const estiloInput = { width: '100%', border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 11, color: COR.texto, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' };
+  const th = { background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 4px', minWidth: 52 };
+  return (
+    <div style={{ overflowX: 'auto', marginBottom: 12 }}>
+      <table>
+        <thead>
+          <tr>
+            <th style={{ ...th, textAlign: 'left', minWidth: 110, position: 'sticky', left: 0 }}>Mês da venda</th>
+            {MESES_RELATIVOS.map(h => <th key={h} style={th}>{h}</th>)}
+            <th style={{ ...th, background: COR.laranja }}>% Cancel.</th>
+            <th style={{ ...th, background: COR.laranja }}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {MESES.map((mes, r) => {
+            const linha = matriz?.[r] || [];
+            const total = MESES_RELATIVOS.reduce((acc, _, k) => acc + parseNum(linha[k]), 0);
+            const fora100 = total !== 0 && Math.abs(total - 100) > 0.05;
+            return (
+              <tr key={mes}>
+                <td style={{ fontWeight: 700, fontSize: 11, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco }}>{mes}</td>
+                {MESES_RELATIVOS.map((_, k) => (
+                  <td key={k} style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
+                    <InputNumerico value={linha[k] ?? ''} onChange={v => onChangeCelulas([{ r, k, v }])} onPaste={e => colar(e, r, k)} style={estiloInput} />
+                  </td>
+                ))}
+                <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
+                  <InputNumerico value={cancel?.[r] ?? ''} onChange={v => onChangeCelulas([{ r, k: 13, v }])} onPaste={e => colar(e, r, 13)} style={estiloInput} />
+                </td>
+                <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, fontWeight: 700, textAlign: 'right', color: fora100 ? COR.vermelho : COR.azul }} title={fora100 ? 'A linha deveria somar 100%' : undefined}>
+                  {formatPct(total)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// 5.1 Premissas de recebimento — só Samoa Beach/Samoa Villa (ver
+// computeRecebimentosResorts). Quando preenchida, substitui os Recebimentos de
+// clientes do FC Direto do site.
+function PremissasRecebimentoResorts({ capitalGiro, atualizar, dados }) {
+  const rr = capitalGiro.recebimentosResorts || {};
+  const calc = computeRecebimentosResorts(dados);
+  const base = ['capitalGiro', 'recebimentosResorts'];
+  const soma = (arr) => arr.reduce((a, v) => a + v, 0);
+
+  function setLinha(caminho, atual, idx, valor, ehPct) {
+    atualizar([...base, ...caminho], atualizarArray(atual || mesesVazios(), idx, ehPct ? limparPct(valor) : valor));
+  }
+  function setMatriz(chave, chaveCancel, celulas) {
+    const nova = MESES.map((_, r) => {
+      const l = [...((rr[chave] || [])[r] || [])];
+      while (l.length < 13) l.push('');
+      return l;
+    });
+    const novoCancel = [...(rr[chaveCancel] || mesesVazios())];
+    let mudouMatriz = false;
+    let mudouCancel = false;
+    celulas.forEach(({ r, k, v }) => {
+      if (r < 0 || r > 11) return;
+      if (k <= 12) { nova[r][k] = limparPct(v); mudouMatriz = true; }
+      else if (k === 13) { novoCancel[r] = limparPct(v); mudouCancel = true; }
+    });
+    if (mudouMatriz) atualizar([...base, chave], nova);
+    if (mudouCancel) atualizar([...base, chaveCancel], novoCancel);
+  }
+
+  const somaMix = MESES.map((_, m) => parseNum(rr.mixAVistaPct?.[m]) + parseNum(rr.mixCartaoPct?.[m]) + parseNum(rr.mixOperadoraPct?.[m]));
+  const mixFora100 = somaMix.some(v => v !== 0 && Math.abs(v - 100) > 0.05);
+  const linhaCalc = (key, label, valores, cor) => ({ key, label, calculada: true, valoresMensal: valores, totalValor: soma(valores), cor });
+  const PCT_EDITAVEL = new Set(['cresc', 'pAvista', 'pCartao', 'pOper']);
+  const CAMINHO = { base: 'baseReservas', cresc: 'crescimentoReservasPct', pAvista: 'mixAVistaPct', pCartao: 'mixCartaoPct', pOper: 'mixOperadoraPct' };
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>5.1 Premissas de recebimento</h4>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Campos brancos são digitados; linhas em negrito são calculadas. Quando preenchida, esta premissa passa a ser os
+        Recebimentos de clientes do Fluxo de Caixa Direto desta unidade.
+      </p>
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '4px 0 6px' }}>Total de Recebimentos</div>
+      <TabelaMensal
+        formatarTotal={formatBRL}
+        onChangeCelula={(key, idx, v) => {
+          if (key.startsWith('enc_')) { const id = key.slice(4); setLinha(['encarteirado', id], rr.encarteirado?.[id], idx, v); }
+          else if (key === 'antecipados') setLinha(['antecipados'], rr.antecipados, idx, v);
+        }}
+        linhas={[
+          linhaCalc('encart', 'Encarteirado (Existente)', calc.encarteiradoMes, COR.azul),
+          ...ENCARTEIRADO_RESORTS.map(l => ({
+            key: `enc_${l.id}`, label: recuo(`${l.nome}${l.fonte ? ` — ${l.fonte}` : ''}`),
+            valores: rr.encarteirado?.[l.id] || mesesVazios(),
+          })),
+          linhaCalc('novos', 'Novos Recebimentos', calc.novosMes, COR.azul),
+          linhaCalc('avista', recuo('Vendas à Vista'), calc.aVistaMes, COR.texto),
+          linhaCalc('cartao', recuo('Cartão'), calc.cartao.totalMes, COR.texto),
+          linhaCalc('operadora', recuo('Operadora'), calc.operadoraMes, COR.texto),
+          { key: 'antecipados', label: 'Valores Antecipados — CR', valores: rr.antecipados || mesesVazios() },
+        ]}
+        linhasCalculadas={[linhaCalc('total', 'Total de Recebimentos', calc.totalMes, COR.laranja)]}
+      />
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '18px 0 6px' }}>1. Faturamento (Hospedagem e A&amp;B) e forma de pagamento</div>
+      <TabelaMensal
+        formatarTotal={formatBRL}
+        onChangeCelula={(key, idx, v) => setLinha([CAMINHO[key]], rr[CAMINHO[key]], idx, v, PCT_EDITAVEL.has(key))}
+        linhas={[
+          { key: 'base', label: 'Base de reservas (R$)', valores: rr.baseReservas || mesesVazios() },
+          { key: 'cresc', label: 'Crescimento de reservas vs base (%)', valores: rr.crescimentoReservasPct || mesesVazios(), formatarTotal: semTotal },
+          linhaCalc('reservas', 'Reservas projetadas (Hospedagem)', calc.reservasMes, COR.azul),
+          linhaCalc('aeb', 'Faturamento A&B (Receita — 1.2.1 Alimentação e Bebidas)', calc.aebMes, COR.azul),
+          linhaCalc('totfat', 'Total Faturado', calc.totalFaturadoMes, COR.azul),
+          { key: 'pAvista', label: '% À vista (PIX/TED/Depósito)', valores: rr.mixAVistaPct || mesesVazios(), formatarTotal: semTotal },
+          { key: 'pCartao', label: '% Cartão (Débito/Crédito)', valores: rr.mixCartaoPct || mesesVazios(), formatarTotal: semTotal },
+          { key: 'pOper', label: '% Operadora (Faturado)', valores: rr.mixOperadoraPct || mesesVazios(), formatarTotal: semTotal },
+          { ...linhaCalc('pSoma', mixFora100 ? 'Soma do mix — deveria ser 100%' : 'Soma do mix', somaMix, mixFora100 ? COR.vermelho : COR.texto), formatarCelula: v => formatPct(v), formatarTotal: semTotal },
+          linhaCalc('vAvista', recuo('Reservas à vista'), calc.aVistaMes, COR.texto),
+          linhaCalc('vCartao', recuo('Reservas via Cartão'), calc.vendasCartaoMes, COR.texto),
+          linhaCalc('vOper', recuo('Reservas via Operadora'), calc.vendasOperadoraMes, COR.texto),
+        ]}
+      />
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '18px 0 2px' }}>2. Recebimento Cartão — % recebido por mês de venda</div>
+      <p style={{ fontSize: 11, color: '#7A8088', margin: '0 0 6px' }}>Recebimento = vendas no cartão × % do M+k × (1 − % cancelamento).</p>
+      <MatrizPctRecebimento matriz={rr.cartaoPct} cancel={rr.cartaoCancelPct} onChangeCelulas={cel => setMatriz('cartaoPct', 'cartaoCancelPct', cel)} />
+      <TabelaMensal
+        linhas={[]} onChangeCelula={() => {}}
+        linhasCalculadas={[
+          ...MESES.map((mes, r) => linhaCalc(`cv${r}`, `Vendas de ${mes}`, calc.cartao.porVenda[r], COR.texto)),
+          linhaCalc('cTot', 'Total Recebimento Cartão', calc.cartao.totalMes, COR.laranja),
+        ]}
+      />
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '18px 0 2px' }}>3. Recebimento Operadora — % de check-out por mês de venda</div>
+      <p style={{ fontSize: 11, color: '#7A8088', margin: '0 0 6px' }}>Check-out = vendas via operadora × % do M+k × (1 − % cancelamento). A operadora paga no mês seguinte ao check-out.</p>
+      <MatrizPctRecebimento matriz={rr.operadoraPct} cancel={rr.operadoraCancelPct} onChangeCelulas={cel => setMatriz('operadoraPct', 'operadoraCancelPct', cel)} />
+      <TabelaMensal
+        linhas={[]} onChangeCelula={() => {}}
+        linhasCalculadas={[
+          ...MESES.map((mes, r) => linhaCalc(`ov${r}`, `Vendas de ${mes}`, calc.checkout.porVenda[r], COR.texto)),
+          linhaCalc('oCheckout', 'Total por check-out', calc.checkout.totalMes, COR.azul),
+          linhaCalc('oTot', 'Total Recebimento Operadora (mês seguinte ao check-out)', calc.operadoraMes, COR.laranja),
+        ]}
+      />
+    </div>
+  );
+}
+
+function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnualPct, unidadeId }) {
   const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const premPag2 = capitalGiro.premissasPagamento2 || {};
   const contasOpcoes = Object.values(refUnidade.todasContas || {}).sort((a, b) => a.codigo.localeCompare(b.codigo));
@@ -11176,14 +11422,19 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>5. Kgiro e FC Operacional</h3>
 
-      {/* 5.1 placeholder */}
-      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 6 }}>5.1 Premissas de recebimento</h4>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#FFF8F0', border: `1px solid ${COR.laranja}`, borderRadius: 7, marginBottom: 20 }}>
-        <AlertTriangle size={15} color={COR.laranja} style={{ flexShrink: 0 }} />
-        <span style={{ fontSize: 11.5, color: '#7A4800' }}>
-          Premissas de recebimento para esta unidade ainda serão construídas em etapa futura.
-        </span>
-      </div>
+      {unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa' ? (
+        <PremissasRecebimentoResorts capitalGiro={capitalGiro} atualizar={atualizar} dados={dados} />
+      ) : (
+        <>
+          <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 6 }}>5.1 Premissas de recebimento</h4>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#FFF8F0', border: `1px solid ${COR.laranja}`, borderRadius: 7, marginBottom: 20 }}>
+            <AlertTriangle size={15} color={COR.laranja} style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: 11.5, color: '#7A4800' }}>
+              Premissas de recebimento para esta unidade ainda serão construídas em etapa futura.
+            </span>
+          </div>
+        </>
+      )}
 
       {/* 5.2 Premissas de pagamento */}
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 6 }}>5.2 Premissas de pagamento</h4>
