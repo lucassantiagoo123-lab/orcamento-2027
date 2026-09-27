@@ -212,6 +212,7 @@ export const PLANO_CONTAS_AGRICOLA = {
     { codigo: '34202090', nome: "DIVERSOS", origem: 'Despesa' },
     { codigo: '34202091', nome: "DESPESA COM CARTAO DE CREDITO", origem: 'Despesa' },
     { codigo: '34202093', nome: "MEDICAMENTO E FARMACIA", origem: 'Despesa' }, // Base orçamento 2026.xlsx 2026-08-24
+    { codigo: '34202092', nome: "CONVENIO VALE GAS", origem: 'Despesa' }, // 2027 ADM FIN - ORCADO, incluída em 2026-09-27
   ],
   servicos: [
     { codigo: '71102003', nome: "SERVICOS DE TERCEIROS", origem: 'Custo' },

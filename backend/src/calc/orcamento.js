@@ -426,6 +426,17 @@ export function computeFolhaPessoalAnual(funcionariosCC, premissas) {
 // nota completa lá): sai do cálculo por funcionário, vira a conta analítica
 // "Headcount Existente" do pacote Pessoal, somada como qualquer conta em
 // custos.linhas (ver cpv/despesasSemDA abaixo). Só 'novo' passa por aqui.
+// Tipo contábil de uma linha: tipo do CC, ou origem da conta onde
+// ref.dreSegueOrigemConta (Agrícola) — espelho do frontend.
+export function tipoDaLinha(ref, cc, contaCodigo) {
+  if (ref.dreSegueOrigemConta) {
+    const origem = ref.todasContas?.[contaCodigo]?.origem;
+    if (origem === 'Custo') return 'producao';
+    if (origem === 'Despesa') return 'despesa';
+  }
+  return cc.tipo;
+}
+
 // Espelho de pessoalCalculadoPorCC/pessoalExtraPorCC do frontend — ver nota lá.
 const CONTA_CONSULTORIA_PJ = 'CORP03';
 function multiplicadorBonus(v) {
@@ -448,10 +459,16 @@ export function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
   const iBonusPj = idx(pp.bonusPjMes);
   const meritocracia = hcMes ? MESES.map((_, m) => (iMerit >= 0 && m >= iMerit ? hcMes[m] * parseNum(pp.meritocraciaPct) / 100 : 0)) : null;
   const dissidioSobreHc = (iD, pct) => MESES.map((_, m) => (iD < 0 || m < iD ? 0 : (hcMes[m] + (meritocracia?.[m] || 0)) * parseNum(pct) / 100));
-  const dissidio1 = hcMes ? dissidioSobreHc(idx(pp.dissidioMes), pp.dissidioPct) : null;
-  const dissidio2 = hcMes && !ehCorporativo ? dissidioSobreHc(idx(pp.dissidioMes2), pp.dissidioPct2) : null;
-  const bonus = hcMes
-    ? MESES.map((_, m) => (iBonus >= 0 && m === iBonus ? hcMes[iBonus] * multiplicadorBonus(pp.bonusMultiplicador) * parseNum(pp.bonusPct) / 100 : 0))
+  // Agrícola: HC Existente já vem reajustado — sem dissídio sobre ele.
+  const aplicaDissidio = hcMes && !ref.hcExistenteComDissidio;
+  const dissidio1 = aplicaDissidio ? dissidioSobreHc(idx(pp.dissidioMes), pp.dissidioPct) : null;
+  const dissidio2 = aplicaDissidio && !ehCorporativo ? dissidioSobreHc(idx(pp.dissidioMes2), pp.dissidioPct2) : null;
+  // Agrícola: base do bônus = salários reajustados só das funções elegíveis.
+  const baseBonus = ref.bonusSomenteElegiveis
+    ? parseNum(pp.baseBonusElegiveisPorCC?.[ccCodigo])
+    : (hcMes ? hcMes[iBonus] : 0);
+  const bonus = hcMes || ref.bonusSomenteElegiveis
+    ? MESES.map((_, m) => (iBonus >= 0 && m === iBonus ? baseBonus * multiplicadorBonus(pp.bonusMultiplicador) * parseNum(pp.bonusPct) / 100 : 0))
     : null;
   const bonusPj = ehCorporativo && iBonusPj >= 0
     ? MESES.map((_, m) => (m === iBonusPj ? valorContaMes(CONTA_CONSULTORIA_PJ, iBonusPj) * multiplicadorBonus(pp.bonusPjMultiplicador) * parseNum(pp.bonusPjAtendimentoPct) / 100 : 0))
@@ -634,7 +651,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
-    if (!cc || cc.tipo !== 'producao') return acc;
+    if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'producao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0);
   const lucroBruto = receitaLiquida - cpv;
@@ -644,7 +661,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-    if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao') return acc;
+    if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'despesa' || pacoteId === 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0);
   const ebitda = lucroBruto - despesasSemDA;
@@ -654,7 +671,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-    if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
+    if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'despesa' || pacoteId !== 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0);
 
@@ -818,7 +835,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       const [ccCodigo, contaCodigo] = chave.split('|');
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
@@ -828,7 +845,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       const [ccCodigo, contaCodigo] = chave.split('|');
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
@@ -848,7 +865,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-    if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
+    if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'despesa' || pacoteId !== 'depreciacao') return acc;
     return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
   }, 0));
   const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
@@ -938,7 +955,7 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       const [ccCodigo, contaCodigo] = chave.split('|');
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
@@ -948,7 +965,7 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       const [ccCodigo, contaCodigo] = chave.split('|');
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }

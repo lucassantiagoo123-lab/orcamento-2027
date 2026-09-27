@@ -12,6 +12,9 @@ import {
   CCS_CORPORATIVO, PLANO_CONTAS_CORPORATIVO, TODAS_CONTAS_CORPORATIVO,
 } from './constantesAgricolaResorts.js';
 
+// Regras próprias da ARA Agrícola — espelho de REGRAS_AGRICOLA no frontend.
+const REGRAS_AGRICOLA = { hcExistenteComDissidio: true, bonusSomenteElegiveis: true, dreSegueOrigemConta: true };
+
 export const UNIDADES_ORCAMENTO = {
   textil: { ccs: CCS_TEXTIL, todasContas: TODAS_CONTAS, planoContas: PLANO_CONTAS },
   // Agrícola ganhou CC real em 2026-08-20 (Plano Centro de Custo.xlsx) — as
@@ -19,9 +22,9 @@ export const UNIDADES_ORCAMENTO = {
   // e plano de contas. 'agricola' (sem sufixo, Consolidado) não é editada
   // direto, mas aparece aqui pra dreDaUnidade ter uma referência de
   // fallback e pra GET /agricola não quebrar antes do primeiro envio.
-  agricola: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA },
-  agricola_tds: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA },
-  agricola_fds: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA },
+  agricola: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, ...REGRAS_AGRICOLA },
+  agricola_tds: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, ...REGRAS_AGRICOLA },
+  agricola_fds: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, ...REGRAS_AGRICOLA },
   // Resorts ganhou CC real em 2026-08-20 (Centros de Custos - ARA Resorts
   // 1.xlsx) — mesmo padrão: samoa_beach/samoa_villa são os sites editáveis
   // (cada um só com os CCs que existem naquele resort, ver `resorts` em

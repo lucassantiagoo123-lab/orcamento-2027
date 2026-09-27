@@ -67,6 +67,38 @@ test('Bônus do HC Existente (unidades): HC do mês × multiplicador × %, e ent
   assert.equal(arred(computeDRE(d, ref, 0, {}).despesasSemDA), 122000);
 });
 
+test('Agrícola: HC Existente já com dissídio, bônus só dos elegíveis, meritocracia sobre o HC', () => {
+  const ref = {
+    ccs: [{ codigo: '50102', tipo: 'despesa' }],
+    todasContas: { HC_EXISTENTE_D: { pacoteId: 'pessoal', origem: 'Despesa' } },
+    planoContas: { pessoal: [{ codigo: 'HC_EXISTENTE_D', nome: 'Headcount Existente', origem: 'Despesa' }] },
+    hcExistenteComDissidio: true, bonusSomenteElegiveis: true, dreSegueOrigemConta: true,
+  };
+  const d = emptyFormData('agricola_tds');
+  d.custos.linhas = { '50102|HC_EXISTENTE_D': linhaDireta(10000) };
+  d.custos.premissasPessoal = {
+    ...d.custos.premissasPessoal,
+    dissidioMes: 'Jan', dissidioPct: '7', meritocraciaMes: 'Abr', meritocraciaPct: '5',
+    bonusMes: 'Abr', bonusPct: '80', baseBonusElegiveisPorCC: { '50102': '2000' },
+  };
+  // 12 × 10.000 (sem dissídio por cima) + mérito 9 × 500 + bônus 2.000 × 80% = 126.100
+  assert.equal(arred(computeDRE(d, ref, 0, {}).despesasSemDA), 126100);
+});
+
+test('Agrícola: conta de origem Custo num CC de despesa soma no CPV', () => {
+  const ref = {
+    ccs: [{ codigo: '50101', tipo: 'despesa' }],
+    todasContas: { '71102003': { pacoteId: 'servicos', origem: 'Custo' }, '34202003': { pacoteId: 'administrativo', origem: 'Despesa' } },
+    planoContas: { pessoal: [] },
+    dreSegueOrigemConta: true,
+  };
+  const d = emptyFormData('agricola_tds');
+  d.custos.linhas = { '50101|71102003': linhaDireta(100), '50101|34202003': linhaDireta(10) };
+  const dre = computeDRE(d, ref, 0, {});
+  assert.equal(arred(dre.cpv), 1200);
+  assert.equal(arred(dre.despesasSemDA), 120);
+});
+
 test('Resorts: rateio sobre receita de Hospedagem e de A&B', () => {
   assert.equal(valorSublinhaMes({ premissaTipo: 'rateio_hospedagem', percentuais: ['10'] }, 0, null, null, 0, null, [5000], [0]), 500);
   assert.equal(valorSublinhaMes({ premissaTipo: 'rateio_aeb', percentuais: ['20'] }, 0, null, null, 0, null, [0], [3000]), 600);

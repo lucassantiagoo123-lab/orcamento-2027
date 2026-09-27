@@ -19,6 +19,7 @@ import { totalProjeto } from '../db/detectarPerdas.js';
 import { iguais } from '../db/mesclarDados.js';
 import { recalcularTotaisVersoes } from '../db/recalcularTotaisVersoes.js';
 import { listarPeriodosEdicao, definirPeriodoEdicao } from '../db/periodoEdicao.js';
+import { importarDados } from '../db/importarDados.js';
 
 const ANO_ORCAMENTO = 2027;
 
@@ -251,6 +252,15 @@ adminRouter.put('/periodo-edicao/:unidadeId', async (req, res, next) => {
     if (!UNIDADES_PERIODO_EDICAO.includes(req.params.unidadeId)) return res.status(400).json({ erro: 'unidade_invalida' });
     if (typeof req.body?.encerrado !== 'boolean') return res.status(400).json({ erro: 'encerrado_obrigatorio' });
     res.json({ periodo: await definirPeriodoEdicao(req.params.unidadeId, req.body.encerrado, req.usuario.id) });
+  } catch (err) { next(err); }
+});
+
+// --- Importação de dados por arquivo (2026-09-27) ---
+// Ver db/importarDados.js. `aplicar` false (padrão) só simula.
+adminRouter.post('/importar-dados', async (req, res, next) => {
+  try {
+    const { cargas, aplicar, nomeArquivo } = req.body || {};
+    res.json(await importarDados({ cargas, aplicar: aplicar === true, nomeArquivo, usuarioId: req.usuario.id }));
   } catch (err) { next(err); }
 });
 

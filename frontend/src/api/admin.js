@@ -41,6 +41,10 @@ export const listarAlertas = (todos = false) => apiFetch(`/api/admin/alertas${to
 export const contarAlertasPendentes = () => apiFetch('/api/admin/alertas/contagem');
 export const resolverAlerta = (id) => apiFetch(`/api/admin/alertas/${id}/resolver`, { method: 'POST' });
 
+// Importação de dados por arquivo JSON (2026-09-27). aplicar=false só simula.
+export const importarDados = (cargas, aplicar, nomeArquivo) =>
+  apiFetch('/api/admin/importar-dados', { method: 'POST', body: { cargas, aplicar, nomeArquivo } });
+
 // Período de edição dos Gestores de CC, por unidade (2026-09-23).
 export const listarPeriodosEdicao = () => apiFetch('/api/admin/periodo-edicao');
 export const definirPeriodoEdicao = (unidadeId, encerrado) =>

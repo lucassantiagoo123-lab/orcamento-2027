@@ -8,7 +8,7 @@ import {
   vincularCc, desvincularCc, removerTodosCcUsuario, listarConcessoes, criarConcessao, revogarConcessao,
   definirAcessoUsuario, listarSnapshots, restaurarSnapshot,
   listarAlertas, resolverAlerta, listarHistoricoCapex, detalharHistoricoCapex, restaurarProjetosCapex,
-  recalcularTotaisVersoes, listarPeriodosEdicao, definirPeriodoEdicao,
+  recalcularTotaisVersoes, listarPeriodosEdicao, definirPeriodoEdicao, importarDados,
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
@@ -95,6 +95,7 @@ export default function AdminPanel({ voltar }) {
           <SecaoHistoricoCapex />
           <SecaoRecuperacaoDados />
           <SecaoRecalcularTotais />
+          <SecaoImportarDados />
         </>
       )}
     </div>
@@ -928,6 +929,96 @@ function SecaoPeriodoEdicao() {
                   <button onClick={() => alternar(p)} disabled={salvando === p.unidade_id} style={p.encerrado ? botaoSecundario : { ...botaoSecundario, color: '#C00000' }}>
                     {salvando === p.unidade_id ? '…' : p.encerrado ? 'Reabrir edição' : 'Encerrar edição'}
                   </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// Importação de dados por arquivo (2026-09-27) — ver
+// backend/src/db/importarDados.js. Sempre simula antes de aplicar; nunca
+// sobrescreve linha que já tem valor.
+function SecaoImportarDados() {
+  const [arquivo, setArquivo] = useState(null);
+  const [resultado, setResultado] = useState(null);
+  const [rodando, setRodando] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  async function lerArquivo(e) {
+    const f = e.target.files?.[0];
+    setResultado(null);
+    setMsg(null);
+    if (!f) { setArquivo(null); return; }
+    try {
+      const conteudo = JSON.parse(await f.text());
+      if (!Array.isArray(conteudo.cargas)) throw new Error('sem "cargas"');
+      setArquivo({ nome: f.name, cargas: conteudo.cargas, descricao: conteudo.descricao });
+    } catch (err) {
+      setArquivo(null);
+      setMsg({ tipo: 'erro', texto: `Arquivo inválido: ${err.message}` });
+    }
+  }
+
+  async function rodar(aplicar) {
+    if (aplicar && !window.confirm(`Aplicar a importação de "${arquivo.nome}"?\n\nSó entram linhas vazias; nada já lançado é sobrescrito. A importação fica registrada no histórico.`)) return;
+    setRodando(true);
+    setMsg(null);
+    try {
+      const r = await importarDados(arquivo.cargas, aplicar, arquivo.nome);
+      setResultado(r);
+      if (aplicar) setMsg({ tipo: 'ok', texto: '✓ Importação aplicada. Peça aos usuários que recarreguem a página (F5).' });
+    } catch (e) {
+      setMsg({ tipo: 'erro', texto: e instanceof ApiError ? e.message : 'Erro na importação.' });
+    }
+    setRodando(false);
+  }
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h2 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>Importar dados (arquivo)</h2>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 12 }}>
+        Carrega linhas de Custos e Despesas e premissas de pessoal a partir de um arquivo .json preparado pelo FP&amp;A.
+        Só preenche linhas vazias — o que já foi lançado nunca é sobrescrito. Simule antes de aplicar.
+      </p>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+        <input type="file" accept=".json,application/json" onChange={lerArquivo} style={{ fontSize: 12 }} />
+        {arquivo && (
+          <>
+            <button onClick={() => rodar(false)} disabled={rodando} style={botaoSecundario}>{rodando ? '…' : 'Simular (não grava nada)'}</button>
+            {resultado && !resultado.aplicado && (
+              <button onClick={() => rodar(true)} disabled={rodando} style={botaoPrimario}>{rodando ? 'Aplicando…' : 'Aplicar importação'}</button>
+            )}
+          </>
+        )}
+      </div>
+      {arquivo?.descricao && <p style={{ fontSize: 12, marginBottom: 8 }}>{arquivo.descricao}</p>}
+      {msg && (
+        <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 12, fontSize: 12, background: msg.tipo === 'ok' ? '#E8F5E9' : '#FDECEC', color: msg.tipo === 'ok' ? '#2E7D32' : '#C00000', border: `1px solid ${msg.tipo === 'ok' ? '#A5D6A7' : '#FFCDD2'}` }}>
+          {msg.texto}
+        </div>
+      )}
+      {resultado && (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={th}>Unidade</th>
+              <th style={{ ...th, textAlign: 'right' }}>Linhas {resultado.aplicado ? 'gravadas' : 'a gravar'}</th>
+              <th style={th}>Já tinham valor (mantidas)</th>
+              <th style={th}>Premissas alteradas</th>
+            </tr>
+          </thead>
+          <tbody>
+            {resultado.relatorio.map(r => (
+              <tr key={r.unidadeId}>
+                <td style={td}>{UNIDADE_LABEL[r.unidadeId] || r.unidadeId}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{r.novas}</td>
+                <td style={{ ...td, fontSize: 11 }}>{r.conflitos.length ? r.conflitos.join(', ') : '—'}</td>
+                <td style={{ ...td, fontSize: 11 }}>
+                  {r.premissas.length ? r.premissas.map(p => `${p.campo}: ${p.antes || '(vazio)'} → ${p.depois}`).join(' · ') : '—'}
                 </td>
               </tr>
             ))}

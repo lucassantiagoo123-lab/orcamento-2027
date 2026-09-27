@@ -115,7 +115,21 @@ function contasDoPacoteNoCc(planoContas, pacoteId, cc, unidadeId) {
   const contas = planoContas?.[pacoteId] || [];
   if (FAMILIA_RESORTS.includes(unidadeId)) return contas;
   const origem = cc.tipo === 'producao' ? 'Custo' : 'Despesa';
-  return contas.filter(c => c.origem === origem);
+  // Agrícola (2026-09-27): conta liberada explicitamente no CC (De/Para
+  // CONTAS_POR_CC_AGRICOLA) aparece mesmo com origem diferente do tipo do CC.
+  const liberadas = (unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') ? CONTAS_POR_CC_AGRICOLA[cc.codigo] : null;
+  return contas.filter(c => c.origem === origem || (liberadas && liberadas.includes(c.codigo)));
+}
+
+// Tipo contábil de uma linha lançada: pelo tipo do CC (regra geral) ou, onde
+// ref.dreSegueOrigemConta (Agrícola), pela origem da conta — Custo → CPV.
+function tipoDaLinha(ref, cc, contaCodigo) {
+  if (ref.dreSegueOrigemConta) {
+    const origem = ref.todasContas?.[contaCodigo]?.origem;
+    if (origem === 'Custo') return 'producao';
+    if (origem === 'Despesa') return 'despesa';
+  }
+  return cc.tipo;
 }
 // Toda "família" de unidades multi-site (fazendas, resorts) — usada pra
 // agrupar a barra de navegação genericamente (ver VisaoGerente) sem
@@ -861,6 +875,7 @@ const PLANO_CONTAS_AGRICOLA = {
     { codigo: '34202090', nome: "DIVERSOS", origem: 'Despesa' },
     { codigo: '34202091', nome: "DESPESA COM CARTAO DE CREDITO", origem: 'Despesa' },
     { codigo: '34202093', nome: "MEDICAMENTO E FARMACIA", origem: 'Despesa' }, // Base orçamento 2026.xlsx 2026-08-24 — não existia na Matriz de Governança, conta real do CC DP e SESTR
+    { codigo: '34202092', nome: "CONVENIO VALE GAS", origem: 'Despesa' }, // 2027 ADM FIN - ORCADO (TDS/FDS), incluída em 2026-09-27
   ],
   servicos: [
     { codigo: '71102003', nome: "SERVICOS DE TERCEIROS", origem: 'Custo' },
@@ -1069,10 +1084,14 @@ export const RESPONSAVEIS_AREA_AGRICOLA = {
 // orçamento 2026.xlsx" acima — os demais já vinham da Matriz de Governança
 // ou do De/Para Camadas.xlsx) — aqui só se decide QUAIS valem para QUAL CC.
 export const CONTAS_POR_CC_AGRICOLA = {
-  '50101': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34201019', '34202003', '34202004', '34202006', '34202007', '34202010', '34202011', '34202014', '34202015', '34202016', '34202017', '34202021', '34202022', '34202025', '34202026', '34202028', '34202029', '34202030', '34202031', '34202090', '71102008'], // Adm. Financeiro
-  '50102': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34202004', '34202006', '34202007', '34202010', '34202011', '34202021', '34202026', '34202029', '34202031', '34202090', '34202093', '71102008'], // DP e SESTR
-  '50103': ['34202011', '34202027', '71102008'], // TI Software
-  '50105': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '71102008'], // Fiscal
+  // Adm Fin (50101/50102/50103/50105): contas da planilha "2027 ADM FIN -
+  // ORCADO" (TDS/FDS) liberadas em 2026-09-27 para conciliar com o orçado.
+  '50101': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34201019', '34202003', '34202004', '34202006', '34202007', '34202010', '34202011', '34202014', '34202015', '34202016', '34202017', '34202021', '34202022', '34202025', '34202026', '34202028', '34202029', '34202030', '34202031', '34202090', '71102008',
+    '34201002', '34201009', '34201011', '34201012', '34202009', '34202018', '34202027', '34202035', '34202036', '34202037', '34202092', '34202093', '71102003'], // Adm. Financeiro
+  '50102': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34202004', '34202006', '34202007', '34202010', '34202011', '34202021', '34202026', '34202029', '34202031', '34202090', '34202093', '71102008',
+    '34201002', '34201007', '34201009', '34201011', '34201019', '34202009', '34202012', '34202030', '34202035', '34202092', '71102034'], // DP e SESTR
+  '50103': ['34202011', '34202027', '71102008', '34202010', '34202014'], // TI Software
+  '50105': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '71102008', '34201011', '34202006', '34202007', '34202031'], // Fiscal
   '50201': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201008', '34201010', '34202011', '71102008'], // Segurança e Portaria
   '50202': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34201022', '34202011', '34202026', '71102008'], // Oficina e Manutenção
   '50203': ['34201001', '34201003', '34201004', '34201005', '34201006', '34201010', '34201014', '34201022', '34202004', '34202006', '34202007', '34202011', '34202023', '34202029', '34202030', '34202031', '71102008'], // Infra Estrutura
@@ -1580,6 +1599,17 @@ export const CCS_RESORTS = [
 // era uma referência direta a CCS_TEXTIL (editar uma mudava as duas); agora
 // é um array separado, já que CCS_TEXTIL virou o CC real (nível de
 // subárea) da própria Têxtil.
+// Regras próprias da ARA Agrícola (2026-09-27, carga da planilha de pessoal
+// por função). Espelho em backend/src/calc/registroUnidades.js.
+//  - hcExistenteComDissidio: o Headcount Existente já vem reajustado (dissídio
+//    por função, sem condição operacional de premissa por CC) — a plataforma
+//    não aplica o dissídio sobre ele.
+//  - bonusSomenteElegiveis: bônus = salários reajustados das funções
+//    elegíveis do CC (premissasPessoal.baseBonusElegiveisPorCC) × mult. × %.
+//  - dreSegueOrigemConta: conta liberada num CC de outro tipo soma na DRE
+//    pela origem da conta (Custo → CPV, Despesa → despesas).
+const REGRAS_AGRICOLA = { hcExistenteComDissidio: true, bonusSomenteElegiveis: true, dreSegueOrigemConta: true };
+
 const REFERENCIA_POR_UNIDADE = {
   textil: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS, todasContas: TODAS_CONTAS, pacotes: PACOTES_TEXTIL },
   // Agrícola ganhou CC real em 2026-08-20 (Plano Centro de Custo.xlsx) — as
@@ -1587,9 +1617,9 @@ const REFERENCIA_POR_UNIDADE = {
   // com orçamento editável) usam a mesma estrutura de CC e plano de contas.
   // 'agricola' (sem sufixo) é o Consolidado: não é editado diretamente (ver
   // ConsolidadoAgricola), mas usa a mesma referência pra ler/exibir.
-  agricola: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
-  agricola_tds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
-  agricola_fds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA },
+  agricola: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA, ...REGRAS_AGRICOLA },
+  agricola_tds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA, ...REGRAS_AGRICOLA },
+  agricola_fds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA, ...REGRAS_AGRICOLA },
   // Resorts ganhou CC real em 2026-08-20 (Centros de Custos - ARA Resorts
   // 1.xlsx) — mesmo padrão da Agrícola: Samoa Beach e Samoa Villa são as
   // unidades editáveis (cada uma só com os CCs que existem naquele resort —
@@ -2401,10 +2431,16 @@ function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
   const iBonusPj = idx(pp.bonusPjMes);
   const meritocracia = hcMes ? MESES.map((_, m) => (iMerit >= 0 && m >= iMerit ? hcMes[m] * parseNum(pp.meritocraciaPct) / 100 : 0)) : null;
   const dissidioSobreHc = (iD, pct) => MESES.map((_, m) => (iD < 0 || m < iD ? 0 : (hcMes[m] + (meritocracia?.[m] || 0)) * parseNum(pct) / 100));
-  const dissidio1 = hcMes ? dissidioSobreHc(idx(pp.dissidioMes), pp.dissidioPct) : null;
-  const dissidio2 = hcMes && !ehCorporativo ? dissidioSobreHc(idx(pp.dissidioMes2), pp.dissidioPct2) : null;
-  const bonus = hcMes
-    ? MESES.map((_, m) => (iBonus >= 0 && m === iBonus ? hcMes[iBonus] * multiplicadorBonus(pp.bonusMultiplicador) * parseNum(pp.bonusPct) / 100 : 0))
+  // Agrícola: HC Existente já vem reajustado — sem dissídio sobre ele.
+  const aplicaDissidio = hcMes && !ref.hcExistenteComDissidio;
+  const dissidio1 = aplicaDissidio ? dissidioSobreHc(idx(pp.dissidioMes), pp.dissidioPct) : null;
+  const dissidio2 = aplicaDissidio && !ehCorporativo ? dissidioSobreHc(idx(pp.dissidioMes2), pp.dissidioPct2) : null;
+  // Agrícola: base do bônus = salários reajustados só das funções elegíveis.
+  const baseBonus = ref.bonusSomenteElegiveis
+    ? parseNum(pp.baseBonusElegiveisPorCC?.[ccCodigo])
+    : (hcMes ? hcMes[iBonus] : 0);
+  const bonus = hcMes || ref.bonusSomenteElegiveis
+    ? MESES.map((_, m) => (iBonus >= 0 && m === iBonus ? baseBonus * multiplicadorBonus(pp.bonusMultiplicador) * parseNum(pp.bonusPct) / 100 : 0))
     : null;
   const bonusPj = ehCorporativo && iBonusPj >= 0
     ? MESES.map((_, m) => (m === iBonusPj ? valorContaMes(CONTA_CONSULTORIA_PJ, iBonusPj) * multiplicadorBonus(pp.bonusPjMultiplicador) * parseNum(pp.bonusPjAtendimentoPct) / 100 : 0))
@@ -2633,7 +2669,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
   const cpv = linhasCustos.reduce((acc, [chave, linha]) => {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
-    if (!cc || cc.tipo !== 'producao') return acc;
+    if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'producao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0);
   const lucroBruto = receitaLiquida - cpv;
@@ -2643,7 +2679,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-    if (!cc || cc.tipo !== 'despesa' || pacoteId === 'depreciacao') return acc;
+    if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'despesa' || pacoteId === 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0) + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0);
   const ebitda = lucroBruto - despesasSemDA;
@@ -2653,7 +2689,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-    if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
+    if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'despesa' || pacoteId !== 'depreciacao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0);
 
@@ -2790,20 +2826,27 @@ function computeGruposReceitaTipo(lados, unidadeKind, cambios) {
 // Corporativo tinha esse caso, via CONTA_CONSULTORIA_PJ). O pacote
 // 'depreciacao' fica de fora do CPV (some depois do EBITDA, mesmo racional
 // de computeDRE).
+// Valor de uma linha lançada no mês, só se ela for do tipo contábil pedido
+// (tipoDaLinha: tipo do CC, ou origem da conta na Agrícola).
+function valorLinhaDoTipo(lado, cc, contaCodigo, m, tipo, ipcaAnualPct) {
+  if (tipoDaLinha(lado.ref, cc, contaCodigo) !== tipo) return 0;
+  return valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${contaCodigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes, lado.dre.receitaHospedagemMes, lado.dre.receitaAebMes);
+}
 function computeGruposCustosMensal(lados, ipcaAnualPct) {
   const grupos = [];
   grupos.push({
     chave: '__pessoal_producao__',
     nome: 'Mão de obra direta (Pessoal)',
     porLado: lados.map(lado => {
-      const ccs = ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'producao');
+      const todosCcs = ccsFolhaDoLado(lado.ref);
+      const ccsProducao = todosCcs.filter(cc => cc.tipo === 'producao');
       const contasPessoal = lado.ref.planoContas.pessoal || [];
       const extras = pessoalExtraTodosCCs(lado.dados, lado.ref, lado.dre, ipcaAnualPct);
       return {
         nome: lado.nome,
-        valoresMensal: MESES.map((_, m) => ccs.reduce((acc, cc) =>
-          acc + (extras[cc.codigo]?.mes[m] || 0)
-          + contasPessoal.reduce((a2, c) => a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes, lado.dre.receitaHospedagemMes, lado.dre.receitaAebMes), 0), 0)),
+        valoresMensal: MESES.map((_, m) =>
+          ccsProducao.reduce((acc, cc) => acc + (extras[cc.codigo]?.mes[m] || 0), 0)
+          + todosCcs.reduce((acc, cc) => acc + contasPessoal.reduce((a2, c) => a2 + valorLinhaDoTipo(lado, cc, c.codigo, m, 'producao', ipcaAnualPct), 0), 0)),
       };
     }),
   });
@@ -2819,9 +2862,9 @@ function computeGruposCustosMensal(lados, ipcaAnualPct) {
         // e na Resorts todo CC oferece o plano inteiro — filtrar por origem
         // aqui faria o detalhamento por pacote não fechar com o total.
         const contas = lado.ref.planoContas[pid] || [];
-        const ccs = ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'producao');
+        const ccs = ccsFolhaDoLado(lado.ref);
         const valoresMensal = MESES.map((_, m) => ccs.reduce((acc, cc) => acc + contas.reduce((a2, c) =>
-          a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes, lado.dre.receitaHospedagemMes, lado.dre.receitaAebMes), 0), 0));
+          a2 + valorLinhaDoTipo(lado, cc, c.codigo, m, 'producao', ipcaAnualPct), 0), 0));
         return { nome: lado.nome, valoresMensal };
       }),
     });
@@ -2839,13 +2882,13 @@ function computeGruposCustosMensal(lados, ipcaAnualPct) {
 function computeDespesasOperacionaisPorGrupo(lados, ipcaAnualPct) {
   function porPacotes(pacoteIds) {
     return lados.map(lado => {
-      const ccs = ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'despesa');
+      const ccs = ccsFolhaDoLado(lado.ref);
       // Idem computeGruposCustosMensal: sem filtro por origem, senão o que for
       // lançado num CC de despesa numa conta de origem 'Custo' (possível na
       // Resorts) entraria no EBITDA mas sumiria deste detalhamento.
       const contas = pacoteIds.flatMap(pid => lado.ref.planoContas[pid] || []);
       const valoresMensal = MESES.map((_, m) => ccs.reduce((acc, cc) => acc + contas.reduce((a2, c) =>
-        a2 + valorLinhaMes(lado.dados.custos.linhas?.[`${cc.codigo}|${c.codigo}`], m, lado.dre.receitaBrutaMes, lado.dre.receitaLiquidaMes, ipcaAnualPct, lado.dre.volumeTotalKgMes, lado.dre.receitaHospedagemMes, lado.dre.receitaAebMes), 0), 0));
+        a2 + valorLinhaDoTipo(lado, cc, c.codigo, m, 'despesa', ipcaAnualPct), 0), 0));
       return { nome: lado.nome, valoresMensal };
     });
   }
@@ -3059,7 +3102,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       const [ccCodigo, contaCodigo] = chave.split('|');
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
@@ -3073,7 +3116,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
       const [ccCodigo, contaCodigo] = chave.split('|');
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
@@ -3096,7 +3139,7 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     const [ccCodigo, contaCodigo] = chave.split('|');
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-    if (!cc || cc.tipo !== 'despesa' || pacoteId !== 'depreciacao') return acc;
+    if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'despesa' || pacoteId !== 'depreciacao') return acc;
     return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
   }, 0));
   const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
@@ -3327,7 +3370,7 @@ function ajustePrazoPorContaMes(data, ref, dre, ipcaAnualPct) {
     if (!cc || ref.todasContas[contaCodigo]?.pacoteId === 'depreciacao') return;
     const comp = MESES.map((_, m) => valorLinhaMes(linha, m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes));
     const pag = pagamentoDefasadoMes(comp, pctPorConta[contaCodigo]);
-    const alvo = cc.tipo === 'producao' ? producaoMes : despesaMes;
+    const alvo = tipoDaLinha(ref, cc, contaCodigo) === 'producao' ? producaoMes : despesaMes;
     MESES.forEach((_, m) => { alvo[m] += pag[m] - comp[m]; });
   });
   return { producaoMes, despesaMes };
@@ -3344,7 +3387,7 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       const [ccCodigo, contaCodigo] = chave.split('|');
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
@@ -3354,7 +3397,7 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
       const [ccCodigo, contaCodigo] = chave.split('|');
       const cc = ref.ccs.find(c => c.codigo === ccCodigo);
       const pacoteId = ref.todasContas[contaCodigo]?.pacoteId;
-      if (!cc || cc.tipo !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
+      if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== tipoAlvo || excluirPacotes.includes(pacoteId)) return acc;
       return acc + valorLinhaMesCaixa(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
     }, 0);
   }
@@ -4939,7 +4982,7 @@ export default function OrcamentoARA({ usuario }) {
           MESES.forEach((m, mi) => {
             const valor = valorSublinhaMes(sub, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes, dreU.receitaHospedagemMes, dreU.receitaAebMes);
             if (valor === 0) return;
-            linhasCustosExport.push([u.nome, cc?.nome || ccCodigo, cc?.tipo === 'producao' ? 'Custo' : 'Despesa', pacote?.nome || 'Sem pacote', contaCodigo, descricaoConta, premissa?.nome || sub.premissaTipo, m, valor, sub.justificativa || '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
+            linhasCustosExport.push([u.nome, cc?.nome || ccCodigo, cc && tipoDaLinha(refU, cc, contaCodigo) === 'producao' ? 'Custo' : 'Despesa', pacote?.nome || 'Sem pacote', contaCodigo, descricaoConta, premissa?.nome || sub.premissaTipo, m, valor, sub.justificativa || '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
           });
         });
       });
@@ -5113,7 +5156,7 @@ export default function OrcamentoARA({ usuario }) {
         MESES.forEach((m, mi) => {
           const valor = valorSublinhaMes(sub, mi, dreU.receitaBrutaMes, dreU.receitaLiquidaMes, ipcaAnualPct, dreU.volumeTotalKgMes, dreU.receitaHospedagemMes, dreU.receitaAebMes);
           if (valor === 0) return;
-          linhasCustosExport.push([unidadeObj.nome, cc?.nome || ccCodigo, cc?.tipo === 'producao' ? 'Custo' : 'Despesa', pacote?.nome || 'Sem pacote', contaCodigo, descricaoConta, premissa?.nome || sub.premissaTipo, m, valor, sub.justificativa || '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
+          linhasCustosExport.push([unidadeObj.nome, cc?.nome || ccCodigo, cc && tipoDaLinha(refU, cc, contaCodigo) === 'producao' ? 'Custo' : 'Despesa', pacote?.nome || 'Sem pacote', contaCodigo, descricaoConta, premissa?.nome || sub.premissaTipo, m, valor, sub.justificativa || '', d.meta?.status || 'nao_iniciado', formatData(d.meta?.atualizadoEm), d.meta?.autor || '']);
         });
       });
     });
@@ -5346,7 +5389,7 @@ export default function OrcamentoARA({ usuario }) {
           putN(wsPremCus, rc, PC.VPAG + m, sub.valoresPagamento?.[m]);
         }
 
-        putS(wsCus, rc, CD.CC, ccCodigo); putS(wsCus, rc, CD.CCNOME, cc.nome); putS(wsCus, rc, CD.CCTIPO, cc.tipo);
+        putS(wsCus, rc, CD.CC, ccCodigo); putS(wsCus, rc, CD.CCNOME, cc.nome); putS(wsCus, rc, CD.CCTIPO, tipoDaLinha(refU, cc, contaCodigo));
         putS(wsCus, rc, CD.PACID, conta?.pacoteId || ''); putS(wsCus, rc, CD.PACNOME, pacote?.nome || 'Sem pacote');
         putS(wsCus, rc, CD.CONTACOD, contaCodigo); putS(wsCus, rc, CD.CONTANOME, conta?.nome || contaCodigo); putS(wsCus, rc, CD.SUB, sub.descricao || '');
 
@@ -10664,6 +10707,24 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                 <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
                                 <div style={{ fontSize: 11, color: COR.texto }}>Inserir os valores constantes da planilha do Departamento Pessoal, que já contemplam encargos e benefícios.</div>
                               </div>
+                              {refUnidade.hcExistenteComDissidio && (
+                                <div style={{ background: '#EEF3FB', border: `1px solid ${COR.azul}`, borderRadius: 8, padding: 12, marginBottom: 10, fontSize: 11, color: COR.texto, lineHeight: 1.5 }}>
+                                  <b style={{ color: COR.azul }}>ARA Agrícola — racional diferente das demais empresas.</b>{' '}
+                                  O Headcount Existente já inclui o <b>dissídio</b> (reajuste por função, calculado na planilha de pessoal), por isso a plataforma
+                                  não aplica o dissídio sobre ele — não há condição operacional de premissa de dissídio por CC. A meritocracia segue a regra
+                                  geral (sobre salário + encargos). O <b>bônus</b> considera só as funções elegíveis, sobre a base abaixo.
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                                    <span style={{ fontWeight: 700 }}>Base do bônus — salários reajustados das funções elegíveis (R$/mês):</span>
+                                    <div style={{ width: 150 }}>
+                                      <CampoNumero
+                                        value={_ppC.baseBonusElegiveisPorCC?.[ccSel] ?? ''}
+                                        onChange={v => atualizar(['custos', 'premissasPessoal', 'baseBonusElegiveisPorCC', ccSel], v)}
+                                        placeholder="0,00"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                               {_hcExisteContasTextil.map(c => (
                                 <LinhaConta
                                   key={c.codigo} conta={c}
