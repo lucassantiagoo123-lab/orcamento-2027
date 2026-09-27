@@ -13,6 +13,21 @@ import { premissasRecebimentoVazias, planoContasBalancoVazio, saldosIniciaisBala
 // ramo do Consolidado (ver nota lá embaixo) — sem ciclo: registroUnidades.js
 // não importa nada deste arquivo.
 import { buscarReferencia } from './registroUnidades.js';
+import { pocVazio, pocDoDocumento } from './pocLaFleur.js';
+import { CC_COMISSAO_POC_PADRAO } from './constantesEI.js';
+
+// ARA EI (2026-09-27): só a La Fleur II tem Receita (POC); Holding e South
+// Bay não têm seção de Receita. Escritório de Investimentos ('energia') só
+// tem aportes/dividendos (FC de Investimentos). Espelho do frontend.
+export const UNIDADES_SEM_RECEITA = ['corporativo', 'ei_holding', 'ei_southbay', 'energia'];
+
+// FC de Investimentos por mês a partir de capex.projetos: desembolso de
+// CapEx sai; no Escritório de Investimentos cada lançamento tem aporte de
+// capital (sai) e distribuição de dividendos (entra). Espelho do frontend.
+export function fcInvestimentoProjetosMes(data) {
+  return MESES.map((_, m) => (data.capex?.projetos || []).reduce((acc, p) =>
+    acc - parseNum(desembolsosDoProjeto(p)[m]) - parseNum(p.aportes?.[m]) + parseNum(p.dividendos?.[m]), 0));
+}
 
 export function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -274,6 +289,8 @@ function receitaVazia(unidadeId) {
       deducoes: DEDUCOES_REF_RESORTS.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
     };
   }
+  // La Fleur II (2026-09-27): receita, RET e custo pelo POC — ver pocLaFleur.js.
+  if (unidadeId === 'ei_lafleur') return { poc: pocVazio(), deducoes: [] };
   return { produtos: [], deducoes: [] };
 }
 
@@ -479,8 +496,13 @@ export function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
     const valorAno = parseNum(pp.licencaSoftwareNovoHcValor || '2700');
     licencaSoftware = MESES.map((_, m) => novos.filter(f => { const i = MESES.indexOf(f.mesAdmissao); return i >= 0 && i <= m; }).length * valorAno / 12);
   }
+  // La Fleur II: comissão apropriada do POC, na conta 34102001 do CC escolhido.
+  const poc = data.receita?.poc;
+  const comissaoPoc = poc && ccCodigo === (poc.premissas?.ccComissao || CC_COMISSAO_POC_PADRAO)
+    ? pocDoDocumento(data).comissaoMes
+    : null;
 
-  const calculadas = { meritocracia, dissidio1, dissidio2, bonus, bonusPj, licencaSoftware };
+  const calculadas = { meritocracia, dissidio1, dissidio2, bonus, bonusPj, licencaSoftware, comissaoPoc };
   const totalMes = MESES.map((_, m) => Object.values(calculadas).reduce((acc, row) => acc + (row?.[m] || 0), 0));
   return { ...calculadas, hcExistenteMes: hcMes, totalMes, totalAnual: totalMes.reduce((a, v) => a + v, 0) };
 }
@@ -564,6 +586,9 @@ function computeReceitaAgricola(agricola, cambios) {
 }
 
 function receitaBrutaPorMes(data, cambios) {
+  if (data.receita.poc) {
+    return { receitaBrutaMes: pocDoDocumento(data).robMes, linhasReceitaMes: null };
+  }
   if (data.receita.agricola) {
     const r = computeReceitaAgricola(data.receita.agricola, cambios);
     return { receitaBrutaMes: r.receitaBrutaMes, linhasReceitaMes: null };
@@ -608,6 +633,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // unidades nem oferecem 'custo_por_kg' como opção (ver
   // UNIDADES_COM_CUSTO_POR_KG no frontend). Volume vem em toneladas — ×1000 pra kg.
   const receitaAgricolaCalc = data.receita.agricola ? computeReceitaAgricola(data.receita.agricola, cambios) : null;
+  const poc = pocDoDocumento(data);
   const volumeTotalKgMes = receitaAgricolaCalc
     ? receitaAgricolaCalc.producaoTotalKgMes
     : MESES.map((_, m) => (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000);
@@ -630,12 +656,16 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
       }
       return a + base * (parseNum(d.pcts?.[m]) / 100);
     }, 0)
+    // La Fleur II: RET calculado pelo POC.
+    + (poc ? poc.retMes[m] : 0)
   );
   const deducoes = deducoesMes.reduce((a, v) => a + v, 0);
   const receitaLiquidaMes = MESES.map((_, m) => receitaBrutaMes[m] - deducoesMes[m]);
   const receitaLiquida = receitaBruta - deducoes;
 
   const linhasCustos = Object.entries(data.custos.linhas || {});
+  // La Fleur II: custo apropriado + espólio do POC, somado ao CPV.
+  const pocCpvMes = poc ? poc.cpvMes : null;
 
   const receitaHospedagemMes = linhasReceitaMes?.hospedagem || null;
   const receitaAebMes = linhasReceitaMes
@@ -653,7 +683,8 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'producao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
-  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0)
+    + (pocCpvMes ? pocCpvMes.reduce((a, v) => a + v, 0) : 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
 
@@ -696,6 +727,8 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     // uma linha específica fora daqui sem duplicar o cálculo de volume —
     // mesmo racional de receitaBrutaMes/receitaLiquidaMes.
     volumeTotalKgMes,
+    // Custo do POC por mês (La Fleur II) — somado ao CPV mensal dos fluxos.
+    pocCpvMes,
     totalGeral: lucroLiquido,
   };
 }
@@ -744,6 +777,7 @@ export function somarDRE(a, b) {
 const CONSOLIDADOS_MULTISITE = {
   agricola: { tipo: 'consolidado_agricola', sites: ['agricola_tds', 'agricola_fds'] },
   resorts: { tipo: 'consolidado_resorts', sites: ['samoa_beach', 'samoa_villa'] },
+  ei: { tipo: 'consolidado_ei', sites: ['ei_holding', 'ei_lafleur', 'ei_southbay'] },
 };
 // true se `d` é um dos wrappers acima (qualquer família) — espelho de
 // ehSnapshotConsolidado em frontend/src/OrcamentoARA.jsx.
@@ -764,11 +798,12 @@ export function ehSnapshotConsolidado(d) {
 export function dreDaUnidade(dadosUnidade, unidadeId, ref, ipcaAnualPct, cambios) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
-    const [dreA, dreB] = consolidado.sites.map(siteId => {
+    // N sites (ARA EI tem 3) — somarDRE é binário, então reduz.
+    const dres = consolidado.sites.map(siteId => {
       const refSite = buscarReferencia(siteId) || ref;
       return computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), refSite, ipcaAnualPct, cambios);
     });
-    return somarDRE(dreA, dreB);
+    return dres.reduce((acc, d) => somarDRE(acc, d));
   }
   return computeDRE(dadosUnidade, ref, ipcaAnualPct, cambios);
 }
@@ -804,7 +839,8 @@ export function computeDFC(data, dre, ref, ipcaAnualPct) {
     : 0;
   const fluxoOperacional = geracaoOperacionalAntesGiro + variacaoCapitalGiro;
 
-  const fluxoInvestimento = -capexTotal;
+  // −CapEx; no Escritório de Investimentos, −aportes + dividendos.
+  const fluxoInvestimento = fcInvestimentoProjetosMes(data).reduce((a, v) => a + v, 0);
   const fluxoFinanciamento = captacoes - amortizacoes - jurosPagos + aportes - distMinoritarios - distSocios + emprestimosAcionistas - devolucaoEmprestimos;
 
   const variacaoCaixa = fluxoOperacional + fluxoInvestimento + fluxoFinanciamento;
@@ -850,8 +886,8 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     }, 0);
   }
   // pacote 'pessoal' (2026-08-23): não exclui mais de totalLinhasMes — ver
-  // nota completa em computeDRE.
-  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
+  // nota completa em computeDRE. + custo do POC (La Fleur II).
+  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m) + (dre.pocCpvMes?.[m] || 0));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
     + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
   const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao'], m)
@@ -903,8 +939,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 
   const fcOperacionalMes = MESES.map((_, m) => ebitdaMes[m] - ircslMes[m] + ajuste13Mes[m] + variacaoGiroMes[m] + ajustePagamentoMes[m]);
 
-  const capexMes = MESES.map((_, m) => (data.capex.projetos || []).reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0));
-  const fcInvestimentoMes = capexMes.map(v => -v);
+  const fcInvestimentoMes = fcInvestimentoProjetosMes(data);
 
   const linhasFin = data.fcFinanciamentos?.linhas || [];
   const capMes = MESES.map((_, m) => linhasFin.reduce((acc, l) => acc + parseNum(l.captacoes?.[m]), 0));
@@ -970,11 +1005,14 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
     }, 0);
   }
   // pacote 'pessoal' (2026-08-23): não exclui mais — ver nota em computeDRE.
-  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
+  // + custo do POC (La Fleur II), como no método Indireto.
+  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m) + (dre.pocCpvMes?.[m] || 0));
+  // Comissão do POC é despesa comercial, não pessoal: sai da folha, entra em despesas.
+  const comissaoPocMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + (pessoalCC[cc.codigo].calc.comissaoPoc?.[m] || 0), 0));
   // Pagamentos de despesas de fato (caixa) — 2026-08-23, espelho de
   // frontend/src/OrcamentoARA.jsx.
-  const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m));
-  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
+  const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m) + comissaoPocMes[m]);
+  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0) - comissaoPocMes[m]);
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
@@ -1136,14 +1174,24 @@ export function computePlano5Y(dre, anos) {
 // sem CC de produção), em vez de deixá-las permanentemente vermelhas.
 // Espelho exato de frontend/src/OrcamentoARA.jsx.
 export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
+  if (unidadeId === 'energia') return auditoriaEscritorio(data);
   const checks = [];
-  const temReceita = unidadeId !== 'corporativo';
+  const temReceita = !UNIDADES_SEM_RECEITA.includes(unidadeId);
   const temCcProducao = ref.ccs.some(c => c.tipo === 'producao');
 
   // Modelo por produto (Têxtil/Agrícola) ou por linha (Resorts) — ver
   // receitaBrutaPorMes() em computeDRE. Auditoria checa o que existir.
   if (temReceita) {
-    if (data.receita.agricola) {
+    if (data.receita.poc) {
+      const p = data.receita.poc;
+      const avancoOk = somaMes(p.avancoAcumuladoPct) > 0 || parseNum(p.saldosIniciais?.avancoAcumuladoPct) > 0;
+      const vgvOk = parseNum(p.saldosIniciais?.vgvAApropriar) > 0 || somaMes(p.novasVendasValor) > 0;
+      checks.push({
+        label: 'Receita POC: VGV (saldo ou novas vendas) e avanço de obra preenchidos',
+        ok: avancoOk && vgvOk,
+        detalhe: avancoOk && vgvOk ? 'Preenchida' : 'Pendente de preenchimento',
+      });
+    } else if (data.receita.agricola) {
       // ARA Agrícola (2026-09-07) — espelho de OrcamentoARA.jsx, ver
       // computeReceitaAgricola.
       const embaladaOk = somaMes(data.receita.agricola.embaladaKg) > 0;
@@ -1285,4 +1333,18 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   });
 
   return checks;
+}
+
+// Escritório de Investimentos (2026-09-27): só aportes/dividendos por
+// investimento — espelho do frontend.
+function auditoriaEscritorio(data) {
+  const lancamentos = data.capex?.projetos || [];
+  const comValor = lancamentos.filter(p => somaMes(p.aportes) + somaMes(p.dividendos) !== 0);
+  const semJustificativa = comValor.filter(p => !(p.justificativa || '').trim());
+  const negativos = lancamentos.some(p => (p.aportes || []).some(v => parseNum(v) < 0) || (p.dividendos || []).some(v => parseNum(v) < 0));
+  return [
+    { label: 'Ao menos um aporte ou distribuição de dividendos lançado', ok: comValor.length > 0, detalhe: `${comValor.length} lançamento(s) com valor` },
+    { label: 'Todo lançamento com valor tem justificativa', ok: semJustificativa.length === 0, detalhe: semJustificativa.length === 0 ? 'Justificativa preenchida em todos' : `${semJustificativa.length} lançamento(s) sem justificativa` },
+    { label: 'Aportes e dividendos digitados como valores positivos', ok: !negativos, detalhe: negativos ? 'Há valor negativo — o sinal já vem da linha (aporte sai, dividendo entra)' : 'Sem valores negativos' },
+  ];
 }

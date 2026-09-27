@@ -11,6 +11,11 @@ import {
   PLANO_CONTAS_RESORTS, TODAS_CONTAS_RESORTS,
   CCS_CORPORATIVO, PLANO_CONTAS_CORPORATIVO, TODAS_CONTAS_CORPORATIVO,
 } from './constantesAgricolaResorts.js';
+import { CCS_EI, PLANO_CONTAS_EI, TODAS_CONTAS_EI, PACOTES_EI } from './constantesEI.js';
+
+// ARA EI (2026-09-27): Holding, La Fleur II e South Bay com a mesma
+// estrutura; 'ei' é o Consolidado. Espelho de REFERENCIA_POR_UNIDADE no frontend.
+const REF_EI = { ccs: CCS_EI, todasContas: TODAS_CONTAS_EI, planoContas: PLANO_CONTAS_EI, pacotes: PACOTES_EI };
 
 // Regras próprias da ARA Agrícola — espelho de REGRAS_AGRICOLA no frontend.
 const REGRAS_AGRICOLA = { hcExistenteComDissidio: true, bonusSomenteElegiveis: true, dreSegueOrigemConta: true };
@@ -34,6 +39,10 @@ export const UNIDADES_ORCAMENTO = {
   samoa_villa: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('villa')), todasContas: TODAS_CONTAS_RESORTS, planoContas: PLANO_CONTAS_RESORTS },
   // Habilitada em 2026-08-16 — ver nota completa em constantesAgricolaResorts.js.
   corporativo: { ccs: CCS_CORPORATIVO, todasContas: TODAS_CONTAS_CORPORATIVO, planoContas: PLANO_CONTAS_CORPORATIVO },
+  ei: REF_EI,
+  ei_holding: REF_EI,
+  ei_lafleur: REF_EI,
+  ei_southbay: REF_EI,
 };
 
 export function buscarReferencia(unidadeId) {

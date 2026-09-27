@@ -45,7 +45,8 @@ const NOME_UNIDADE = {
   textil: 'ARA Têxtil',
   agricola: 'ARA Agrícola — Consolidado', agricola_tds: 'ARA Agrícola — Terra do Sol', agricola_fds: 'ARA Agrícola — Frutos do Sol',
   resorts: 'ARA Resorts — Consolidado', samoa_beach: 'ARA Resorts — Samoa Beach', samoa_villa: 'ARA Resorts — Samoa Villa',
-  corporativo: 'Corporativo', ei: 'ARA EI', energia: 'Escritório de Investimentos',
+  corporativo: 'Corporativo', energia: 'Escritório de Investimentos',
+  ei: 'ARA EI — Consolidado', ei_holding: 'ARA EI — Holding', ei_lafleur: 'ARA EI — La Fleur II', ei_southbay: 'ARA EI — South Bay',
 };
 
 // Depois da resposta — best-effort, nunca derruba nem atrasa o save.
@@ -83,7 +84,9 @@ function verificarPerdasAposSalvar(req, antes, depois) {
 // lista porque o envio deles reaproveita o mesmo PUT + POST /enviar de
 // qualquer unidade (grava o snapshot combinado antes de enviar — não têm
 // formulário de premissa próprio, só essas duas chamadas).
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo'];
+// 2026-09-27: ARA EI (Holding, La Fleur II, South Bay + Consolidado 'ei') e
+// Escritório de Investimentos ('energia', só aportes/dividendos) habilitados.
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
 
 // Período de edição encerrado pelo Admin FP&A (por unidade): Gestor de CC
 // só visualiza. Demais perfis seguem editando.

@@ -12,7 +12,7 @@ import { buscarReferencia } from '../calc/registroUnidades.js';
 import { parseNum } from '../calc/orcamento.js';
 
 const ANO = 2027;
-const NAO_IMPORTAVEIS = new Set(['agricola', 'resorts']); // Consolidados: snapshot, não documento de lançamento
+const NAO_IMPORTAVEIS = new Set(['agricola', 'resorts', 'ei']); // Consolidados: snapshot, não documento de lançamento
 const CAMPOS_COM_VALOR = ['valores', 'quantidades', 'valoresUnit', 'baseManual', 'percentuais'];
 
 function linhaTemValor(conta) {

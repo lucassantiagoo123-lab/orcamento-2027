@@ -36,7 +36,8 @@ const PERFIL_LABEL = {
 // PUT/POST de qualquer unidade (ver ConsolidadoAgricola/ConsolidadoResorts)
 // — não têm formulário de premissa próprio (a tela não deixa editar `dados`
 // neles).
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo'];
+// 2026-09-27: ARA EI (família de 3 + Consolidado) e Escritório de Investimentos.
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
 
 const COR = {
   azul: '#0C4391',
@@ -68,7 +69,12 @@ const UNIDADES = [
   { id: 'resorts', nome: 'ARA Resorts — Consolidado', cor: '#79834F', logo: '/logos/ara-resorts.jpg' },
   { id: 'samoa_beach', nome: 'ARA Resorts — Samoa Beach', cor: '#79834F', logo: '/logos/ara-resorts.jpg' },
   { id: 'samoa_villa', nome: 'ARA Resorts — Samoa Villa', cor: '#79834F', logo: '/logos/ara-resorts.jpg' },
-  { id: 'ei', nome: 'ARA EI', cor: '#F07D00', logo: null }, // pendente: aguardando o arquivo da logo (ver pedido de 2026-09-07)
+  // ARA EI virou família em 2026-09-27 (mesmo padrão da Agrícola/Resorts):
+  // Holding, La Fleur II e South Bay editáveis; 'ei' é o Consolidado das três.
+  { id: 'ei', nome: 'ARA EI — Consolidado', cor: '#F07D00', logo: null }, // pendente: aguardando o arquivo da logo (ver pedido de 2026-09-07)
+  { id: 'ei_holding', nome: 'ARA EI — Holding', cor: '#F07D00', logo: null },
+  { id: 'ei_lafleur', nome: 'ARA EI — La Fleur II', cor: '#F07D00', logo: null },
+  { id: 'ei_southbay', nome: 'ARA EI — South Bay', cor: '#F07D00', logo: null },
   // Renomeado de "ARA Energia" em 2026-08-09 — id interno continua 'energia'
   // (evita mexer em schema/seed/perfis), mas essa unidade não segue a mesma
   // estrutura de abas das demais: é uma Visão de Portfólio de Investimentos
@@ -95,6 +101,17 @@ const SUBUNIDADES_RESORTS = [
   { id: 'samoa_villa', nome: 'Samoa Villa' },
   { id: 'resorts', nome: 'Consolidado' },
 ];
+// ARA EI (2026-09-27): três empresas + Consolidado (ver ConsolidadoEI).
+export const FAMILIA_EI = ['ei_holding', 'ei_lafleur', 'ei_southbay', 'ei'];
+const SUBUNIDADES_EI = [
+  { id: 'ei_holding', nome: 'Holding' },
+  { id: 'ei_lafleur', nome: 'La Fleur II' },
+  { id: 'ei_southbay', nome: 'South Bay' },
+  { id: 'ei', nome: 'Consolidado' },
+];
+// Só a La Fleur II tem Receita (POC); Holding, South Bay, Corporativo e
+// Escritório de Investimentos não têm seção de Receita. Espelho do backend.
+const UNIDADES_SEM_RECEITA = ['corporativo', 'ei_holding', 'ei_southbay', 'energia'];
 // Quais contas do plano um CC enxerga na tela de lançamento.
 //
 // Regra original (Têxtil/Agrícola/Corporativo, das matrizes de governança
@@ -137,6 +154,7 @@ function tipoDaLinha(ref, cc, contaCodigo) {
 const FAMILIAS_MULTISITE = [
   { ids: FAMILIA_AGRICOLA, subunidades: SUBUNIDADES_AGRICOLA, nome: 'ARA Agrícola', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
   { ids: FAMILIA_RESORTS, subunidades: SUBUNIDADES_RESORTS, nome: 'ARA Resorts', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
+  { ids: FAMILIA_EI, subunidades: SUBUNIDADES_EI, nome: 'ARA EI', cor: '#F07D00', logo: null, logoAltura: 17 },
 ];
 // Pra somar "o Grupo inteiro" (dashboard do FP&A, PPT, Resultados
 // Consolidados) sem contar Agrícola/Resorts em dobro — 'agricola'/'resorts'
@@ -1504,6 +1522,126 @@ Object.entries(PLANO_CONTAS_RESORTS).forEach(([pacoteId, contas]) => {
 });
 
 // ---------------------------------------------------------------------------
+// ARA EI (2026-09-27) — espelho de backend/src/calc/constantesEI.js (notas
+// completas lá). Holding, La Fleur II e South Bay: mesma estrutura de CC
+// (cópia idêntica da listagem da La Fleur II, decisão do usuário) e mesmo
+// plano de contas (só despesas; custo e deduções vêm do POC).
+// ---------------------------------------------------------------------------
+export const CCS_EI = [
+  { codigo: '00001', nome: 'DIRETORIA', tipo: 'despesa', nivel: 2, areaCodigo: null, grupo: '000' },
+  { codigo: '0000101', nome: 'PRESIDENCIA', tipo: 'despesa', nivel: 3, areaCodigo: '00001', grupo: '000' },
+  { codigo: '0000102', nome: 'EXECUTIVA', tipo: 'despesa', nivel: 3, areaCodigo: '00001', grupo: '000' },
+  { codigo: '0000103', nome: 'GESTAO CORPORATIVA', tipo: 'despesa', nivel: 3, areaCodigo: '00001', grupo: '000' },
+  { codigo: '0000104', nome: 'TECNICA', tipo: 'despesa', nivel: 3, areaCodigo: '00001', grupo: '000' },
+  { codigo: '0000105', nome: 'NEGOCIOS', tipo: 'despesa', nivel: 3, areaCodigo: '00001', grupo: '000' },
+  { codigo: '0000199', nome: 'SECRETARIA', tipo: 'despesa', nivel: 3, areaCodigo: '00001', grupo: '000' },
+
+  { codigo: '00101', nome: 'ADMINISTRACAO', tipo: 'despesa', nivel: 2, areaCodigo: null, grupo: '001' },
+  { codigo: '0010101', nome: 'ADMINISTRATIVO-APOIO', tipo: 'despesa', nivel: 3, areaCodigo: '00101', grupo: '001' },
+  { codigo: '0010102', nome: 'FINANCEIRO', tipo: 'despesa', nivel: 3, areaCodigo: '00101', grupo: '001' },
+  { codigo: '0010103', nome: 'CONTABILIDADE-FISCAL', tipo: 'despesa', nivel: 3, areaCodigo: '00101', grupo: '001' },
+  { codigo: '0010104', nome: 'RH-DEPTO DE PESSOAL', tipo: 'despesa', nivel: 3, areaCodigo: '00101', grupo: '001' },
+  { codigo: '0010105', nome: 'TI', tipo: 'despesa', nivel: 3, areaCodigo: '00101', grupo: '001' },
+  { codigo: '0010106', nome: 'FATURAMENTO-CONTRATOS', tipo: 'despesa', nivel: 3, areaCodigo: '00101', grupo: '001' },
+  { codigo: '0010107', nome: 'SUPRIMENTOS', tipo: 'despesa', nivel: 3, areaCodigo: '00101', grupo: '001' },
+  { codigo: '0010109', nome: 'COBRANCA', tipo: 'despesa', nivel: 3, areaCodigo: '00101', grupo: '001' },
+
+  { codigo: '00201', nome: 'COMERCIAL', tipo: 'despesa', nivel: 2, areaCodigo: null, grupo: '002' },
+  { codigo: '0020101', nome: 'VENDAS', tipo: 'despesa', nivel: 3, areaCodigo: '00201', grupo: '002' },
+  { codigo: '0020102', nome: 'PROPAGANDA E MARKETING', tipo: 'despesa', nivel: 3, areaCodigo: '00201', grupo: '002' },
+  { codigo: '0020103', nome: 'INCORPORACAO E DESENVOLVIMENTO', tipo: 'despesa', nivel: 3, areaCodigo: '00201', grupo: '002' },
+
+  { codigo: '10801', nome: 'OBRA - LA FLEUR II', tipo: 'despesa', nivel: 2, areaCodigo: null, grupo: '108' },
+  { codigo: '1080101', nome: 'BLOCO GERAL - FLATS', tipo: 'despesa', nivel: 3, areaCodigo: '10801', grupo: '108' },
+  { codigo: '1080102', nome: 'HOTEL', tipo: 'despesa', nivel: 3, areaCodigo: '10801', grupo: '108' },
+  { codigo: '1080103', nome: 'AREA COMUM - PISCINA/ESTACIONAMENTO/ETC', tipo: 'despesa', nivel: 3, areaCodigo: '10801', grupo: '108' },
+  { codigo: '1080104', nome: 'VILLA', tipo: 'despesa', nivel: 3, areaCodigo: '10801', grupo: '108' },
+  { codigo: '1080105', nome: 'MONTAGEM - FLATS', tipo: 'despesa', nivel: 3, areaCodigo: '10801', grupo: '108' },
+  { codigo: '1080106', nome: 'AMPLIACAO DA VILLA DE MURO ALTO', tipo: 'despesa', nivel: 3, areaCodigo: '10801', grupo: '108' },
+  { codigo: '1080107', nome: 'POLINESIA VILLA PRE OPERACIONAL', tipo: 'despesa', nivel: 3, areaCodigo: '10801', grupo: '108' },
+  { codigo: '1080108', nome: 'ASSISTENCIA TECNICA - FLATS', tipo: 'despesa', nivel: 3, areaCodigo: '10801', grupo: '108' },
+
+  { codigo: '10802', nome: 'ADMINISTRACAO - LA FLEUR II', tipo: 'despesa', nivel: 2, areaCodigo: null, grupo: '108' },
+  { codigo: '1080201', nome: 'ENGENHARIA - APOIO ADMINISTRATIVO', tipo: 'despesa', nivel: 3, areaCodigo: '10802', grupo: '108' },
+  { codigo: '1080202', nome: 'PROJETOS E CONSULTORIA DE PROJETOS', tipo: 'despesa', nivel: 3, areaCodigo: '10802', grupo: '108' },
+
+  { codigo: '10803', nome: 'IMPLANTACAO - LA FELUR II', tipo: 'despesa', nivel: 2, areaCodigo: null, grupo: '108' },
+  { codigo: '1080301', nome: 'BLOCO FLATS -AREA INTERNA', tipo: 'despesa', nivel: 3, areaCodigo: '10803', grupo: '108' },
+  { codigo: '1080302', nome: 'BLOCO FLATS -AREA EXTERNA', tipo: 'despesa', nivel: 3, areaCodigo: '10803', grupo: '108' },
+  { codigo: '1080303', nome: 'BLOCO HOTEL-AREA INTERNA', tipo: 'despesa', nivel: 3, areaCodigo: '10803', grupo: '108' },
+  { codigo: '1080304', nome: 'BLOCO HOTEL-AREA EXTERNA', tipo: 'despesa', nivel: 3, areaCodigo: '10803', grupo: '108' },
+  { codigo: '1080305', nome: 'BLOCO VILLA-AREA INTERNA E EXTERNA', tipo: 'despesa', nivel: 3, areaCodigo: '10803', grupo: '108' },
+];
+
+// Plano de contas: "Plano de Contas.xlsx" (3.1 DRE e DFC) — só despesas
+// (SG&A). Pacotes = contas sintéticas do próprio plano. grupoDre diz em que
+// balde das Despesas Operacionais o pacote entra no Consolidado (Pessoal,
+// Vendas ou Gerais). 34202011 ENCARGOS COM DEPRECIACAO vai para
+// 'depreciacao' (abaixo do EBITDA) — decisão do usuário de 2026-09-27; no
+// plano ela está dentro de 34202 DESPESAS GERAIS.
+const PACOTES_EI = [
+  { id: 'pessoal_vendas', nome: 'Despesa com Pessoal — Vendas (34101)', grupoDre: 'pessoal', ref: 'Plano de Contas.xlsx (14 contas)' },
+  { id: 'comissoes', nome: 'Comissões sobre Vendas (34102)', grupoDre: 'vendas', ref: 'Plano de Contas.xlsx (1 conta)' },
+  { id: 'propaganda', nome: 'Propaganda e Publicidade (34103)', grupoDre: 'vendas', ref: 'Plano de Contas.xlsx (1 conta)' },
+  { id: 'entrega', nome: 'Despesas com Entrega (34104)', grupoDre: 'vendas', ref: 'Plano de Contas.xlsx (12 contas)' },
+  { id: 'pessoal_adm', nome: 'Despesa com Pessoal — Administrativas (34201)', grupoDre: 'pessoal', ref: 'Plano de Contas.xlsx (16 contas)' },
+  { id: 'despesas_gerais', nome: 'Despesas Gerais (34202)', grupoDre: 'gerais', ref: 'Plano de Contas.xlsx (32 contas)' },
+  { id: 'depreciacao', nome: 'Depreciação (34202011)', ref: 'Plano de Contas.xlsx (1 conta, movida de 34202 por decisão do usuário)' },
+];
+
+const contaEI = (codigo, nome) => ({ codigo, nome, origem: 'Despesa' });
+const PLANO_CONTAS_EI = {
+  pessoal_vendas: [
+    contaEI('34101001', 'SALARIOS'), contaEI('34101002', 'PREMIOS E GRATIFICACOES'), contaEI('34101003', '13º SALARIO'),
+    contaEI('34101004', 'FERIAS'), contaEI('34101005', 'INSS (GPS)'), contaEI('34101006', 'FGTS (GFIP)'),
+    contaEI('34101007', 'INDENIZACOES E AVISO PREVIO'), contaEI('34101008', 'VALE ELETRONICO (VEM)'), contaEI('34101009', 'CESTAS BASICAS'),
+    contaEI('34101010', 'FARDAMENTOS'), contaEI('34101011', 'ASSISTENCIA MEDICA E SOCIAL'), contaEI('34101012', 'TREINAMENTO DE PESSOAL'),
+    contaEI('34101014', 'HORAS EXTRAS'), contaEI('34101015', 'ALIMENTACAO'),
+  ],
+  comissoes: [contaEI('34102001', 'COMISSOES')],
+  propaganda: [contaEI('34103001', 'PROPAGANDA E PUBLICIDADE')],
+  entrega: [
+    contaEI('34104001', 'FRETES E CARRETOS'), contaEI('34104002', 'MANUTENCAO DE VEICULOS'), contaEI('34104003', 'SERVICOS ADUANEIROS'),
+    contaEI('34104004', 'DESPACHANTE'), contaEI('34104017', 'TAXAS DE CONTRATACAO - CEF'), contaEI('34104020', 'DESPESAS COM VIAGENS'),
+    contaEI('34104023', 'REFEICOES'), contaEI('34104027', 'EQUIPAMENTOS E SISTEMAS'), contaEI('34104031', 'DESPESAS COM COMBUSTIVEIS'),
+    contaEI('34104036', 'CUSTO DE TRANSMISSAO - CLIENTES'), contaEI('34104037', 'STAND / LOJA DE VENDAS'), contaEI('34104398', 'OUTRAS DESPESAS COMERCIAIS'),
+  ],
+  pessoal_adm: [
+    contaEI('34201001', 'SALARIOS'), contaEI('34201002', 'PREMIOS E GRATIFICACOES'), contaEI('34201003', '13º SALARIO'),
+    contaEI('34201004', 'FERIAS'), contaEI('34201005', 'INSS (GPS)'), contaEI('34201006', 'FGTS (GFIP)'),
+    contaEI('34201007', 'INDENIZACOES E AVISO PREVIO'), contaEI('34201008', 'VALE ELETRONICO (VEM)'), contaEI('34201009', 'CESTAS BASICAS'),
+    contaEI('34201010', 'FARDAMENTOS'), contaEI('34201011', 'ASSISTENCIA MEDICA E SOCIAL'), contaEI('34201012', 'DESPESA COM TREINAMENTO DE PESSOAL'),
+    contaEI('34201013', 'PENSAO ALIMENTICIA'), contaEI('34201014', 'HORAS EXTRAS'), contaEI('34201015', 'ALIMENTACAO'),
+    contaEI('34201022', 'CAIXA FUNDO FIXO'),
+  ],
+  despesas_gerais: [
+    contaEI('34202001', 'ENERGIA ELETRICA'), contaEI('34202002', 'AGUA E ESGOTO'), contaEI('34202003', 'TELEFONE E INTERNET'),
+    contaEI('34202004', 'MANUTENCAO DE VEICULOS'), contaEI('34202005', 'CORREIOS E MALOTES'), contaEI('34202006', 'MATERIAL DE EXPEDIENTE'),
+    contaEI('34202007', 'MANUTENCAO, CONSERVACAO E LIMPEZA'), contaEI('34202008', 'LIVROS, JORNAIS E REVISTAS'), contaEI('34202009', 'DESPESA  ALIMENTACAO'),
+    contaEI('34202010', 'SERVICOS DE TERCEIROS - PESSSOA JURIDICA'), contaEI('34202012', 'BENS DE PEQUENO VALOR'),
+    contaEI('34202013', 'DESPESAS COM FESTAS E COMEMORACOES'), contaEI('34202014', 'IMPOSTOS E TAXAS'), contaEI('34202015', 'FRETES E CARRETOS'),
+    contaEI('34202016', 'CONTRIBUICAO SINDICAL'), contaEI('34202017', 'SERVICOS DE TERCEIRO PESSOA FISICA'), contaEI('34202018', 'DESPESAS COM VIAGENS'),
+    contaEI('34202019', 'ALUGUEL A PESSOA FISICA'), contaEI('34202020', 'PIS - COFINS SOBRE A DEPRECIACAO'), contaEI('34202021', 'REFEICOES'),
+    contaEI('34202022', 'CAIXA FUNDO FIXO'), contaEI('34202023', 'SEGURANCA E VIGILANCIA'), contaEI('34202025', 'LOCACAO DE MAQ E EQUIPAMENTOS'),
+    contaEI('34202026', 'MANUTENCAO DE MAQ E EQUIPAMENTOS'), contaEI('34202027', 'ASSESSORIAS E CONSULTORIAS'), contaEI('34202028', 'DESPESAS COM SEGUROS'),
+    contaEI('34202029', 'DESPESAS COM COMBUSTIVEL'), contaEI('34202033', 'CONDOMINIOS DE IMOVEIS PROPRIOS'), contaEI('34202034', 'DESPESAS ADMINISTRATIVAS RATEADAS'),
+    contaEI('34202039', 'DISTRATOS'), contaEI('34202042', 'PERDA COM FORNECEDOR'), contaEI('34202090', 'DIVERSOS'),
+  ],
+  depreciacao: [contaEI('34202011', 'ENCARGOS COM DEPRECIACAO')],
+};
+
+const TODAS_CONTAS_EI = {};
+Object.entries(PLANO_CONTAS_EI).forEach(([pacoteId, contas]) => {
+  contas.forEach(c => { TODAS_CONTAS_EI[c.codigo] = { ...c, pacoteId }; });
+});
+
+// Conta onde entra a Comissão apropriada do POC (decisão do usuário de
+// 2026-09-27: "POC dentro da 34102001"), no CC escolhido na aba Receita
+// (padrão 0020101 VENDAS).
+const CONTA_COMISSAO_POC = '34102001';
+const CC_COMISSAO_POC_PADRAO = '0020101';
+
+// ---------------------------------------------------------------------------
 // CCs reais da ARA Resorts (Centros de Custos - ARA Resorts 1.xlsx,
 // fornecida em 2026-08-20) — 12 áreas (nivel:2, sintético/consolidador) e
 // seus CCs analíticos (nivel:3, areaCodigo aponta pro código da área-mãe).
@@ -1633,6 +1771,11 @@ const REFERENCIA_POR_UNIDADE = {
   // placeholder. Todo CC recebe o mesmo plano de contas completo, ver nota
   // em PLANO_CONTAS_CORPORATIVO.
   corporativo: { ccs: CCS_CORPORATIVO, planoContas: PLANO_CONTAS_CORPORATIVO, todasContas: TODAS_CONTAS_CORPORATIVO, pacotes: PACOTES_CORPORATIVO },
+  // ARA EI (2026-09-27): as três empresas e o Consolidado com a mesma estrutura.
+  ei: { ccs: CCS_EI, planoContas: PLANO_CONTAS_EI, todasContas: TODAS_CONTAS_EI, pacotes: PACOTES_EI },
+  ei_holding: { ccs: CCS_EI, planoContas: PLANO_CONTAS_EI, todasContas: TODAS_CONTAS_EI, pacotes: PACOTES_EI },
+  ei_lafleur: { ccs: CCS_EI, planoContas: PLANO_CONTAS_EI, todasContas: TODAS_CONTAS_EI, pacotes: PACOTES_EI },
+  ei_southbay: { ccs: CCS_EI, planoContas: PLANO_CONTAS_EI, todasContas: TODAS_CONTAS_EI, pacotes: PACOTES_EI },
 };
 // ---------------------------------------------------------------------------
 // Estrutura de Receita de Agrícola e Resorts — extraída de
@@ -2028,6 +2171,21 @@ const ABAS = [
   { id: 'plano5y', label: '9. Plano 5Y (opcional)' },
   { id: 'revisao', label: 'Revisão, Análise e Envio' },
 ];
+// Escritório de Investimentos (2026-09-27): impacta só o FC de Investimentos
+// (aporte de capital e distribuição de dividendos) — a seção CapEx adaptada
+// (ver AbaInvestimentosEscritorio) e a revisão/envio.
+const ABAS_ESCRITORIO = [
+  { id: 'capex', label: '1. Investimentos — Aportes e Dividendos' },
+  { id: 'revisao', label: 'Revisão e Envio' },
+];
+// Abas de cada unidade: Holding e South Bay (ARA EI) não têm Receita
+// (2026-09-27); o Corporativo mantém a aba com o aviso de sempre.
+function abasDaUnidade(unidadeId, usuario) {
+  if (unidadeId === 'energia') return ABAS_ESCRITORIO;
+  if (usuario?.perfil === 'gerente_cc_corporativo') return ABAS.filter(a => a.id === 'custos' || a.id === 'capex');
+  if (unidadeId === 'ei_holding' || unidadeId === 'ei_southbay') return ABAS.filter(a => a.id !== 'receita');
+  return ABAS;
+}
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
 
@@ -2167,6 +2325,8 @@ function receitaVazia(unidadeId) {
       deducoes: DEDUCOES_REF_RESORTS.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios(), baseLinhaIds: d.baseLinhaIds })),
     };
   }
+  // La Fleur II (2026-09-27): receita, RET e custo pelo POC — ver computePOC.
+  if (unidadeId === 'ei_lafleur') return { poc: pocVazio(), deducoes: [] };
   return { produtos: [], deducoes: [] };
 }
 
@@ -2451,8 +2611,16 @@ function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
     const valorAno = parseNum(pp.licencaSoftwareNovoHcValor || '2700');
     licencaSoftware = MESES.map((_, m) => novos.filter(f => { const i = MESES.indexOf(f.mesAdmissao); return i >= 0 && i <= m; }).length * valorAno / 12);
   }
+  // La Fleur II (2026-09-27): comissão apropriada do POC, dentro da conta
+  // 34102001 do CC escolhido na aba Receita (decisão do usuário). Como a
+  // licença, é calculada aqui para somar em DRE, fluxos e exportações, mas
+  // aparece na própria conta, não no pacote Pessoal.
+  const poc = data.receita?.poc;
+  const comissaoPoc = poc && ccCodigo === (poc.premissas?.ccComissao || CC_COMISSAO_POC_PADRAO)
+    ? pocDoDocumento(data).comissaoMes
+    : null;
 
-  const calculadas = { meritocracia, dissidio1, dissidio2, bonus, bonusPj, licencaSoftware };
+  const calculadas = { meritocracia, dissidio1, dissidio2, bonus, bonusPj, licencaSoftware, comissaoPoc };
   const totalMes = MESES.map((_, m) => Object.values(calculadas).reduce((acc, row) => acc + (row?.[m] || 0), 0));
   return { ...calculadas, hcExistenteMes: hcMes, totalMes, totalAnual: totalMes.reduce((a, v) => a + v, 0) };
 }
@@ -2471,7 +2639,20 @@ function pessoalExtraPorCC(data, ref, ccCodigo, bases) {
 const ROTULOS_PESSOAL_CALCULADO = [
   ['meritocracia', 'Meritocracia (HC Existente)'], ['dissidio1', 'Dissídio (HC Existente)'], ['dissidio2', 'Dissídio 2 (HC Existente)'],
   ['bonus', 'Bônus (HC Existente)'], ['bonusPj', 'Bônus PJs'], ['licencaSoftware', 'Licença de Software — Novo HC'],
+  ['comissaoPoc', 'Comissão apropriada (POC)'],
 ];
+// Linhas calculadas que moram numa conta analítica própria (não no pacote
+// Pessoal): licença → CORP10 (Corporativo), comissão do POC → 34102001 (EI).
+const CONTA_DA_LINHA_CALCULADA = { licencaSoftware: 'CORP10', comissaoPoc: CONTA_COMISSAO_POC };
+// Soma, no mês, das linhas calculadas que ficam fora do pacote Pessoal.
+function calculadasForaDoPessoalMes(calc, m) {
+  return Object.keys(CONTA_DA_LINHA_CALCULADA).reduce((acc, k) => acc + (calc[k]?.[m] || 0), 0);
+}
+// Linha calculada que pertence a uma conta (ou null).
+function calculadaDaConta(calc, contaCodigo) {
+  const chave = Object.keys(CONTA_DA_LINHA_CALCULADA).find(k => CONTA_DA_LINHA_CALCULADA[k] === contaCodigo);
+  return chave ? calc[chave] : null;
+}
 function linhasExportPessoalCalculado(data, ref, ccs, dre, ipcaAnualPct) {
   const bases = { receitaBrutaMes: dre.receitaBrutaMes, receitaLiquidaMes: dre.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dre.volumeTotalKgMes, receitaHospedagemMes: dre.receitaHospedagemMes, receitaAebMes: dre.receitaAebMes };
   const nomePacoteDaConta = (conta) => (ref.pacotes || []).find(p => p.id === ref.todasContas?.[conta]?.pacoteId)?.nome;
@@ -2479,8 +2660,9 @@ function linhasExportPessoalCalculado(data, ref, ccs, dre, ipcaAnualPct) {
   ccs.forEach(cc => {
     const calc = pessoalCalculadoPorCC(data, ref, cc.codigo, bases);
     ROTULOS_PESSOAL_CALCULADO.forEach(([chave, rotulo]) => {
-      const conta = chave === 'bonusPj' ? CONTA_CONSULTORIA_PJ : chave === 'licencaSoftware' ? 'CORP10' : 'Pessoal (calculado)';
-      const pacote = chave === 'licencaSoftware' ? (nomePacoteDaConta('CORP10') || 'Tecnologia') : 'Pessoal';
+      const conta = chave === 'bonusPj' ? CONTA_CONSULTORIA_PJ : CONTA_DA_LINHA_CALCULADA[chave] || 'Pessoal (calculado)';
+      const pacote = chave === 'licencaSoftware' ? (nomePacoteDaConta('CORP10') || 'Tecnologia')
+        : chave === 'comissaoPoc' ? (nomePacoteDaConta(CONTA_COMISSAO_POC) || 'Comissões') : 'Pessoal';
       (calc[chave] || []).forEach((valor, mi) => { if (valor) saida.push([cc, pacote, conta, rotulo, mi, valor]); });
     });
   });
@@ -2569,7 +2751,122 @@ function computeReceitaAgricola(agricola, cambios) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// POC da La Fleur II (2026-09-27, "Cálculo POC.xlsx", aba DRE Projeção) —
+// espelho exato de backend/src/calc/pocLaFleur.js (fórmula de cada linha,
+// com a linha da planilha, documentada lá). Só as fórmulas de set–dez,
+// aplicadas aos 12 meses de 2027; nenhum valor da planilha é usado. Mês
+// anterior de Jan = saldos em 31/12/2026. Percentuais e unidades distratadas
+// digitados positivos. Avanço acumulado em branco = repete o mês anterior.
+// Saídas no sinal da DRE: robMes, retMes (dedução), cpvMes, comissaoMes.
+// ---------------------------------------------------------------------------
+function pocVazio() {
+  return {
+    saldosIniciais: { vgvAApropriar: '', avancoAcumuladoPct: '', custoTotalObra: '', m2Vendidos: '', comissoesPagas: '' },
+    premissas: { custoTerreno: '', retPct: '', m2PorUnidade: '', m2AVender: '', comissaoPct: '', valorPorUnidadeDistratada: '', ccComissao: CC_COMISSAO_POC_PADRAO },
+    avancoAcumuladoPct: mesesVazios(),
+    novasVendasValor: mesesVazios(),
+    novasVendasQtd: mesesVazios(),
+    unidadesDistratadas: mesesVazios(),
+    desembolsoObra: mesesVazios(),
+    justificativa: '',
+  };
+}
+function computePOC(poc) {
+  const vazio = (v) => v === '' || v === null || v === undefined || String(v).trim() === '';
+  const si = poc?.saldosIniciais || {};
+  const pr = poc?.premissas || {};
+  const custoTerreno = parseNum(pr.custoTerreno);
+  const retPct = parseNum(pr.retPct) / 100;
+  const m2PorUnidade = parseNum(pr.m2PorUnidade);
+  const m2AVender = parseNum(pr.m2AVender);
+  const comissaoPct = parseNum(pr.comissaoPct) / 100;
+  const valorDistrato = parseNum(pr.valorPorUnidadeDistratada);
+
+  const vgvIni = parseNum(si.vgvAApropriar);
+  const avancoIni = parseNum(si.avancoAcumuladoPct) / 100;
+  const custoObraIni = parseNum(si.custoTotalObra);
+  const m2Ini = parseNum(si.m2Vendidos);
+  const comissoesPagasIni = parseNum(si.comissoesPagas);
+  const custoRecIni = m2AVender ? (custoObraIni / m2AVender) * m2Ini * avancoIni : 0;
+
+  const out = {
+    distratosValorMes: [], vgvMes: [], avancoMes: [], avancoMensalMes: [],
+    receitaReconhecidaMes: [], receitaApropriadaMes: [], terrenoApropriadoMes: [], espolioMes: [],
+    robMes: [], retAcumuladoMes: [], retMes: [],
+    custoTotalObraMes: [], m2VendidosMes: [], custoReconhecidoMes: [], custoApropriadoMes: [], cpvMes: [],
+    comissoesPagasMes: [], comissoesApropriadasMes: [], comissaoMes: [],
+  };
+  let vgvAnt = vgvIni;
+  let avancoAnt = avancoIni;
+  let recAnt = vgvIni * avancoIni;
+  let terrenoAnt = custoTerreno * avancoIni;
+  let retAnt = retPct * recAnt;
+  let custoObraAnt = custoObraIni;
+  let m2Ant = m2Ini;
+  let custoRecAnt = custoRecIni;
+  let comPagasAnt = comissoesPagasIni;
+  let comAproAnt = comissoesPagasIni * avancoIni;
+
+  MESES.forEach((_, m) => {
+    const novasVendas = parseNum(poc?.novasVendasValor?.[m]);
+    const distratadas = parseNum(poc?.unidadesDistratadas?.[m]);
+    const distratos = -valorDistrato * distratadas;
+    const vgv = vgvAnt + novasVendas + distratos;
+    const avanco = vazio(poc?.avancoAcumuladoPct?.[m]) ? avancoAnt : parseNum(poc.avancoAcumuladoPct[m]) / 100;
+    const rec = vgv * avanco;
+    const terreno = custoTerreno * avanco;
+    const espolio = terreno - terrenoAnt;
+    const receitaApropriada = rec - recAnt;
+    const retAcum = retPct * rec;
+    const custoObra = custoObraAnt + parseNum(poc?.desembolsoObra?.[m]);
+    const m2 = m2Ant + m2PorUnidade * (parseNum(poc?.novasVendasQtd?.[m]) - distratadas);
+    const custoRec = m2AVender ? (custoObra / m2AVender) * m2 * avanco : 0;
+    const custoApropriado = custoRec - custoRecAnt;
+    const comPagas = comPagasAnt + novasVendas * comissaoPct;
+    const comApro = comPagas * avanco;
+
+    out.distratosValorMes.push(distratos);
+    out.vgvMes.push(vgv);
+    out.avancoMes.push(avanco);
+    out.avancoMensalMes.push(avanco - avancoAnt);
+    out.receitaReconhecidaMes.push(rec);
+    out.receitaApropriadaMes.push(receitaApropriada);
+    out.terrenoApropriadoMes.push(terreno);
+    out.espolioMes.push(espolio);
+    out.robMes.push(receitaApropriada + espolio);
+    out.retAcumuladoMes.push(retAcum);
+    out.retMes.push(retAcum - retAnt);
+    out.custoTotalObraMes.push(custoObra);
+    out.m2VendidosMes.push(m2);
+    out.custoReconhecidoMes.push(custoRec);
+    out.custoApropriadoMes.push(custoApropriado);
+    out.cpvMes.push(custoApropriado + espolio);
+    out.comissoesPagasMes.push(comPagas);
+    out.comissoesApropriadasMes.push(comApro);
+    out.comissaoMes.push(comApro - comAproAnt);
+
+    vgvAnt = vgv; avancoAnt = avanco; recAnt = rec; terrenoAnt = terreno; retAnt = retAcum;
+    custoObraAnt = custoObra; m2Ant = m2; custoRecAnt = custoRec; comPagasAnt = comPagas; comAproAnt = comApro;
+  });
+  return out;
+}
+function pocDoDocumento(data) {
+  return data?.receita?.poc ? computePOC(data.receita.poc) : null;
+}
+
+// FC de Investimentos por mês a partir de capex.projetos: desembolso de
+// CapEx sai; no Escritório de Investimentos cada lançamento tem aporte de
+// capital (sai) e distribuição de dividendos (entra). Espelho do backend.
+function fcInvestimentoProjetosMes(data) {
+  return MESES.map((_, m) => (data.capex?.projetos || []).reduce((acc, p) =>
+    acc - parseNum(desembolsosDoProjeto(p)[m]) - parseNum(p.aportes?.[m]) + parseNum(p.dividendos?.[m]), 0));
+}
+
 function receitaBrutaPorMes(data, cambios) {
+  if (data.receita.poc) {
+    return { receitaBrutaMes: pocDoDocumento(data).robMes, linhasReceitaMes: null };
+  }
   // ARA Agrícola (2026-09-07) — ver computeReceitaAgricola acima. Detecção
   // por presença de `receita.agricola` (não por unidadeId, que esta função
   // não recebe): documento recém-criado, antes do primeiro `atualizar`,
@@ -2622,6 +2919,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // nunca quebra, essas unidades nem oferecem 'custo_por_kg' como opção
   // (ver UNIDADES_COM_CUSTO_POR_KG).
   const receitaAgricolaCalc = data.receita.agricola ? computeReceitaAgricola(data.receita.agricola, cambios) : null;
+  const poc = pocDoDocumento(data);
   const volumeTotalKgMes = receitaAgricolaCalc
     ? receitaAgricolaCalc.producaoTotalKgMes
     : MESES.map((_, m) => (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000);
@@ -2643,12 +2941,16 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
       }
       return a + base * (parseNum(d.pcts?.[m]) / 100);
     }, 0)
+    // La Fleur II: RET calculado pelo POC.
+    + (poc ? poc.retMes[m] : 0)
   );
   const deducoes = deducoesMes.reduce((a, v) => a + v, 0);
   const receitaLiquidaMes = MESES.map((_, m) => receitaBrutaMes[m] - deducoesMes[m]);
   const receitaLiquida = receitaBruta - deducoes;
 
   const linhasCustos = Object.entries(data.custos.linhas || {});
+  // La Fleur II: custo apropriado + espólio do POC, somado ao CPV.
+  const pocCpvMes = poc ? poc.cpvMes : null;
 
   // pacote 'pessoal' (2026-08-23): não exclui mais da soma — desde que
   // CORP03 "Consultórias PJs" virou LinhaConta normal do pacote Pessoal
@@ -2671,7 +2973,8 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     const cc = ref.ccs.find(c => c.codigo === ccCodigo);
     if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'producao') return acc;
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
-  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0);
+  }, 0) + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalExtraAnual(cc), 0)
+    + (pocCpvMes ? pocCpvMes.reduce((a, v) => a + v, 0) : 0);
   const lucroBruto = receitaLiquida - cpv;
   const margemBruta = receitaLiquida ? (lucroBruto / receitaLiquida) * 100 : 0;
 
@@ -2717,6 +3020,8 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     receitaHospedagemMes,
     // Receita A&B + Café e Pensão por mês (Resorts) — base da premissa rateio_aeb.
     receitaAebMes,
+    // Custo do POC por mês (La Fleur II) — somado ao CPV mensal dos fluxos.
+    pocCpvMes,
     totalGeral: lucroLiquido,
   };
 }
@@ -2783,7 +3088,10 @@ function ccsFolhaDoLado(ref) {
 function computeGruposReceitaTipo(lados, unidadeKind, cambios) {
   const mapa = new Map();
   lados.forEach(lado => {
-    const tipos = unidadeKind === 'resorts'
+    // ARA EI: a única receita é a do POC (La Fleur II).
+    const tipos = unidadeKind === 'ei'
+      ? [{ chave: 'poc', nome: 'Receita apropriada — POC (VGV + Espólio)', valoresMensal: lado.dre.receitaBrutaMes }]
+      : unidadeKind === 'resorts'
       ? LINHAS_RECEITA_RESORTS.filter(def => def.id !== LINHA_RECEITA_INFORMATIVA_RESORTS).map(def => {
           // Bug de 2026-08-30 (ver nota em tipoLinhaReceitaResorts): nunca
           // confiar no premissaTipo armazenado nessas linhas — esta função
@@ -2834,6 +3142,14 @@ function valorLinhaDoTipo(lado, cc, contaCodigo, m, tipo, ipcaAnualPct) {
 }
 function computeGruposCustosMensal(lados, ipcaAnualPct) {
   const grupos = [];
+  // ARA EI: custo apropriado + espólio do POC (La Fleur II).
+  if (lados.some(lado => lado.dre.pocCpvMes)) {
+    grupos.push({
+      chave: '__custo_poc__',
+      nome: 'Custo apropriado — POC (obra + terreno/espólio)',
+      porLado: lados.map(lado => ({ nome: lado.nome, valoresMensal: lado.dre.pocCpvMes || MESES.map(() => 0) })),
+    });
+  }
   grupos.push({
     chave: '__pessoal_producao__',
     nome: 'Mão de obra direta (Pessoal)',
@@ -2895,17 +3211,34 @@ function computeDespesasOperacionaisPorGrupo(lados, ipcaAnualPct) {
   // Folha calculada dos CCs de despesa + o que tiver sido lançado à mão em
   // contas do pacote 'pessoal' (ver nota em computeGruposCustosMensal) — sem
   // essa segunda parcela o valor entraria no EBITDA e sumiria do balde.
-  const pessoalLancado = porPacotes(['pessoal']);
+  // Balde de cada pacote: 'pessoal'/'comercial' pelo id (Têxtil, Agrícola,
+  // Resorts, Corporativo) ou pelo grupoDre do pacote (ARA EI, 2026-09-27).
+  const idsDoGrupo = (grupo, idPadrao) => {
+    const ids = new Set([idPadrao]);
+    lados.forEach(lado => lado.ref.pacotes.forEach(p => { if (p.grupoDre === grupo) ids.add(p.id); }));
+    return [...ids];
+  };
+  const idsPessoal = idsDoGrupo('pessoal', 'pessoal');
+  const idsVendas = idsDoGrupo('vendas', 'comercial');
+  const pessoalLancado = porPacotes(idsPessoal);
   const extrasPorLado = lados.map(lado => pessoalExtraTodosCCs(lado.dados, lado.ref, lado.dre, ipcaAnualPct));
+  // Comissão do POC (La Fleur II) é calculada junto com o pessoal, mas é despesa de vendas.
+  const comissaoPocDoLado = (i, lado, m) => ccsFolhaDoLado(lado.ref)
+    .reduce((acc, cc) => acc + (extrasPorLado[i][cc.codigo]?.calc.comissaoPoc?.[m] || 0), 0);
   const pessoal = lados.map((lado, i) => ({
     nome: lado.nome,
     valoresMensal: MESES.map((_, m) => ccsFolhaDoLado(lado.ref).filter(cc => cc.tipo === 'despesa')
       .reduce((acc, cc) => acc + (extrasPorLado[i][cc.codigo]?.mes[m] || 0), 0)
+      - comissaoPocDoLado(i, lado, m)
       + pessoalLancado[i].valoresMensal[m]),
   }));
-  const vendas = porPacotes(['comercial']);
+  const vendasLancado = porPacotes(idsVendas);
+  const vendas = lados.map((lado, i) => ({
+    nome: lado.nome,
+    valoresMensal: MESES.map((_, m) => vendasLancado[i].valoresMensal[m] + comissaoPocDoLado(i, lado, m)),
+  }));
   const idsGerais = new Set();
-  lados.forEach(lado => lado.ref.pacotes.forEach(p => { if (!['pessoal', 'comercial', 'depreciacao'].includes(p.id)) idsGerais.add(p.id); }));
+  lados.forEach(lado => lado.ref.pacotes.forEach(p => { if (![...idsPessoal, ...idsVendas, 'depreciacao'].includes(p.id)) idsGerais.add(p.id); }));
   const gerais = porPacotes([...idsGerais]);
   return { pessoal, vendas, gerais };
 }
@@ -2928,6 +3261,7 @@ function somarPorLado(porLado) {
 const CONSOLIDADOS_MULTISITE = {
   agricola: { tipo: 'consolidado_agricola', sites: ['agricola_tds', 'agricola_fds'], labels: ['Terra do Sol', 'Frutos do Sol'] },
   resorts: { tipo: 'consolidado_resorts', sites: ['samoa_beach', 'samoa_villa'], labels: ['Samoa Beach', 'Samoa Villa'] },
+  ei: { tipo: 'consolidado_ei', sites: ['ei_holding', 'ei_lafleur', 'ei_southbay'], labels: ['Holding', 'La Fleur II', 'South Bay'] },
 };
 // true se `d` é um dos wrappers acima (qualquer família) — usado pra pular
 // (não crashar) em painéis que assumem o formato normal de `dados`
@@ -2960,10 +3294,11 @@ function cambiosDePremissas(premissasMacro) {
 function dreDaUnidade(dadosUnidade, unidadeId, ipcaAnualPct, cambios) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
-    const [dreA, dreB] = consolidado.sites.map(siteId =>
+    // N sites (ARA EI tem 3) — somarDRE é binário, então reduz.
+    const dres = consolidado.sites.map(siteId =>
       computeDRE(dadosUnidade[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId), ipcaAnualPct, cambios)
     );
-    return somarDRE(dreA, dreB);
+    return dres.reduce((acc, d) => somarDRE(acc, d));
   }
   return computeDRE(dadosUnidade, referenciaDaUnidade(unidadeId), ipcaAnualPct, cambios);
 }
@@ -2996,14 +3331,15 @@ function computeDFC(data, dre, ref, ipcaAnualPct) {
 
   const geracaoOperacionalAntesGiro = dre.lucroLiquido + dre.depreciacao;
   // `ref` opcional (default REF_VAZIA nos call sites) — sem CCs (unidades
-  // sem registro, ex. EI/Energia) o reduce por CC não acha nada e o giro
-  // sai 0 mesmo, sem quebrar.
+  // sem registro, ex. Escritório de Investimentos) o reduce por CC não acha
+  // nada e o giro sai 0 mesmo, sem quebrar.
   const variacaoCapitalGiro = ref
     ? computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct).variacaoGiroMes.reduce((a, v) => a + v, 0)
     : 0;
   const fluxoOperacional = geracaoOperacionalAntesGiro + variacaoCapitalGiro;
 
-  const fluxoInvestimento = -capexTotal;
+  // −CapEx; no Escritório de Investimentos, −aportes + dividendos.
+  const fluxoInvestimento = fcInvestimentoProjetosMes(data).reduce((a, v) => a + v, 0);
   const fluxoFinanciamento = captacoes - amortizacoes - jurosPagos + aportes - distMinoritarios - distSocios + emprestimosAcionistas - devolucaoEmprestimos;
 
   const variacaoCaixa = fluxoOperacional + fluxoInvestimento + fluxoFinanciamento;
@@ -3037,12 +3373,12 @@ function somarDFC(a, b) {
 function dfcDaUnidade(dadosUnidade, dreUnidade, unidadeId, ipcaAnualPct, cambios) {
   const consolidado = CONSOLIDADOS_MULTISITE[unidadeId];
   if (consolidado && dadosUnidade && dadosUnidade._tipo === consolidado.tipo) {
-    const [dfcA, dfcB] = consolidado.sites.map(siteId => {
+    const dfcs = consolidado.sites.map(siteId => {
       const d = dadosUnidade[siteId] || emptyFormData(siteId);
       const refSite = referenciaDaUnidade(siteId);
       return computeDFC(d, computeDRE(d, refSite, ipcaAnualPct, cambios), refSite, ipcaAnualPct);
     });
-    return somarDFC(dfcA, dfcB);
+    return dfcs.reduce((acc, x) => somarDFC(acc, x));
   }
   return computeDFC(dadosUnidade, dreUnidade, referenciaDaUnidade(unidadeId), ipcaAnualPct);
 }
@@ -3073,7 +3409,7 @@ function dreEDfcGrupoUnidade(statusUnidades, unidadeId, ipcaAnualPct, cambios) {
     const dfcs = consolidado.sites.map((siteId, i) =>
       computeDFC(statusUnidades[siteId] || emptyFormData(siteId), dres[i], referenciaDaUnidade(siteId), ipcaAnualPct)
     );
-    return { dre: somarDRE(dres[0], dres[1]), dfc: somarDFC(dfcs[0], dfcs[1]) };
+    return { dre: dres.reduce((acc, d) => somarDRE(acc, d)), dfc: dfcs.reduce((acc, x) => somarDFC(acc, x)) };
   }
   const d = statusUnidades[unidadeId] || emptyFormData(unidadeId);
   const dre = dreDaUnidade(d, unidadeId, ipcaAnualPct, cambios);
@@ -3124,7 +3460,8 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // nota completa em computeDRE. Nome da variável mantido (cpvSemPessoalMes)
   // porque também alimenta o capital de giro abaixo, mas não exclui nada
   // "de pessoal" de verdade — só não soma a folha calculada duas vezes.
-  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
+  // + custo do POC (La Fleur II).
+  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m) + (dre.pocCpvMes?.[m] || 0));
   const cpvMes = MESES.map((_, m) => cpvSemPessoalMes[m]
     + ref.ccs.filter(cc => cc.tipo === 'producao').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
   const despesasSemDAmes = MESES.map((_, m) => totalLinhasMes('despesa', ['depreciacao'], m)
@@ -3191,8 +3528,8 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 
   const fcOperacionalMes = MESES.map((_, m) => ebitdaMes[m] - ircslMes[m] + ajuste13Mes[m] + variacaoGiroMes[m] + ajustePagamentoMes[m]);
 
-  const capexMes = MESES.map((_, m) => (data.capex.projetos || []).reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0));
-  const fcInvestimentoMes = capexMes.map(v => -v);
+  // −CapEx; no Escritório de Investimentos, −aportes + dividendos.
+  const fcInvestimentoMes = fcInvestimentoProjetosMes(data);
 
   const linhasFin = data.fcFinanciamentos?.linhas || [];
   const capMes = MESES.map((_, m) => linhasFin.reduce((acc, l) => acc + parseNum(l.captacoes?.[m]), 0));
@@ -3403,13 +3740,16 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   }
   // pacote 'pessoal' (2026-08-23): não exclui mais — ver nota em
   // computeFluxoIndiretoMensal/computeDRE.
-  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m));
+  // + custo do POC (La Fleur II), como no método Indireto.
+  const cpvSemPessoalMes = MESES.map((_, m) => totalLinhasMes('producao', [], m) + (dre.pocCpvMes?.[m] || 0));
+  // Comissão do POC é despesa comercial, não pessoal: sai da folha, entra em despesas.
+  const comissaoPocMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + (pessoalCC[cc.codigo].calc.comissaoPoc?.[m] || 0), 0));
   // Pagamentos de despesas de fato (caixa) — 2026-08-23: por padrão igual à
   // competência (totalLinhasMes); linhas marcadas com o descasamento
   // competência × caixa usam o valor de pagamento digitado à parte (ver
   // UNIDADES_COM_COMPETENCIA_CAIXA/valorLinhaMesCaixa).
-  const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m));
-  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
+  const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m) + comissaoPocMes[m]);
+  const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0) - comissaoPocMes[m]);
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
@@ -3598,12 +3938,23 @@ function computePlano5Y(dre, anos) {
 // permanentemente vermelhas (dando a impressão de "auditoria quebrada"),
 // somem da lista pra essa unidade.
 function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
+  if (unidadeId === 'energia') return auditoriaEscritorio(data);
   const checks = [];
-  const temReceita = unidadeId !== 'corporativo';
+  const temReceita = !UNIDADES_SEM_RECEITA.includes(unidadeId);
   const temCcProducao = ref.ccs.some(c => c.tipo === 'producao');
 
   if (temReceita) {
-    if (data.receita.agricola) {
+    if (data.receita.poc) {
+      // La Fleur II (2026-09-27) — ver computePOC.
+      const p = data.receita.poc;
+      const avancoOk = somaMes(p.avancoAcumuladoPct) > 0 || parseNum(p.saldosIniciais?.avancoAcumuladoPct) > 0;
+      const vgvOk = parseNum(p.saldosIniciais?.vgvAApropriar) > 0 || somaMes(p.novasVendasValor) > 0;
+      checks.push({
+        label: 'Receita POC: VGV (saldo ou novas vendas) e avanço de obra preenchidos',
+        ok: avancoOk && vgvOk,
+        detalhe: avancoOk && vgvOk ? 'Preenchida' : 'Pendente de preenchimento',
+      });
+    } else if (data.receita.agricola) {
       // ARA Agrícola (2026-09-07) — ver computeReceitaAgricola. "Preenchida"
       // = tem Embalada (Kg) OU alguma venda (Interna/Externa) lançada em
       // algum mês — cobre tanto quem começou pela Produção quanto quem já
@@ -3749,6 +4100,20 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   });
 
   return checks;
+}
+
+// Escritório de Investimentos (2026-09-27): só aportes/dividendos por
+// investimento — espelho do backend.
+function auditoriaEscritorio(data) {
+  const lancamentos = data.capex?.projetos || [];
+  const comValor = lancamentos.filter(p => somaMes(p.aportes) + somaMes(p.dividendos) !== 0);
+  const semJustificativa = comValor.filter(p => !(p.justificativa || '').trim());
+  const negativos = lancamentos.some(p => (p.aportes || []).some(v => parseNum(v) < 0) || (p.dividendos || []).some(v => parseNum(v) < 0));
+  return [
+    { label: 'Ao menos um aporte ou distribuição de dividendos lançado', ok: comValor.length > 0, detalhe: `${comValor.length} lançamento(s) com valor` },
+    { label: 'Todo lançamento com valor tem justificativa', ok: semJustificativa.length === 0, detalhe: semJustificativa.length === 0 ? 'Justificativa preenchida em todos' : `${semJustificativa.length} lançamento(s) sem justificativa` },
+    { label: 'Aportes e dividendos digitados como valores positivos', ok: !negativos, detalhe: negativos ? 'Há valor negativo — o sinal já vem da linha (aporte sai, dividendo entra)' : 'Sem valores negativos' },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -4266,6 +4631,13 @@ export default function OrcamentoARA({ usuario }) {
   // (VisaoGerente) já nem mostra as outras pra este perfil, então não tem
   // como setAba sair daqui através da UI.
   const [aba, setAba] = useState(usuario.perfil === 'gerente_cc_corporativo' ? 'custos' : 'estrategicas');
+  // Unidade com outro conjunto de abas (Escritório, Holding/South Bay): se a
+  // aba aberta não existe nela, volta para a primeira.
+  useEffect(() => {
+    const ids = abasDaUnidade(unidadeAtual, usuario).map(a => a.id);
+    if (!ids.includes(aba)) setAba(ids[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unidadeAtual]);
   const [dados, setDados] = useState(emptyFormData());
   const [versoes, setVersoes] = useState([]);
   const [statusUnidades, setStatusUnidades] = useState({});
@@ -4591,7 +4963,7 @@ export default function OrcamentoARA({ usuario }) {
     // `dados` deste componente arriscaria sobrescrever, com uma cópia
     // desatualizada, o snapshot que o Consolidado acabou de gravar no envio
     // (race condition).
-    if (unidadeAtual === 'agricola' || unidadeAtual === 'resorts') return;
+    if (CONSOLIDADOS_MULTISITE[unidadeAtual]) return;
 
     async function salvar() {
       clearTimeout(debounceTimerRef.current);
@@ -5034,6 +5406,14 @@ export default function OrcamentoARA({ usuario }) {
             const preco = parseNum(d.receita.agricola.vendaExterna?.[moeda]?.precoMoeda?.[mi]) * parseNum(cambios?.[moeda]);
             linhasReceita.push([u.nome, `Mercado Externo — ${moeda.toUpperCase()}`, `Externo (${moeda.toUpperCase()})`, m, vol, preco, r[moeda].receitaMes[mi], just]);
           });
+        });
+        return;
+      }
+      // La Fleur II (2026-09-27): receita apropriada pelo POC, sem volume/preço.
+      if (d.receita.poc) {
+        const r = computePOC(d.receita.poc);
+        MESES.forEach((m, mi) => {
+          if (r.robMes[mi] !== 0) linhasReceita.push([u.nome, 'Receita apropriada — POC (VGV + Espólio)', 'POC', m, '', '', r.robMes[mi], d.receita.justificativaGeral || '']);
         });
         return;
       }
@@ -6283,7 +6663,7 @@ function VisaoGerente(props) {
           {/* Consolidado ('agricola'/'resorts') nunca é editado direto —
               não faz sentido "salvar rascunho" nele (ver
               ConsolidadoAgricola/ConsolidadoResorts). */}
-          {UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual) && unidadeAtual !== 'agricola' && unidadeAtual !== 'resorts' && (
+          {UNIDADES_COM_LANCAMENTO_HABILITADO.includes(unidadeAtual) && !CONSOLIDADOS_MULTISITE[unidadeAtual] && (
             <>
               {/* Erro de salvamento (2026-08-23) — antes só aparecia dentro
                   da aba Revisão, então uma falha no autosave passava em
@@ -6376,33 +6756,13 @@ function VisaoGerente(props) {
           mas como as contas analíticas não vêm pareadas por CC na planilha-
           fonte (pendência de dado documentada), cada CC recebe o mesmo plano
           de contas completo (PLANO_CONTAS_CORPORATIVO/PACOTES_CORPORATIVO) —
-          decisão explícita do usuário, não suposição. ARA EI nem aparece
-          aqui — sem plano de contas nenhum, não está em
-          UNIDADES_COM_LANCAMENTO_HABILITADO no backend. */}
+          decisão explícita do usuário, não suposição. ARA EI (2026-09-27)
+          virou família (Holding, La Fleur II, South Bay + Consolidado) e o
+          Escritório de Investimentos ganhou a aba de aportes/dividendos. */}
       {unidadeAtual === 'ei' ? (
-        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 16, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-          <AlertTriangle size={18} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>ARA EI ainda sem dado-fonte</div>
-            <div style={{ fontSize: 11.5, color: COR.texto }}>
-              Diferente de Agrícola e Resorts, a ARA EI não tem nem plano de contas nem pacotes classificados ainda —
-              não há de onde derivar a estrutura de lançamento sem inventar contas que não existem de fato.
-              Assim que houver uma matriz de governança (ou equivalente) para esta unidade, o formulário completo é habilitado.
-            </div>
-          </div>
-        </div>
-      ) : unidadeAtual === 'energia' ? (
-        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 16, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-          <AlertTriangle size={18} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>Escritório de Investimentos — estrutura diferente das demais unidades</div>
-            <div style={{ fontSize: 11.5, color: COR.texto }}>
-              Esse segmento do Grupo ARA não segue o mesmo formulário de DRE por CC das outras unidades — é uma
-              Visão de Portfólio de Investimentos (UFVs, PCH, Novo Cais, MCMV) e Aporte/Distribuição no Grupo.
-              Essa tela ainda não foi construída (pendência de 2026-08-09, aguardando você detalhar a estrutura real).
-            </div>
-          </div>
-        </div>
+        // Consolidado da ARA EI (2026-09-27): sempre Holding + La Fleur II +
+        // South Bay somados, com o próprio envio/histórico. Ver ConsolidadoEI.
+        <ConsolidadoEI autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
       ) : unidadeAtual === 'agricola' ? (
         // Consolidado da Agrícola (2026-08-20): nunca editado direto — é
         // sempre TDS + FDS somados, com o próprio envio/histórico. Ver
@@ -6431,8 +6791,7 @@ function VisaoGerente(props) {
             envio (ver podeEnviar em AbaRevisao); o envio/histórico da
             Agrícola/Resorts continua só no Consolidado (ver
             ConsolidadoAgricola/ConsolidadoResorts). */}
-        {(usuario.perfil === 'gerente_cc_corporativo' ? ABAS.filter(a => a.id === 'custos' || a.id === 'capex')
-          : ABAS).map(a => (
+        {abasDaUnidade(unidadeAtual, usuario).map(a => (
           <button
             key={a.id} onClick={() => setAba(a.id)}
             style={{
@@ -6469,6 +6828,13 @@ function VisaoGerente(props) {
                 </div>
               </div>
             </div>
+          ) : dados.receita.poc ? (
+            // La Fleur II (2026-09-27): receita, RET, custo e comissão pelo POC.
+            <AbaReceitaPOC
+              poc={dados.receita.poc} justificativaGeral={dados.receita.justificativaGeral}
+              deducoesJustificativa={dados.receita.deducoesJustificativa}
+              atualizar={atualizar} dre={dre} ccs={referenciaDaUnidade(unidadeAtual).ccs}
+            />
           ) : dados.receita.linhas ? (
             <AbaReceitaResorts
               linhas={dados.receita.linhas} deducoes={dados.receita.deducoes}
@@ -6505,9 +6871,24 @@ function VisaoGerente(props) {
             funcionarios={dados.custos.funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} removeFuncionario={removeFuncionario}
             premissasPessoal={dados.custos.premissasPessoal} updatePremissaPessoal={updatePremissaPessoal}
             viagens={dados.custos.viagens} atualizar={atualizar} premissasMacro={premissasMacro} cambios={cambios}
+            receita={dados.receita}
           />
         )}
-        {aba === 'capex' && (
+        {aba === 'capex' && unidadeAtual === 'energia' && (
+          <AbaInvestimentosEscritorio
+            projetos={dados.capex.projetos}
+            addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto}
+          />
+        )}
+        {aba === 'revisao' && unidadeAtual === 'energia' && (
+          <RevisaoEscritorio
+            dados={dados} autorNome={autorNome} setAutorNome={setAutorNome}
+            comentarioEnvio={comentarioEnvio} setComentarioEnvio={setComentarioEnvio}
+            enviarVersao={enviarVersao} enviando={enviando} tudoOk={tudoOk} erro={erro}
+            aguardandoLiberacao={aguardandoLiberacao} podeEnviar={!edicaoEncerrada}
+          />
+        )}
+        {aba === 'capex' && unidadeAtual !== 'energia' && (
           <AbaCapex
             projetos={dados.capex.projetos}
             addProjeto={addProjeto} updateProjeto={updateProjeto} removeProjeto={removeProjeto} updateDesembolsoProjeto={updateDesembolsoProjeto}
@@ -6531,7 +6912,7 @@ function VisaoGerente(props) {
         )}
         {aba === 'balanco' && <AbaBalanco balanco={dados.balanco} atualizar={atualizar} />}
         {aba === 'plano5y' && <AbaPlano5Y dre={dre} plano5y={dados.plano5y} updatePremissa5Y={updatePremissa5Y} atualizar={atualizar} />}
-        {aba === 'revisao' && (
+        {aba === 'revisao' && unidadeAtual !== 'energia' && (
           <AbaRevisao
             refUnidade={referenciaDaUnidade(unidadeAtual)}
             unidadeId={unidadeAtual} versoes={versoes}
@@ -6739,7 +7120,7 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
   // Pessoal (2026-08-23): soma folha (CLT, só Novo Headcount) + contas do
   // pacote (Headcount Existente + Consultórias PJs no Corporativo).
   const basesLeitura = { receitaBrutaMes: dre.receitaBrutaMes, receitaLiquidaMes: dre.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dre.volumeTotalKgMes, receitaHospedagemMes: dre.receitaHospedagemMes, receitaAebMes: dre.receitaAebMes };
-  const pessoalExtraLeitura = pessoalExtraPorCC({ custos: { linhas, funcionarios, premissasPessoal } }, refUnidade, ccSel, basesLeitura);
+  const pessoalExtraLeitura = pessoalExtraPorCC({ receita: dados.receita, custos: { linhas, funcionarios, premissasPessoal } }, refUnidade, ccSel, basesLeitura);
   const totalCC = gruposPacote.reduce((acc, g) => acc + g.contas.reduce((a, c) => a + totalConta(c.codigo), 0), 0) + pessoalExtraLeitura.anual;
 
   return (
@@ -6855,6 +7236,31 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
 // pra leitura não valeria o risco de divergir do cálculo real.
 function ReceitaLeituraVersao({ dados, cambios }) {
   const receita = dados.receita || {};
+  // La Fleur II (2026-09-27) — POC, ver computePOC.
+  if (receita.poc) {
+    const r = computePOC(receita.poc);
+    const linha = (label, arr, fmt) => <LinhaCalculadaMensal key={label} label={label} valoresMensal={arr} formatarCelula={fmt || formatValor} />;
+    return (
+      <div>
+        <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Receita POC — La Fleur II</h4>
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <CabecalhoMensalLeitura />
+            <tbody>
+              {linha('Avanço de obra acumulado', r.avancoMes, v => formatPct(v * 100, 2))}
+              {linha('Receita a apropriar — VGV (R$)', r.vgvMes)}
+              {linha('Receita apropriada (R$)', r.receitaApropriadaMes)}
+              {linha('Receita apropriada — Espólio (R$)', r.espolioMes)}
+              {linha('Receita Operacional Bruta (R$)', r.robMes)}
+              {linha('(−) RET (R$)', r.retMes.map(v => -v))}
+              {linha('(−) Custos — POC (R$)', r.cpvMes.map(v => -v))}
+              {linha('(−) Comissões apropriadas (R$)', r.comissaoMes.map(v => -v))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
   // ARA Agrícola (2026-09-07) — cascata Produção -> Vendas, ver
   // computeReceitaAgricola. Mesmo estilo genérico de tabela mensal já usado
   // abaixo pra `receita.linhas` (Resorts) — dump de cada série calculada,
@@ -6984,7 +7390,7 @@ function ReceitaLeituraVersao({ dados, cambios }) {
 // desembolsos, mesmo formato do editor AbaCapex — ver desembolsosDoProjeto.
 function CapexLeituraVersao({ dados }) {
   const projetos = dados.capex?.projetos || [];
-  const CATEGORIA_LABEL = { carryover: 'Carryover / Comprometido', melhoria_interna: 'Melhoria Interna', desenvolvimento_expansao: 'Desenvolvimento e Expansão' };
+  const CATEGORIA_LABEL = { carryover: 'Carryover / Comprometido', melhoria_interna: 'Melhoria Interna', desenvolvimento_expansao: 'Desenvolvimento e Expansão', ...Object.fromEntries(INVESTIMENTOS_ESCRITORIO.map(i => [i.id, i.nome])) };
   if (projetos.length === 0) return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Nenhum projeto de CAPEX lançado.</p>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -7002,7 +7408,15 @@ function CapexLeituraVersao({ dados }) {
               <table>
                 <CabecalhoMensalLeitura rotuloPrimeiraColuna="Linha (R$)" />
                 <tbody>
-                  <LinhaCalculadaMensal label="Desembolso (R$)" valoresMensal={desembolsos.map(parseNum)} formatarCelula={formatValor} />
+                  {/* Escritório de Investimentos (2026-09-27): aporte/dividendos no lugar do desembolso. */}
+                  {p.aportes || p.dividendos ? (
+                    <>
+                      <LinhaCalculadaMensal label="Aporte de capital (R$)" valoresMensal={(p.aportes || mesesVazios()).map(parseNum)} formatarCelula={formatValor} />
+                      <LinhaCalculadaMensal label="Distribuição de dividendos (R$)" valoresMensal={(p.dividendos || mesesVazios()).map(parseNum)} formatarCelula={formatValor} />
+                    </>
+                  ) : (
+                    <LinhaCalculadaMensal label="Desembolso (R$)" valoresMensal={desembolsos.map(parseNum)} formatarCelula={formatValor} />
+                  )}
                 </tbody>
               </table>
             </div>
@@ -7095,7 +7509,7 @@ function ModalVersao({ unidadeId, versaoId, onClose, ipcaAnualPct, cambios }) {
   const dresSites = ehConsolidado
     ? consolidado.sites.map(siteId => computeDRE(versao.dados[siteId] || emptyFormData(siteId), referenciaDaUnidade(siteId), ipcaAnualPct, cambios))
     : null;
-  const dre = versao ? (ehConsolidado ? somarDRE(dresSites[0], dresSites[1]) : computeDRE(versao.dados, ref, ipcaAnualPct, cambios)) : null;
+  const dre = versao ? (ehConsolidado ? dresSites.reduce((acc, d) => somarDRE(acc, d)) : computeDRE(versao.dados, ref, ipcaAnualPct, cambios)) : null;
 
   return (
     <div
@@ -7783,6 +8197,232 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
   );
 }
 
+
+// Consolidado da ARA EI (2026-09-27) — mesmo racional do ConsolidadoResorts,
+// com três empresas: Holding, La Fleur II e South Bay (mesma estrutura de CC
+// e plano de contas). Sempre calculado ao vivo a partir das três; o envio e
+// o histórico da ARA EI acontecem aqui, não em cada empresa.
+const SITES_EI = CONSOLIDADOS_MULTISITE.ei.sites.map((id, i) => ({ id, nome: CONSOLIDADOS_MULTISITE.ei.labels[i] }));
+const UNIDADES_FAMILIA_EI = UNIDADES.filter(u => CONSOLIDADOS_MULTISITE.ei.sites.includes(u.id));
+
+function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cambios }) {
+  const [dadosSites, setDadosSites] = useState(null);
+  const [versoes, setVersoes] = useState([]);
+  const [aguardandoLiberacao, setAguardandoLiberacao] = useState(false);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
+  const [comentarioEnvio, setComentarioEnvio] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    setErro(null);
+    try {
+      const respostas = await Promise.all([...SITES_EI.map(s => getOrcamento(s.id)), getOrcamento('ei')]);
+      setDadosSites(Object.fromEntries(SITES_EI.map((s, i) => [s.id, respostas[i].orcamento.dados])));
+      setAguardandoLiberacao(respostas[SITES_EI.length].orcamento.aguardando_liberacao || false);
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : 'Falha ao carregar os dados de Holding, La Fleur II e South Bay.');
+    }
+    try {
+      setVersoes(await listarVersoes('ei'));
+    } catch (e) {
+      setVersoes([]);
+    }
+    setCarregando(false);
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  if (carregando) return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Carregando Holding, La Fleur II e South Bay…</p>;
+  if (!dadosSites) {
+    return (
+      <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12 }}>
+        {erro || 'Não foi possível carregar os dados das empresas da ARA EI.'}
+      </div>
+    );
+  }
+
+  const lados = SITES_EI.map(s => {
+    const ref = referenciaDaUnidade(s.id);
+    const dadosS = dadosSites[s.id];
+    const dreS = computeDRE(dadosS, ref, ipcaAnualPct, cambios);
+    return {
+      id: s.id, nome: s.nome, dados: dadosS, ref, dre: dreS,
+      fd: computeFluxoIndiretoMensal(dadosS, dreS, ref, ipcaAnualPct),
+      checks: runAuditoria(dadosS, dreS, ref, s.id, ipcaAnualPct),
+    };
+  });
+  const dre = lados.map(l => l.dre).reduce((acc, d) => somarDRE(acc, d));
+  const tudoOk = lados.every(l => l.checks.filter(c => c.obrigatorio !== false).every(c => c.ok));
+  const somaAno = (campo) => lados.reduce((acc, l) => acc + l.fd[campo].reduce((a, v) => a + v, 0), 0);
+  const totalFcOperacional = somaAno('fcOperacionalMes');
+  const linhasFcdPorLado = lados.map(l => linhasFcDireto(computeFluxoCaixaDiretoMensal(l.dados, l.dre, l.ref, ipcaAnualPct)));
+  const linhasFcdConsolidado = linhasFcdPorLado[0].map((linha, i) => ({
+    ...linha,
+    valoresMensal: linha.valoresMensal.map((_, m) => linhasFcdPorLado.reduce((acc, ls) => acc + ls[i].valoresMensal[m], 0)),
+    totalValor: linhasFcdPorLado.reduce((acc, ls) => acc + ls[i].totalValor, 0),
+  }));
+  const bridgeReceitaEbitda = [
+    { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'inicio' },
+    { label: 'Deduções/Impostos', valor: -dre.deducoes, tipo: 'incremento' },
+    { label: 'Custos (CPV)', valor: -dre.cpv, tipo: 'incremento' },
+    { label: 'Despesas', valor: -dre.despesasSemDA, tipo: 'incremento' },
+    { label: 'EBITDA', valor: dre.ebitda, tipo: 'total' },
+  ];
+  const bridgeEbitdaFco = [
+    { label: 'EBITDA', valor: dre.ebitda, tipo: 'inicio' },
+    { label: 'Impostos', valor: -somaAno('ircslMes'), tipo: 'incremento' },
+    { label: 'Var. Capital de Giro', valor: somaAno('variacaoGiroMes'), tipo: 'incremento' },
+    { label: 'Outros Ajustes', valor: somaAno('ajuste13Mes') + somaAno('ajustePagamentoMes'), tipo: 'incremento' },
+    { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
+  ];
+
+  async function handleEnviar() {
+    setEnviando(true);
+    setErro(null);
+    try {
+      await putOrcamento('ei', { _tipo: CONSOLIDADOS_MULTISITE.ei.tipo, ...dadosSites });
+      await enviarVersaoApi('ei', { comentario: comentarioEnvio, autorNome });
+      setComentarioEnvio('');
+      await carregar();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) setAguardandoLiberacao(true);
+      setErro(e instanceof ApiError ? e.message : 'Falha ao enviar a versão consolidada.');
+    }
+    setEnviando(false);
+  }
+
+  const porUnidadeDre = Object.fromEntries(lados.map(l => [l.id, l.dre]));
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>ARA EI — Consolidado</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Soma de Holding, La Fleur II e South Bay — sempre calculada ao vivo a partir do orçamento atual das três empresas.
+        O Escritório de Investimentos é uma BU à parte e não entra aqui. O envio e o histórico de versões da ARA EI acontecem aqui.
+      </p>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 18 }}>
+        <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
+        <CardTotal label="EBITDA" valor={dre.ebitda} cor={COR.laranja} />
+        <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por empresa.</p>
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
+        {CONTAS_SINTETICAS_DRE.map(conta => (
+          <LinhaContaConsolidada
+            key={conta.id} conta={conta} grupoObjeto={dre} porUnidade={porUnidadeDre}
+            aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => setLinhasAbertasDRE(prev => ({ ...prev, [conta.id]: !prev[conta.id] }))}
+            unidades={UNIDADES_FAMILIA_EI}
+          />
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
+          <GraficoBridge etapas={bridgeReceitaEbitda} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
+          <GraficoBridge etapas={bridgeEbitdaFco} />
+        </div>
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>DRE mensal — por tipo de receita/custo/despesa, aberta por empresa</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma linha com seta para abrir a quebra por empresa.</p>
+      <div style={{ marginBottom: 24 }}>
+        <DREMensalConsolidada lados={lados} unidadeKind="ei" ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal (Holding + La Fleur II + South Bay)</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Soma das três empresas. As premissas ficam em cada empresa.</p>
+      <div style={{ marginBottom: 24 }}>
+        <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={linhasFcdConsolidado} />
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>Detalhe por empresa (Custos e Despesas)</h4>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginBottom: 24 }}>
+        {lados.map(l => (
+          <div key={l.id}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {l.nome} <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(l.dre.receitaBruta)} receita bruta)</span>
+            </div>
+            <CustosLeituraVersao refUnidade={l.ref} unidadeId={l.id} dados={l.dados} dre={l.dre} ipcaAnualPct={ipcaAnualPct} />
+          </div>
+        ))}
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Auditoria — checagens de completude</h4>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginBottom: 10 }}>
+        {lados.map(l => (
+          <div key={l.id} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>{l.nome}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {l.checks.map((c, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                  {c.ok ? <CheckCircle2 size={13} color={COR.verde} /> : <AlertTriangle size={13} color={c.obrigatorio === false ? COR.laranja : COR.vermelho} />}
+                  <span style={{ color: c.ok ? COR.texto : (c.obrigatorio === false ? '#7A8088' : COR.vermelho) }}>
+                    {c.label}{c.detalhe ? ` — ${c.detalhe}` : ''}{!c.ok && c.obrigatorio === false ? ' (opcional)' : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, margin: '20px 0 14px' }}>
+        <div>
+          <Rotulo>Seu nome (autor da versão)</Rotulo>
+          <CampoTexto value={autorNome} onChange={setAutorNome} placeholder="Nome do gerente" />
+        </div>
+        <div>
+          <Rotulo>Comentário da versão (opcional)</Rotulo>
+          <CampoTexto value={comentarioEnvio} onChange={setComentarioEnvio} placeholder="Ex.: revisão das premissas do POC" />
+        </div>
+      </div>
+
+      {erro && (
+        <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>{erro}</div>
+      )}
+      {!tudoOk && (
+        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, color: COR.texto, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+          Existem checagens de Auditoria pendentes em alguma das empresas. Corrija-as antes de enviar (painel acima).
+        </div>
+      )}
+      {aguardandoLiberacao && (
+        <div style={{ background: '#E9F0FB', border: `1px solid ${COR.azul}`, color: COR.azul, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+          Este orçamento consolidado já foi enviado e está aguardando liberação do FP&A para permitir um novo envio.
+        </div>
+      )}
+
+      <Botao variante="laranja" icone={Send} onClick={handleEnviar} disabled={!tudoOk || enviando || aguardandoLiberacao}>
+        {enviando ? 'Enviando…' : aguardandoLiberacao ? 'Aguardando liberação do FP&A' : 'Enviar versão consolidada'}
+      </Botao>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 30, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <History size={15} /> Histórico de versões — Consolidado
+      </h4>
+      {versoes.length === 0 ? (
+        <p style={{ fontSize: 12, color: '#7A8088' }}>Nenhuma versão consolidada enviada ainda.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {versoes.map(v => (
+            <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${COR.borda}`, borderRadius: 6, padding: '8px 12px', fontSize: 11.5 }}>
+              <span>{formatData(v.timestamp)} — <b>{v.autor}</b>{v.comentario ? ` — ${v.comentario}` : ''}</span>
+              <button onClick={() => abrirVersao('ei', v.id)} style={{ ...botaoSecundarioLocal }}>Abrir</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 function StatusBadge({ status }) {
   const map = {
     nao_iniciado: { texto: 'Não iniciado', bg: COR.claro, cor: '#8A8F96' },
@@ -9748,13 +10388,15 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
     const folhaNovo = (folhaCC(ccCodigo).mensal[m]?.total || 0) * _fatorEncNovoHc;
     const hcExistente = contasHCPessoal.reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0);
     const calc = calcPessoalCC(ccCodigo);
-    return folhaNovo + hcExistente + calc.totalMes[m] - (calc.licencaSoftware?.[m] || 0);
+    return folhaNovo + hcExistente + calc.totalMes[m] - calculadasForaDoPessoalMes(calc, m);
   }
   function totalPacoteCCMes(ccCodigo, pacoteId, m) {
     const contas = (refUnidade.planoContas[pacoteId] || []).filter(c => c.nome !== 'Headcount Existente');
     const totalContas = contas.reduce((acc, c) => acc + totalContaMesPorCC(ccCodigo, c.codigo, m), 0);
-    const licenca = contas.some(c => c.codigo === 'CORP10') ? (calcPessoalCC(ccCodigo).licencaSoftware?.[m] || 0) : 0;
-    return totalContas + licenca + (pacoteId === 'pessoal' ? totalFolhaCCMes(ccCodigo, m) : 0);
+    // Linhas calculadas que moram numa conta deste pacote (licença CORP10, comissão POC 34102001).
+    const calc = calcPessoalCC(ccCodigo);
+    const calculadas = contas.reduce((acc, c) => acc + (calculadaDaConta(calc, c.codigo)?.[m] || 0), 0);
+    return totalContas + calculadas + (pacoteId === 'pessoal' ? totalFolhaCCMes(ccCodigo, m) : 0);
   }
   function totalCCMes(ccCodigo, m) {
     return refUnidade.pacotes.reduce((acc, p) => acc + totalPacoteCCMes(ccCodigo, p.id, m), 0);
@@ -9870,7 +10512,7 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
   );
 }
 
-function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, viagens, atualizar, premissasMacro, cambios }) {
+function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, viagens, atualizar, premissasMacro, cambios, receita }) {
   // Sincronização de dissídio com a Premissa Macro "Reajuste salarial/
   // dissídio" (2026-09-07) removida em 2026-09-08 — ver nota em QuadroPessoal
   // (Dissídio). A premissa em si também saiu de PREMISSAS_MACRO_REF.
@@ -9950,7 +10592,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const _cacheCalcPessoal = {};
   function calcPessoalCC(ccCodigo) {
     if (!_cacheCalcPessoal[ccCodigo]) {
-      _cacheCalcPessoal[ccCodigo] = pessoalCalculadoPorCC({ custos: { linhas, funcionarios, premissasPessoal } }, refUnidade, ccCodigo, _basesPessoal);
+      _cacheCalcPessoal[ccCodigo] = pessoalCalculadoPorCC({ receita, custos: { linhas, funcionarios, premissasPessoal } }, refUnidade, ccCodigo, _basesPessoal);
     }
     return _cacheCalcPessoal[ccCodigo];
   }
@@ -10119,7 +10761,10 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const bonusRowTextil = !_ehCorp ? _calcCC.bonus : null;
   // Pessoal calculado do CC (folha Novo HC com encargos + linhas calculadas,
   // sem a licença, que fica no pacote da CORP10) — mesma conta da DRE.
-  const pessoalCalculadoCcMes = MESES.map((_, m) => folhaAtual.mensal[m].total * _fatorEncNovoHc + _calcCC.totalMes[m] - (_calcCC.licencaSoftware?.[m] || 0));
+  const pessoalCalculadoCcMes = MESES.map((_, m) => folhaAtual.mensal[m].total * _fatorEncNovoHc + _calcCC.totalMes[m] - calculadasForaDoPessoalMes(_calcCC, m));
+  // Comissão apropriada do POC (La Fleur II) — só no CC escolhido na aba Receita.
+  const comissaoPocRow = _calcCC.comissaoPoc && _somaRow(_calcCC.comissaoPoc) !== 0 ? _calcCC.comissaoPoc : null;
+  const calculadaNaContaMes = (contaCodigo, m) => (contaCodigo === CONTA_COMISSAO_POC ? (comissaoPocRow?.[m] || 0) : 0);
   // Dissídio do Novo HC: folhaAtual já tem o salário reajustado (ver
   // computeFolhaPessoalMes), então a linha de dissídio é só o ACRÉSCIMO
   // (folha com − folha sem) e a linha de folha mostra o valor sem dissídio.
@@ -10252,8 +10897,8 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             } : {
               key: g.id,
               label: g.nome,
-              valoresMensal: MESES.map((_, m) => totalPacoteMes(g.contas, m)),
-              totalValor: g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0),
+              valoresMensal: MESES.map((_, m) => totalPacoteMes(g.contas, m) + g.contas.reduce((acc, c) => acc + calculadaNaContaMes(c.codigo, m), 0)),
+              totalValor: g.contas.reduce((acc, c) => acc + totalConta(c.codigo) + MESES.reduce((a, _, m) => a + calculadaNaContaMes(c.codigo, m), 0), 0),
               cor: COR.azul,
             }),
             ...(contasSemPacote.length > 0 ? [{
@@ -10372,7 +11017,8 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
         // analíticas do pacote (Consultórias PJs, só Corporativo).
         const totalPacote = g.id === 'pessoal'
           ? _somaRow(pessoalCalculadoCcMes) + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
-          : g.contas.reduce((acc, c) => acc + totalConta(c.codigo) + (c.codigo === 'CORP10' && unidadeId === 'corporativo' ? _somaRow(licencaSoftwareNovoHcRowCorp) : 0), 0);
+          : g.contas.reduce((acc, c) => acc + totalConta(c.codigo) + (c.codigo === 'CORP10' && unidadeId === 'corporativo' ? _somaRow(licencaSoftwareNovoHcRowCorp) : 0)
+            + MESES.reduce((a, _, m) => a + calculadaNaContaMes(c.codigo, m), 0), 0);
         const pacoteAberto = !!pacotesAbertos[g.id];
         return (
           <div key={g.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
@@ -10870,6 +11516,41 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                 ) : (
                   g.contas.map(c => {
                     const isCorp10Calc = c.codigo === 'CORP10' && unidadeId === 'corporativo' && licencaSoftwareNovoHcRowCorp && _somaRow(licencaSoftwareNovoHcRowCorp) > 0;
+                    const isComissaoPoc = c.codigo === CONTA_COMISSAO_POC && !!comissaoPocRow;
+                    if (isComissaoPoc) {
+                      return (
+                        <LinhaConta
+                          key={c.codigo} conta={c}
+                          linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                          aberta={contaAberta === chaveLinha(c.codigo)}
+                          onToggle={() => toggleConta(c.codigo)}
+                          onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                          onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                          onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                          onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                          total={totalConta(c.codigo) + _somaRow(comissaoPocRow)}
+                          receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                          unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                          receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
+                          linhasCalculadas={[
+                            {
+                              key: 'comissaoPoc',
+                              label: 'Comissão apropriada — POC (calculada na aba Receita: comissões pagas × avanço de obra)',
+                              valoresMensal: comissaoPocRow,
+                              totalValor: _somaRow(comissaoPocRow),
+                              cor: '#8A8F96',
+                            },
+                            {
+                              key: 'totalComissao',
+                              label: `Total ${CONTA_COMISSAO_POC} (Lançado + POC)`,
+                              valoresMensal: MESES.map((_, m) => totalContaMes(c.codigo, m) + (comissaoPocRow[m] || 0)),
+                              totalValor: totalConta(c.codigo) + _somaRow(comissaoPocRow),
+                              cor: COR.laranja,
+                            },
+                          ]}
+                        />
+                      );
+                    }
                     return c.codigo === CONTA_VIAGENS_CALCULADORA && unidadeId === 'corporativo' ? (
                       <LinhaContaViagens
                         key={c.codigo} conta={c}
@@ -11202,6 +11883,299 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
           ]}
         />
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Receita da La Fleur II pelo POC (2026-09-27) — ver computePOC. Tudo que é
+// input na planilha (sem fórmula ou com link externo) é campo editável aqui;
+// tudo que é fórmula é linha calculada ao vivo, nunca valor gravado.
+// ---------------------------------------------------------------------------
+const formatPctPOC = (v) => formatPct(v * 100, 2);
+const formatM2 = (v) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function AbaReceitaPOC({ poc, justificativaGeral, deducoesJustificativa, atualizar, dre, ccs }) {
+  const calc = computePOC(poc);
+  const si = poc.saldosIniciais || {};
+  const pr = poc.premissas || {};
+  const ultimo = (arr) => arr[arr.length - 1] || 0;
+  const soma = (arr) => arr.reduce((a, v) => a + v, 0);
+  const setSaldo = (campo, v) => atualizar(['receita', 'poc', 'saldosIniciais', campo], v);
+  const setPremissa = (campo, v) => atualizar(['receita', 'poc', 'premissas', campo], v);
+  const setMensal = (campo, mi, v) => atualizar(['receita', 'poc', campo], atualizarArray(poc[campo], mi, v));
+  const ccsAnaliticos = (ccs || []).filter(cc => cc.nivel === 3 || !cc.nivel);
+  const receitaLiquidaMes = MESES.map((_, m) => calc.robMes[m] - calc.retMes[m]);
+  const lucroBrutoMes = MESES.map((_, m) => receitaLiquidaMes[m] - calc.cpvMes[m]);
+  const linhaCalc = (key, label, valoresMensal, cor, opcoes = {}) => ({
+    key, label, valoresMensal, totalValor: opcoes.totalValor !== undefined ? opcoes.totalValor : soma(valoresMensal),
+    cor: cor || COR.texto, formatarCelula: opcoes.formatar, formatarTotal: opcoes.formatar,
+  });
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>2. Receita — La Fleur II (POC)</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Receita, deduções (RET), custo e comissões reconhecidos pelo percentual de conclusão de obra (POC), com as fórmulas
+        da projeção de set–dez do "Cálculo POC.xlsx" aplicadas aos 12 meses de 2027. Os campos em branco são premissas a preencher;
+        as linhas em negrito são calculadas. Percentuais e unidades distratadas são digitados positivos.
+      </p>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.1 Saldos em 31/12/2026 (mês anterior de Jan/27)</h4>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 18 }}>
+        <div><Rotulo>Receita a apropriar — VGV (R$)</Rotulo><CampoNumero value={si.vgvAApropriar} onChange={v => setSaldo('vgvAApropriar', v)} placeholder="0,00" /></div>
+        <div><Rotulo>Avanço de obra acumulado</Rotulo><CampoNumero value={si.avancoAcumuladoPct} onChange={v => setSaldo('avancoAcumuladoPct', v)} sufixo="%" placeholder="0,00" /></div>
+        <div><Rotulo>Custo total da obra (R$)</Rotulo><CampoNumero value={si.custoTotalObra} onChange={v => setSaldo('custoTotalObra', v)} placeholder="0,00" /></div>
+        <div><Rotulo>m² vendidos</Rotulo><CampoNumero value={si.m2Vendidos} onChange={v => setSaldo('m2Vendidos', v)} sufixo="m²" placeholder="0,00" /></div>
+        <div><Rotulo>Comissões pagas acumuladas (R$)</Rotulo><CampoNumero value={si.comissoesPagas} onChange={v => setSaldo('comissoesPagas', v)} placeholder="0,00" /></div>
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.2 Premissas fixas</h4>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 18 }}>
+        <div><Rotulo>Custo do terreno — Flats (R$)</Rotulo><CampoNumero value={pr.custoTerreno} onChange={v => setPremissa('custoTerreno', v)} placeholder="0,00" /></div>
+        <div><Rotulo>RET — % sobre a receita reconhecida</Rotulo><CampoNumero value={pr.retPct} onChange={v => setPremissa('retPct', v)} sufixo="%" placeholder="0,00" /></div>
+        <div><Rotulo>m² por unidade vendida/distratada</Rotulo><CampoNumero value={pr.m2PorUnidade} onChange={v => setPremissa('m2PorUnidade', v)} sufixo="m²" placeholder="0,00" /></div>
+        <div><Rotulo>m² a vender ARA (total)</Rotulo><CampoNumero value={pr.m2AVender} onChange={v => setPremissa('m2AVender', v)} sufixo="m²" placeholder="0,00" /></div>
+        <div><Rotulo>Comissão — % sobre novas vendas</Rotulo><CampoNumero value={pr.comissaoPct} onChange={v => setPremissa('comissaoPct', v)} sufixo="%" placeholder="0,00" /></div>
+        <div><Rotulo>Valor por unidade distratada (R$)</Rotulo><CampoNumero value={pr.valorPorUnidadeDistratada} onChange={v => setPremissa('valorPorUnidadeDistratada', v)} placeholder="0,00" /></div>
+        <div>
+          <Rotulo>CC da comissão (conta {CONTA_COMISSAO_POC})</Rotulo>
+          <Selecao
+            value={pr.ccComissao || CC_COMISSAO_POC_PADRAO} onChange={v => setPremissa('ccComissao', v)}
+            opcoes={ccsAnaliticos.map(cc => ({ id: cc.codigo, nome: `${cc.codigo} — ${cc.nome}` }))}
+          />
+        </div>
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.3 Premissas mensais</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
+        Avanço de obra acumulado em branco num mês repete o do mês anterior. Desembolso de obra = acréscimo do custo total da obra no mês.
+      </p>
+      <div style={{ marginBottom: 18 }}>
+        <TabelaMensal
+          linhas={[
+            { key: 'avancoAcumuladoPct', label: 'Avanço de obra acumulado (%)', valores: poc.avancoAcumuladoPct || mesesVazios(), totalValor: ultimo(calc.avancoMes) * 100, formatarTotal: v => formatPct(v, 2) },
+            { key: 'novasVendasValor', label: 'Novas vendas (R$)', valores: poc.novasVendasValor || mesesVazios(), formatarTotal: formatValor },
+            { key: 'novasVendasQtd', label: 'Novas vendas (unidades)', valores: poc.novasVendasQtd || mesesVazios() },
+            { key: 'unidadesDistratadas', label: 'Unidades distratadas (qtde)', valores: poc.unidadesDistratadas || mesesVazios() },
+            { key: 'desembolsoObra', label: 'Desembolso de obra no mês (R$)', valores: poc.desembolsoObra || mesesVazios(), formatarTotal: formatValor },
+          ]}
+          onChangeCelula={(campo, mi, v) => setMensal(campo, mi, v)}
+        />
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.4 Cálculo POC (fórmulas vivas)</h4>
+      <div style={{ marginBottom: 18 }}>
+        <TabelaMensal
+          linhas={[]} onChangeCelula={() => {}}
+          linhasCalculadas={[
+            linhaCalc('distratos', 'Distratos (R$) = − valor por unidade × unidades distratadas', calc.distratosValorMes),
+            linhaCalc('vgv', 'Receita a apropriar — VGV (R$)', calc.vgvMes, COR.texto, { totalValor: ultimo(calc.vgvMes) }),
+            linhaCalc('avancoMes', 'Avanço de obra do mês (%)', calc.avancoMensalMes, COR.texto, { formatar: formatPctPOC }),
+            linhaCalc('recReconhecida', 'Receita total reconhecida = VGV × avanço acumulado', calc.receitaReconhecidaMes, COR.texto, { totalValor: ultimo(calc.receitaReconhecidaMes) }),
+            linhaCalc('recApropriada', 'Receita apropriada (reconhecida − anterior)', calc.receitaApropriadaMes),
+            linhaCalc('terreno', 'Custo do terreno apropriado = terreno × avanço acumulado', calc.terrenoApropriadoMes, COR.texto, { totalValor: ultimo(calc.terrenoApropriadoMes) }),
+            linhaCalc('espolio', 'Receita apropriada — Espólio (terreno − anterior)', calc.espolioMes),
+            linhaCalc('rob', 'Receita Operacional Bruta', calc.robMes, COR.azul),
+            linhaCalc('ret', '(−) Deduções — RET (RET acumulado − anterior)', calc.retMes.map(v => -v), COR.vermelho),
+            linhaCalc('rl', 'Receita Líquida', receitaLiquidaMes, COR.azul),
+            linhaCalc('custoObra', 'Custo total da obra (anterior + desembolso)', calc.custoTotalObraMes, COR.texto, { totalValor: ultimo(calc.custoTotalObraMes) }),
+            linhaCalc('m2', 'm² vendidos (anterior + m²/unidade × (vendas − distratos))', calc.m2VendidosMes, COR.texto, { totalValor: ultimo(calc.m2VendidosMes), formatar: formatM2 }),
+            linhaCalc('custoRec', 'Custo total reconhecido = custo da obra ÷ m² a vender × m² vendidos × avanço', calc.custoReconhecidoMes, COR.texto, { totalValor: ultimo(calc.custoReconhecidoMes) }),
+            linhaCalc('custoApro', 'Custo apropriado (reconhecido − anterior)', calc.custoApropriadoMes),
+            linhaCalc('cpv', '(−) Custos — POC (custo apropriado + espólio)', calc.cpvMes.map(v => -v), COR.vermelho),
+            linhaCalc('lb', 'Lucro Bruto', lucroBrutoMes, COR.azul),
+            linhaCalc('comPagas', 'Comissões pagas (anterior + novas vendas × comissão %)', calc.comissoesPagasMes, COR.texto, { totalValor: ultimo(calc.comissoesPagasMes) }),
+            linhaCalc('comApro', 'Comissões apropriadas = pagas × avanço acumulado', calc.comissoesApropriadasMes, COR.texto, { totalValor: ultimo(calc.comissoesApropriadasMes) }),
+            linhaCalc('comissao', `(−) Comissões do mês → conta ${CONTA_COMISSAO_POC}, CC ${pr.ccComissao || CC_COMISSAO_POC_PADRAO}`, calc.comissaoMes.map(v => -v), COR.vermelho),
+          ]}
+        />
+      </div>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 14 }}>
+        Colunas "Total" de saldos acumulados (VGV, receita reconhecida, custo da obra, m², comissões pagas/apropriadas) mostram o saldo de Dez/27.
+        Receita, RET e custo entram na DRE da La Fleur II; a comissão aparece dentro da conta {CONTA_COMISSAO_POC} do CC escolhido, na aba Custos e Despesas.
+      </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div>
+          <Rotulo>Justificativa geral da receita (POC)</Rotulo>
+          <CampoJustificativa value={justificativaGeral} onChange={v => atualizar(['receita', 'justificativaGeral'], v)} placeholder="Fonte do avanço de obra, das vendas e do custo da obra" obrigatorio />
+        </div>
+        <div>
+          <Rotulo>Justificativa das deduções (RET)</Rotulo>
+          <CampoJustificativa value={deducoesJustificativa} onChange={v => atualizar(['receita', 'deducoesJustificativa'], v)} placeholder="Base do % de RET" obrigatorio />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Escritório de Investimentos (2026-09-27) — investimentos em que o Grupo ARA
+// não detém controle; impactam só o FC de Investimentos, por aporte de
+// capital (saída) ou distribuição de dividendos (entrada). É a seção CapEx
+// adaptada: cada investimento do anexo 4 ocupa o lugar de um grupo de CapEx
+// e recebe lançamentos (capex.projetos, categoria = id do investimento), cada
+// um com as duas linhas mensais no lugar do desembolso.
+// ---------------------------------------------------------------------------
+const INVESTIMENTOS_ESCRITORIO = [
+  { id: 'pch_santa_luzia', nome: 'PCH Santa Luzia', estrategia: 'Gerir · Caixa', descricao: 'Preço fixo em leilão: reforçar a excelência operacional para proteger margens e entregar o caixa esperado. Hold-for-cash.' },
+  { id: 'novo_cais', nome: 'Novo Cais (Recife)', estrategia: 'Executar + Vender', descricao: 'Permuta física: gerir a execução dos projetos com participação para receber as unidades e realizar a venda.' },
+  { id: 'land_bank_caruaru', nome: 'Land Bank com foco em Caruaru', estrategia: 'Estruturar + Receber', descricao: 'Permuta financeira: estruturar parcerias com incorporadores por área e gerir os recebimentos.' },
+  { id: 'solar_gd', nome: 'Solar GD (2,5 MW)', estrategia: 'Desinvestir', descricao: 'Executar o desinvestimento e direcionar o produto para reciclagem de capital.' },
+];
+const somaArr = (arr) => (arr || []).reduce((a, v) => a + parseNum(v), 0);
+
+function AbaInvestimentosEscritorio({ projetos, addProjeto, updateProjeto, removeProjeto }) {
+  const [abertos, setAbertos] = useState(() => new Set());
+  function toggle(id) { setAbertos(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+  function adicionar(investimentoId) {
+    const novoId = uid();
+    addProjeto(investimentoId, '', novoId);
+    setAbertos(prev => new Set([...prev, novoId]));
+  }
+  const doInvestimento = (id) => (projetos || []).filter(p => p.categoria === id);
+  const mensal = (lista, campo) => MESES.map((_, m) => lista.reduce((acc, p) => acc + parseNum(p[campo]?.[m]), 0));
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>1. Investimentos — Aportes e Dividendos</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Investimentos em que o Grupo ARA não detém controle (participação minoritária). Impactam apenas o Fluxo de Caixa de
+        Investimentos: aporte de capital (saída de caixa) e distribuição de dividendos (entrada). Digite os valores positivos —
+        o sinal vem da linha.
+      </p>
+
+      {INVESTIMENTOS_ESCRITORIO.map(inv => {
+        const lancs = doInvestimento(inv.id);
+        const aportes = somaArr(mensal(lancs, 'aportes'));
+        const dividendos = somaArr(mensal(lancs, 'dividendos'));
+        return (
+          <div key={inv.id} style={{ marginBottom: 22 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 2, gap: 10, flexWrap: 'wrap' }}>
+              <h4 style={{ fontSize: 13, color: COR.azul }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#B5651D', textTransform: 'uppercase', letterSpacing: 0.4, marginRight: 8 }}>{inv.estrategia}</span>
+                {inv.nome}
+              </h4>
+              <span style={{ fontSize: 11.5, color: '#7A8088' }}>
+                Aportes <b style={{ color: COR.vermelho }}>{formatBRL(aportes)}</b> · Dividendos <b style={{ color: COR.verde }}>{formatBRL(dividendos)}</b> · Líquido <b style={{ color: COR.azul }}>{formatBRL(dividendos - aportes)}</b>
+              </span>
+            </div>
+            <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>{inv.descricao}</p>
+
+            {lancs.map(p => {
+              const aberto = abertos.has(p.id);
+              const liquido = somaArr(p.dividendos) - somaArr(p.aportes);
+              return (
+                <div key={p.id} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 10, background: COR.claro, overflow: 'hidden' }}>
+                  <div onClick={() => toggle(p.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {aberto ? <ChevronDown size={14} color={COR.azul} /> : <ChevronRight size={14} color={COR.azul} />}
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: p.nome ? COR.texto : '#8A8F96' }}>{p.nome || 'Sem descrição'}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>{formatBRL(liquido)}</span>
+                      <button onClick={e => { e.stopPropagation(); removeProjeto(p.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho, padding: 2 }}><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                  {aberto && (
+                    <div style={{ padding: '0 12px 12px 12px', borderTop: `1px solid ${COR.borda}` }}>
+                      <div style={{ marginTop: 8, marginBottom: 8 }}>
+                        <CampoTexto value={p.nome} onChange={v => updateProjeto(p.id, 'nome', v)} placeholder="Descrição do lançamento (ex.: aporte da 2ª tranche, dividendos 2026)" />
+                      </div>
+                      <CampoTexto value={p.justificativa} onChange={v => updateProjeto(p.id, 'justificativa', v)} placeholder="Justificativa" />
+                      <div style={{ marginTop: 8 }}>
+                        <TabelaMensal
+                          linhas={[
+                            { key: 'aportes', label: 'Aporte de capital (R$) — saída', valores: p.aportes || mesesVazios(), formatarTotal: formatValor },
+                            { key: 'dividendos', label: 'Distribuição de dividendos (R$) — entrada', valores: p.dividendos || mesesVazios(), formatarTotal: formatValor },
+                          ]}
+                          onChangeCelula={(campo, mi, v) => updateProjeto(p.id, campo, atualizarArray(p[campo], mi, v))}
+                          corTotal={COR.azul}
+                          linhasCalculadas={[{
+                            key: 'liquido', label: 'Efeito no FC de Investimentos',
+                            valoresMensal: MESES.map((_, m) => parseNum(p.dividendos?.[m]) - parseNum(p.aportes?.[m])),
+                            totalValor: liquido, cor: COR.laranja,
+                          }]}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <Botao variante="fantasma" icone={Plus} onClick={() => adicionar(inv.id)}>Adicionar lançamento — {inv.nome}</Botao>
+          </div>
+        );
+      })}
+
+      <div style={{ marginTop: 24 }}>
+        <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>Resumo — FC de Investimentos, mensal</h4>
+        <TabelaFcInvestimentosEscritorio projetos={projetos} />
+      </div>
+    </div>
+  );
+}
+
+function TabelaFcInvestimentosEscritorio({ projetos }) {
+  const linhas = INVESTIMENTOS_ESCRITORIO.map(inv => {
+    const lancs = (projetos || []).filter(p => p.categoria === inv.id);
+    const valoresMensal = MESES.map((_, m) => lancs.reduce((acc, p) => acc + parseNum(p.dividendos?.[m]) - parseNum(p.aportes?.[m]), 0));
+    return { key: inv.id, label: inv.nome, valoresMensal, totalValor: valoresMensal.reduce((a, v) => a + v, 0), cor: COR.texto };
+  });
+  const totalMes = MESES.map((_, m) => linhas.reduce((acc, l) => acc + l.valoresMensal[m], 0));
+  return (
+    <TabelaMensal
+      linhas={[]} onChangeCelula={() => {}}
+      linhasCalculadas={[
+        ...linhas,
+        { key: '__total__', label: 'FC de Investimentos (dividendos − aportes)', valoresMensal: totalMes, totalValor: totalMes.reduce((a, v) => a + v, 0), cor: COR.laranja },
+      ]}
+    />
+  );
+}
+
+function RevisaoEscritorio({ dados, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, podeEnviar }) {
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>Revisão e Envio — Escritório de Investimentos</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Esta BU não tem DRE: os investimentos impactam só o Fluxo de Caixa de Investimentos. Fica fora do Consolidado da ARA EI.
+      </p>
+      <div style={{ marginBottom: 18 }}>
+        <TabelaFcInvestimentosEscritorio projetos={dados.capex?.projetos} />
+      </div>
+      {podeEnviar && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+            <div>
+              <Rotulo>Seu nome (autor da versão)</Rotulo>
+              <CampoTexto value={autorNome} onChange={setAutorNome} placeholder="Nome do gerente" />
+            </div>
+            <div>
+              <Rotulo>Comentário da versão (opcional)</Rotulo>
+              <CampoTexto value={comentarioEnvio} onChange={setComentarioEnvio} placeholder="Ex.: revisão dos aportes" />
+            </div>
+          </div>
+          {erro && (
+            <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>{erro}</div>
+          )}
+          {!tudoOk && (
+            <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, color: COR.texto, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+              Existem checagens de Auditoria pendentes. Corrija-as antes de enviar (painel abaixo).
+            </div>
+          )}
+          {aguardandoLiberacao && (
+            <div style={{ background: '#E9F0FB', border: `1px solid ${COR.azul}`, color: COR.azul, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+              Este orçamento já foi enviado e está aguardando liberação do FP&A para permitir um novo envio.
+            </div>
+          )}
+          <Botao variante="laranja" icone={Send} onClick={enviarVersao} disabled={!tudoOk || enviando || aguardandoLiberacao}>
+            {enviando ? 'Enviando…' : aguardandoLiberacao ? 'Aguardando liberação do FP&A' : 'Enviar versão'}
+          </Botao>
+        </>
+      )}
     </div>
   );
 }

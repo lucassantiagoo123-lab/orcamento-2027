@@ -12,7 +12,7 @@ import {
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
-import { CCS_TEXTIL, CCS_AGRICOLA, CCS_RESORTS, CCS_CORPORATIVO, FAMILIA_AGRICOLA, FAMILIA_RESORTS } from './OrcamentoARA.jsx';
+import { CCS_TEXTIL, CCS_AGRICOLA, CCS_RESORTS, CCS_CORPORATIVO, CCS_EI, FAMILIA_AGRICOLA, FAMILIA_RESORTS, FAMILIA_EI } from './OrcamentoARA.jsx';
 
 const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9D9D9', claro: '#F7F7F7' };
 // 2026-08-20: Agrícola e Resorts viraram 3 "unidades" cada — os 2 sites
@@ -22,7 +22,7 @@ const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9
 // vinculadas pra ter o pacote completo (editar os dois sites + enviar o
 // Consolidado); um Gestor de CC só precisa dos dois sites (não acessa o
 // Consolidado).
-const UNIDADES_IDS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'resorts', 'ei', 'energia', 'corporativo'];
+const UNIDADES_IDS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'resorts', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'ei', 'energia', 'corporativo'];
 // Bug encontrado em 2026-08-30: os 3 botões de uma família (ex.: samoa_beach/
 // samoa_villa/resorts) eram toggles independentes — marcar só 'resorts' (ou
 // esquecer um dos dois sites) deixava um Gestor da Unidade com vínculo
@@ -31,7 +31,7 @@ const UNIDADES_IDS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'sam
 // juntos (Promise.all) e quebra com "Sem acesso à unidade samoa_villa" (ou
 // samoa_beach) assim que falta um dos três. Agrupar aqui pra marcar/
 // desmarcar a família inteira de uma vez elimina esse estado inválido.
-const FAMILIAS_UNIDADE = [FAMILIA_AGRICOLA, FAMILIA_RESORTS];
+const FAMILIAS_UNIDADE = [FAMILIA_AGRICOLA, FAMILIA_RESORTS, FAMILIA_EI];
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
   gerente_unidade: 'Gestor da Unidade',
@@ -43,7 +43,7 @@ const PERFIL_LABEL = {
 // (checklist — "um gestor pode ser gestor de mais de um CC", correção do
 // mesmo dia). Reaproveita as mesmas listas de CC já usadas no orçamento.
 // Têxtil (2026-08-19), Agrícola (2026-08-20) e Resorts (2026-08-20) já têm
-// CC real. EI/Energia ainda não têm CC.
+// CC real; ARA EI ganhou CC em 2026-09-27. Escritório de Investimentos não tem CC.
 const CCS_POR_UNIDADE = {
   textil: CCS_TEXTIL,
   agricola_tds: CCS_AGRICOLA,
@@ -53,7 +53,8 @@ const CCS_POR_UNIDADE = {
   samoa_villa: CCS_RESORTS.filter(cc => cc.resorts.includes('villa')),
   resorts: [], // Consolidado — idem
   corporativo: CCS_CORPORATIVO,
-  ei: [],
+  ei: [], // Consolidado da ARA EI — idem
+  ei_holding: CCS_EI, ei_lafleur: CCS_EI, ei_southbay: CCS_EI, // ARA EI (2026-09-27): mesma estrutura nas três
   energia: [],
 };
 
@@ -647,6 +648,8 @@ const UNIDADE_LABEL = {
   agricola_tds: 'ARA Agrícola — Terra do Sol', agricola_fds: 'ARA Agrícola — Frutos do Sol',
   resorts: 'ARA Resorts — Consolidado', samoa_beach: 'ARA Resorts — Samoa Beach',
   samoa_villa: 'ARA Resorts — Samoa Villa', corporativo: 'Corporativo',
+  ei_holding: 'ARA EI — Holding', ei_lafleur: 'ARA EI — La Fleur II', ei_southbay: 'ARA EI — South Bay',
+  energia: 'Escritório de Investimentos',
 };
 const UNIDADES_BACKUP = Object.keys(UNIDADE_LABEL);
 
