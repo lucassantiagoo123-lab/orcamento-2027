@@ -3684,22 +3684,6 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     });
   }
 
-  // Pedido de 2026-08-16: deixou de bloquear o envio — aparece como
-  // pendência informativa na Auditoria, mas obrigatorio:false (mesmo padrão
-  // do Balanço/FC Financiamentos abaixo).
-  // Corporativo não tem seção Kgiro/FC Operacional — não faz sentido cobrar
-  // os prazos lá (pedido de 2026-09-15).
-  if (unidadeId !== 'corporativo') {
-    const cg = data.capitalGiro;
-    const cgCompleto = ['prazoRecebimento', 'prazoPagamento', 'giroEstoque'].every(k => (cg[k] || []).some(v => v !== ''));
-    checks.push({
-      label: 'Capital de giro: três prazos com ao menos um mês preenchido (dias corridos)',
-      ok: cgCompleto,
-      detalhe: cgCompleto ? 'Recebimento, pagamento e giro de estoque informados' : 'Faltam prazos a preencher',
-      obrigatorio: false,
-    });
-  }
-
   // ARA Agrícola (2026-09-07): checa negativo em todos os arrays mensais da
   // cascata (embaladaKg, refugoPct é um único valor — checado à parte).
   const algumNegativo = arr => (arr || []).some(v => parseNum(v) < 0);
@@ -3720,25 +3704,6 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     ok: !valoresNegativos,
     detalhe: valoresNegativos ? 'Há valor negativo lançado — revisar' : 'Sem valores negativos',
   });
-
-  // Pedido de 2026-08-09: a entrega de cada unidade se restringe ao DRE
-  // (Receita, Custos e Despesas, Provisões, Kgiro e FC Operacional, CAPEX).
-  // Balanço Patrimonial e FC Financiamentos são responsabilidade do FP&A,
-  // não do gestor da unidade — por isso obrigatorio:false aqui: aparece como
-  // pendência informativa na Auditoria, mas NÃO bloqueia o botão de Enviar
-  // (ver tudoOk no componente principal, que filtra por obrigatorio !== false).
-  // Corporativo (pedido de 2026-08-19, "não precisa de pendências de
-  // estrutura"): nem aparece — some da lista, não só obrigatorio:false.
-  if (unidadeId !== 'corporativo') {
-    const bal = data.balanco;
-    const balancoBaseOk = bal.caixaInicial !== '' && bal.imobilizadoInicial !== '';
-    checks.push({
-      label: 'Balanço Patrimonial: caixa e imobilizado iniciais informados',
-      ok: balancoBaseOk,
-      detalhe: balancoBaseOk ? 'Saldos de abertura informados' : 'Faltam saldos de abertura (caixa e/ou imobilizado) — responsabilidade do FP&A, não bloqueia envio',
-      obrigatorio: false,
-    });
-  }
 
   return checks;
 }
