@@ -132,10 +132,16 @@ function contasDoPacoteNoCc(planoContas, pacoteId, cc, unidadeId) {
   const contas = planoContas?.[pacoteId] || [];
   if (FAMILIA_RESORTS.includes(unidadeId)) return contas;
   const origem = cc.tipo === 'producao' ? 'Custo' : 'Despesa';
-  // Agrícola (2026-09-27): conta liberada explicitamente no CC (De/Para
-  // CONTAS_POR_CC_AGRICOLA) aparece mesmo com origem diferente do tipo do CC.
-  const liberadas = (unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') ? CONTAS_POR_CC_AGRICOLA[cc.codigo] : null;
-  return contas.filter(c => c.origem === origem || (liberadas && liberadas.includes(c.codigo)));
+  // Agrícola (2026-09-28, pedido do usuário: "as contas analíticas precisam
+  // se repetir para todos os CC, independente se houver lançamento"): todo
+  // CC vê o plano inteiro — a DRE segue a origem da conta
+  // (dreSegueOrigemConta). Exceção: Headcount Existente continua um só por
+  // CC (_C em CC de produção, _D em CC de despesa), como já foi carregado.
+  // CONTAS_POR_CC_AGRICOLA fica só como referência do De/Para de origem.
+  if (unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') {
+    return contas.filter(c => !c.codigo.startsWith('HC_EXISTENTE') || c.origem === origem);
+  }
+  return contas.filter(c => c.origem === origem);
 }
 
 // Conta que aparece como campo de lançamento na aba Custos (2026-09-28). No
@@ -10677,10 +10683,8 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     return valorLinhaMes(linhas[`${ccCodigo}|${contaCodigo}`], m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
   }
   function contasDoCc(cc) {
-    const mapeadas = (unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') ? CONTAS_POR_CC_AGRICOLA[cc.codigo] : undefined;
-    const rawContas = refUnidade.pacotes.flatMap(p => contasDoPacoteNoCc(refUnidade.planoContas, p.id, cc, unidadeId));
-    // HC Existente é conta sintética — não está em CONTAS_POR_CC_AGRICOLA mas deve sempre aparecer
-    return mapeadas ? rawContas.filter(c => c.nome === 'Headcount Existente' || mapeadas.includes(c.codigo)) : rawContas;
+    // Agrícola: todo CC vê o plano inteiro desde 2026-09-28 (ver contasDoPacoteNoCc).
+    return refUnidade.pacotes.flatMap(p => contasDoPacoteNoCc(refUnidade.planoContas, p.id, cc, unidadeId));
   }
   const _fatorEncNovoHc = 1 + parseNum(premissasPessoal?.encargosNovoHcPct) / 100;
   const _basesPessoal = { receitaBrutaMes: dre.receitaBrutaMes, receitaLiquidaMes: dre.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dre.volumeTotalKgMes, receitaHospedagemMes: dre.receitaHospedagemMes, receitaAebMes: dre.receitaAebMes };
@@ -10752,15 +10756,11 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
     );
   }
 
-  // Contas analíticas mapeadas pra este CC (De/Para Camadas.xlsx, só ARA
-  // Agrícola) — undefined quando o CC ainda não tem essa planilha de
-  // origem (áreas fora da Fazenda). Nesse caso não inventamos contas: o CC
-  // fica com acesso criado (estrutura/usuário), mas sem lançamento, até o
-  // FP&A trazer o De/Para dessa área.
-  const contasMapeadasCC = (unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds')
-    ? CONTAS_POR_CC_AGRICOLA[ccAtual.codigo]
-    : undefined;
-  const semContasMapeadas = (unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds') && !contasMapeadasCC;
+  // Agrícola (2026-09-28): o filtro pelo De/Para conta × CC saiu — todo CC,
+  // inclusive os que não tinham De/Para, recebe o plano inteiro (ver
+  // contasDoPacoteNoCc). Variáveis mantidas para não mexer no fluxo abaixo.
+  const contasMapeadasCC = undefined;
+  const semContasMapeadas = false;
   // Pedido de 2026-08-19 — só Corporativo, conta CONTA_VIAGENS_CALCULADORA:
   // grava a lista de viagens do CC e sincroniza o total calculado (mesma
   // fórmula da linha 6 de Viagens.xlsx) direto em custos.linhas, como uma
