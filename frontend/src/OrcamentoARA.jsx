@@ -15156,15 +15156,18 @@ const LINHAS_RESULTADOS = {
     { k: 'fco', label: '(=) FC Operacional (FCO)', total: true },
   ],
   fci: [
-    { k: 'capexCarryover', label: '(−) CapEx — 1. Carryover / Comprometido' },
+    // FCO antes dos investimentos (pedido do usuário, 2026-09-28): a leitura
+    // vai do caixa gerado pela operação, passa pelo que é investido e chega
+    // ao FCF.
+    { k: 'fco', label: '(=) FC Operacional (FCO)', total: true },
+    { k: 'capexCarryover', label: '(−) CapEx — 1. Carryover / Comprometido', separador: true },
     { k: 'capexMelhoria', label: '(−) CapEx — 2. Melhoria Interna' },
     { k: 'capexDesenvolvimento', label: '(−) CapEx — 3. Desenvolvimento e Expansão' },
     { k: 'capexSemCategoria', label: '(−) CapEx — fora dos grupos de CapEx', soSeHouver: true },
     { k: 'aportesInvestidas', label: '(−) Aportes de capital em investidas' },
     { k: 'dividendosRecebidos', label: '(+) Dividendos recebidos' },
     { k: 'fci', label: '(=) FC de Investimentos (FCI)', total: true },
-    { k: 'fco', label: '(+) FC Operacional (FCO)', separador: true },
-    { k: 'fcf', label: '(=) Fluxo de Caixa Livre (FCF = FCO + FCI)', total: true },
+    { k: 'fcf', label: '(=) Fluxo de Caixa Livre (FCF = FCO + FCI)', total: true, separador: true },
   ],
   fin: [
     { k: 'captacoes', label: '(+) Captações de empréstimos' },
