@@ -14695,7 +14695,9 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
   }, { receitaLiquida: 0, ebitda: 0, lucroLiquido: 0 });
 
   return (
-    <div style={{ padding: 22, maxWidth: 1180, margin: '0 auto' }}>
+    // Resultados Consolidados (2026-09-28): largura total da tela, para as tabelas
+    // mensais caberem sem barra de rolagem horizontal.
+    <div style={{ padding: subVisao === 'resultados' ? '22px 14px' : 22, maxWidth: subVisao === 'resultados' ? 'none' : 1180, margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <h2 style={{ fontSize: 17, color: COR.azul, margin: 0 }}>Visão consolidada do Grupo</h2>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -15286,13 +15288,15 @@ function valorNoPeriodo(arr, linha, ini, fim) {
 function TabelaResultados({ linhas, serie, porUnidade, ini, fim }) {
   const [abertas, setAbertas] = useState({});
   const meses = MESES.slice(ini, fim + 1);
-  const cel = { padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right' };
+  // Compacta (2026-09-28): sem largura mínima por mês e números sem quebra,
+  // para os 12 meses + total caberem na tela sem rolagem horizontal.
+  const cel = { padding: '5px 3px', border: `1px solid ${COR.borda}`, fontSize: 10, textAlign: 'right', whiteSpace: 'nowrap' };
   function Linha({ rotulo, arr, linha, nivel, clicavel, aberto, onClick }) {
     const negrito = linha.total && nivel === 0;
     const bg = linha.total && nivel === 0 ? COR.total : COR.branco;
     return (
       <tr style={{ background: bg }}>
-        <td onClick={onClick} style={{ ...cel, textAlign: 'left', fontSize: 11.5, fontWeight: negrito ? 700 : 400, paddingLeft: 10 + nivel * 18, position: 'sticky', left: 0, background: bg, color: nivel ? '#7A8088' : (negrito ? COR.azul : COR.texto), cursor: clicavel ? 'pointer' : 'default', borderTop: linha.separador && nivel === 0 ? `2px solid ${COR.azul}` : undefined }}>
+        <td onClick={onClick} style={{ ...cel, textAlign: 'left', fontSize: 11, whiteSpace: 'normal', minWidth: 165, fontWeight: negrito ? 700 : 400, paddingLeft: 8 + nivel * 14, position: 'sticky', left: 0, background: bg, color: nivel ? '#7A8088' : (negrito ? COR.azul : COR.texto), cursor: clicavel ? 'pointer' : 'default', borderTop: linha.separador && nivel === 0 ? `2px solid ${COR.azul}` : undefined }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {clicavel && (aberto ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
             {rotulo}
@@ -15311,9 +15315,9 @@ function TabelaResultados({ linhas, serie, porUnidade, ini, fim }) {
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: 'left', minWidth: 260, position: 'sticky', left: 0 }}>Conta sintética (R$)</th>
-            {meses.map(m => <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 4px', minWidth: 84 }}>{m}</th>)}
-            <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10.5, padding: '7px 8px', minWidth: 100 }}>Total</th>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 8px', textAlign: 'left', minWidth: 165, position: 'sticky', left: 0 }}>Conta sintética (R$)</th>
+            {meses.map(m => <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 3px' }}>{m}</th>)}
+            <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10.5, padding: '7px 6px' }}>Total</th>
           </tr>
         </thead>
         <tbody>
