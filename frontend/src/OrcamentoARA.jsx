@@ -3379,6 +3379,19 @@ function computeDFC(data, dre, ref, ipcaAnualPct) {
 // Soma dois DFCs já calculados — mesmo racional de somarDRE. Todos os campos
 // de computeDFC são valores anuais simples (nenhum percentual), soma direta
 // em cada um funciona sem precisar recalcular nada.
+// Soma resultados mensais de vários sites (computeFluxoIndiretoMensal/
+// computeFluxoCaixaDiretoMensal): arrays mês a mês e números somam; o resto
+// fica do primeiro. Usado pelo PPT do Consolidado.
+function somarResultadosMensais(lista) {
+  const out = {};
+  Object.keys(lista[0]).forEach(k => {
+    const v0 = lista[0][k];
+    if (Array.isArray(v0)) out[k] = v0.map((_, m) => lista.reduce((acc, x) => acc + (Number(x[k]?.[m]) || 0), 0));
+    else if (typeof v0 === 'number') out[k] = lista.reduce((acc, x) => acc + (Number(x[k]) || 0), 0);
+    else out[k] = v0;
+  });
+  return out;
+}
 function somarDFC(a, b) {
   const out = {};
   Object.keys(a).forEach(k => { out[k] = a[k] + b[k]; });
@@ -6146,7 +6159,19 @@ export default function OrcamentoARA({ usuario }) {
   async function solicitarResumoExecutivo() {
     setStatusPptx({ mensagem: 'Gerando o PPT…' });
     try {
-      const PptxGenJS = (await import('pptxgenjs')).default;
+      // A biblioteca vem num arquivo separado, que muda de nome a cada
+      // publicação: aba aberta antes do deploy procura o arquivo antigo.
+      // Tenta de novo e, se continuar falhando, pede para recarregar.
+      let PptxGenJS;
+      try {
+        PptxGenJS = (await import('pptxgenjs')).default;
+      } catch (erroImport) {
+        try {
+          PptxGenJS = (await import('pptxgenjs')).default;
+        } catch {
+          throw new Error('a plataforma foi atualizada desde que esta página foi aberta — recarregue a página (F5) e gere de novo');
+        }
+      }
       const pptx = new PptxGenJS();
       pptx.layout = 'LAYOUT_16x9';
       const AZUL = '0C4391', LARANJA = 'FFA707', TEXTO = '494949', CLARO = 'F7F7F7';
@@ -6218,8 +6243,25 @@ export default function OrcamentoARA({ usuario }) {
         // Pedido de 2026-08-16: sem capa — reflete a mesma estrutura da tela
         // de Revisão, Análise e Envio (DRE + gráficos Bridge, DRE mensal, FC
         // Indireto mensal, FC Direto mensal), por unidade.
-        const fd = computeFluxoIndiretoMensal(dados, dre, refUnidadeAtual, ipcaAnualPct);
-        const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidadeAtual, ipcaAnualPct);
+        // Consolidado (Agrícola/Resorts/ARA EI, bug de 2026-09-28): `dados` é
+        // o wrapper do envio (ou vazio) — computeFluxoIndiretoMensal quebrava
+        // nele. Soma as empresas ao vivo, como a tela do Consolidado faz.
+        let dreP = dre, fd, fcd;
+        const consolidadoPpt = CONSOLIDADOS_MULTISITE[unidadeAtual];
+        if (consolidadoPpt) {
+          const lados = await Promise.all(consolidadoPpt.sites.map(async siteId => {
+            const d = (await getOrcamento(siteId)).orcamento.dados;
+            const refSite = referenciaDaUnidade(siteId);
+            const dreSite = computeDRE(d, refSite, ipcaAnualPct, cambios);
+            return { dre: dreSite, fd: computeFluxoIndiretoMensal(d, dreSite, refSite, ipcaAnualPct), fcd: computeFluxoCaixaDiretoMensal(d, dreSite, refSite, ipcaAnualPct) };
+          }));
+          dreP = lados.map(l => l.dre).reduce((a, b) => somarDRE(a, b));
+          fd = somarResultadosMensais(lados.map(l => l.fd));
+          fcd = somarResultadosMensais(lados.map(l => l.fcd));
+        } else {
+          fd = computeFluxoIndiretoMensal(dados, dre, refUnidadeAtual, ipcaAnualPct);
+          fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidadeAtual, ipcaAnualPct);
+        }
         const totalFcOperacional = fd.fcOperacionalMes.reduce((a, v) => a + v, 0);
         const totalIrcslAno = fd.ircslMes.reduce((a, v) => a + v, 0);
         const totalGiroAno = fd.variacaoGiroMes.reduce((a, v) => a + v, 0);
@@ -6244,14 +6286,14 @@ export default function OrcamentoARA({ usuario }) {
           });
         }
         const bridgeReceitaEbitda = [
-          { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'inicio' },
-          { label: 'Deduções/Impostos', valor: -dre.deducoes, tipo: 'incremento' },
-          { label: 'Custos (CPV)', valor: -dre.cpv, tipo: 'incremento' },
-          { label: 'Despesas', valor: -dre.despesasSemDA, tipo: 'incremento' },
-          { label: 'EBITDA', valor: dre.ebitda, tipo: 'total' },
+          { label: 'Receita Bruta', valor: dreP.receitaBruta, tipo: 'inicio' },
+          { label: 'Deduções/Impostos', valor: -dreP.deducoes, tipo: 'incremento' },
+          { label: 'Custos (CPV)', valor: -dreP.cpv, tipo: 'incremento' },
+          { label: 'Despesas', valor: -dreP.despesasSemDA, tipo: 'incremento' },
+          { label: 'EBITDA', valor: dreP.ebitda, tipo: 'total' },
         ];
         const bridgeEbitdaFco = [
-          { label: 'EBITDA', valor: dre.ebitda, tipo: 'inicio' },
+          { label: 'EBITDA', valor: dreP.ebitda, tipo: 'inicio' },
           { label: 'Impostos', valor: -totalIrcslAno, tipo: 'incremento' },
           { label: 'Var. Capital de Giro', valor: totalGiroAno, tipo: 'incremento' },
           { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
@@ -6266,16 +6308,16 @@ export default function OrcamentoARA({ usuario }) {
           { text: valor, options: { align: 'right', bold: !!destaque, fill: destaque ? { color: CLARO } : undefined, fontSize: 10.5 } },
         ]);
         const linhasDreCascata = [
-          linha('Receita Operacional Líquida', formatBRL(dre.receitaLiquida), true),
-          linha('(–) CPV', formatBRL(-dre.cpv)),
-          linha(`Lucro Bruto (${formatPct(dre.margemBruta)})`, formatBRL(dre.lucroBruto), true),
-          linha('(–) Despesas Operacionais', formatBRL(-dre.despesasSemDA)),
-          linha(`EBITDA (${formatPct(dre.margemEbitda)})`, formatBRL(dre.ebitda), true),
-          linha('(–) Depreciação e Amortização', formatBRL(-dre.depreciacao)),
-          linha('(+/–) Resultado Financeiro', formatBRL(dre.resultadoFinanceiro)),
-          linha('(+/–) Outras Receitas/Despesas', formatBRL(dre.outras)),
-          linha('(–) IRCSL', formatBRL(-dre.ircsl)),
-          linha(`Lucro Líquido (${formatPct(dre.margemLiquida)})`, formatBRL(dre.lucroLiquido), true),
+          linha('Receita Operacional Líquida', formatBRL(dreP.receitaLiquida), true),
+          linha('(–) CPV', formatBRL(-dreP.cpv)),
+          linha(`Lucro Bruto (${formatPct(dreP.margemBruta)})`, formatBRL(dreP.lucroBruto), true),
+          linha('(–) Despesas Operacionais', formatBRL(-dreP.despesasSemDA)),
+          linha(`EBITDA (${formatPct(dreP.margemEbitda)})`, formatBRL(dreP.ebitda), true),
+          linha('(–) Depreciação e Amortização', formatBRL(-dreP.depreciacao)),
+          linha('(+/–) Resultado Financeiro', formatBRL(dreP.resultadoFinanceiro)),
+          linha('(+/–) Outras Receitas/Despesas', formatBRL(dreP.outras)),
+          linha('(–) IRCSL', formatBRL(-dreP.ircsl)),
+          linha(`Lucro Líquido (${formatPct(dreP.margemLiquida)})`, formatBRL(dreP.lucroLiquido), true),
         ];
         s1.addTable(linhasDreCascata, { x: 0.4, y: 0.9, w: 4.6, fontSize: 10.5, color: TEXTO, border: { type: 'solid', color: 'D9D9D9', pt: 0.5 }, autoPage: false });
         s1.addText('Bridge — Receita até EBITDA', { x: 5.2, y: 0.85, w: 4.4, h: 0.3, fontSize: 11, bold: true, color: AZUL });
@@ -6330,10 +6372,12 @@ export default function OrcamentoARA({ usuario }) {
       }
 
       const nomeArquivo = `Orcamento_2027_ResumoExecutivo_${role === 'fpa' ? 'Consolidado' : unidadeObj.nome.replace(/\s/g, '_')}.pptx`;
-      pptx.writeFile({ fileName: nomeArquivo });
+      await pptx.writeFile({ fileName: nomeArquivo });
       setStatusPptx({ mensagem: `PPT gerado: ${nomeArquivo}` });
     } catch (e) {
-      setStatusPptx({ mensagem: 'Não foi possível gerar o PPT. Tente novamente.', erro: true });
+      // Motivo real no console e na mensagem — antes o erro sumia.
+      console.error('[PPT] falha ao gerar:', e);
+      setStatusPptx({ mensagem: `Não foi possível gerar o PPT (${e?.message || 'erro desconhecido'}). Tente novamente.`, erro: true });
     }
   }
 
@@ -7852,23 +7896,14 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
         />
       </div>
 
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>Detalhe por fazenda (Receita e Custos e Despesas)</h4>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginBottom: 24 }}>
-        <div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            Terra do Sol <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreTds.receitaBruta)} receita bruta)</span>
-          </div>
-          <ReceitaLeituraVersao dados={dadosTds} cambios={cambios} />
-          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refAg} unidadeId="agricola_tds" dados={dadosTds} dre={dreTds} ipcaAnualPct={ipcaAnualPct} /></div>
-        </div>
-        <div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            Frutos do Sol <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreFds.receitaBruta)} receita bruta)</span>
-          </div>
-          <ReceitaLeituraVersao dados={dadosFds} cambios={cambios} />
-          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refAg} unidadeId="agricola_fds" dados={dadosFds} dre={dreFds} ipcaAnualPct={ipcaAnualPct} /></div>
-        </div>
-      </div>
+      <DetalheSiteConsolidado
+        titulo="Detalhe por fazenda (Receita e Custos e Despesas)" rotulo="Fazenda"
+        sites={[
+          { id: 'agricola_tds', nome: 'Terra do Sol', dados: dadosTds, dre: dreTds, ref: refAg },
+          { id: 'agricola_fds', nome: 'Frutos do Sol', dados: dadosFds, dre: dreFds, ref: refAg },
+        ]}
+        cambios={cambios} ipcaAnualPct={ipcaAnualPct}
+      />
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Auditoria — checagens de completude</h4>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 10 }}>
@@ -7939,6 +7974,37 @@ const botaoSecundarioLocal = {
 // Samoa Beach/Samoa Villa, na ordem/cor já usadas em UNIDADES — pro
 // drill-down por unidade da DRE consolidada (ver LinhaContaConsolidada).
 const UNIDADES_FAMILIA_RESORTS = UNIDADES.filter(u => u.id === 'samoa_beach' || u.id === 'samoa_villa');
+
+// Detalhe (Receita e Custos e Despesas) de uma unidade por vez no
+// Consolidado da Agrícola e do Resorts (2026-09-28, pedido do usuário): lista
+// suspensa para escolher a fazenda/resort, em vez de repetir as duas.
+function DetalheSiteConsolidado({ titulo, rotulo, sites, cambios, ipcaAnualPct }) {
+  const [siteId, setSiteId] = useState(sites[0].id);
+  const site = sites.find(s => s.id === siteId) || sites[0];
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 20, marginBottom: 10 }}>
+        <h4 style={{ fontSize: 13, color: COR.azul }}>{titulo}</h4>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, fontWeight: 700, color: COR.texto }}>
+          {rotulo}:
+          <select
+            value={site.id} onChange={e => setSiteId(e.target.value)}
+            style={{ fontFamily: FONT, fontSize: 12.5, padding: '6px 10px', border: `1.5px solid ${COR.azul}`, borderRadius: 6, color: COR.azul, fontWeight: 700, background: COR.branco, minWidth: 180 }}
+          >
+            {sites.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </select>
+        </label>
+      </div>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {site.nome} <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(site.dre.receitaBruta)} receita bruta)</span>
+        </div>
+        <ReceitaLeituraVersao dados={site.dados} cambios={cambios} />
+        <div style={{ marginTop: 10 }}><CustosLeituraVersao key={site.id} refUnidade={site.ref} unidadeId={site.id} dados={site.dados} dre={site.dre} ipcaAnualPct={ipcaAnualPct} /></div>
+      </div>
+    </>
+  );
+}
 
 function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cambios }) {
   const [dadosBeach, setDadosBeach] = useState(null);
@@ -8150,23 +8216,14 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
         <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={linhasFcdConsolidado} />
       </div>
 
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>Detalhe por resort (Receita e Custos e Despesas)</h4>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginBottom: 24 }}>
-        <div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            Samoa Beach <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreBeach.receitaBruta)} receita bruta)</span>
-          </div>
-          <ReceitaLeituraVersao dados={dadosBeach} cambios={cambios} />
-          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refBeach} unidadeId="samoa_beach" dados={dadosBeach} dre={dreBeach} ipcaAnualPct={ipcaAnualPct} /></div>
-        </div>
-        <div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            Samoa Villa <span style={{ fontSize: 10.5, fontWeight: 400, color: '#7A8088' }}>({formatBRL(dreVilla.receitaBruta)} receita bruta)</span>
-          </div>
-          <ReceitaLeituraVersao dados={dadosVilla} cambios={cambios} />
-          <div style={{ marginTop: 10 }}><CustosLeituraVersao refUnidade={refVilla} unidadeId="samoa_villa" dados={dadosVilla} dre={dreVilla} ipcaAnualPct={ipcaAnualPct} /></div>
-        </div>
-      </div>
+      <DetalheSiteConsolidado
+        titulo="Detalhe por resort (Receita e Custos e Despesas)" rotulo="Resort"
+        sites={[
+          { id: 'samoa_beach', nome: 'Samoa Beach', dados: dadosBeach, dre: dreBeach, ref: refBeach },
+          { id: 'samoa_villa', nome: 'Samoa Villa', dados: dadosVilla, dre: dreVilla, ref: refVilla },
+        ]}
+        cambios={cambios} ipcaAnualPct={ipcaAnualPct}
+      />
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Auditoria — checagens de completude</h4>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 10 }}>
