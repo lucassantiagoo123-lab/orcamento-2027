@@ -4580,6 +4580,8 @@ function PainelPlanoContas({ refUnidade }) {
           <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 12 }}>
             {totalContas} contas classificadas em {refUnidade.pacotes.length} pacotes — fonte de cada pacote logo abaixo do nome dele.
             Este painel é somente leitura — o lançamento acontece por conta, dentro do CC selecionado na aba acima.
+            Azul = conta de Custo (CPV); laranja = conta de Despesa. Mesmo nome com códigos diferentes são contas distintas
+            (ex.: salários de produção, de vendas e administrativos) — cada CC oferece só as contas liberadas para ele.
           </p>
           {refUnidade.pacotes.map(p => {
             const contas = refUnidade.planoContas[p.id] || [];
@@ -4600,7 +4602,10 @@ function PainelPlanoContas({ refUnidade }) {
                           background: c.origem === 'Custo' ? '#E8F0FA' : COR.total,
                           color: COR.texto, border: `1px ${sintetica ? 'dashed' : 'solid'} ${sintetica ? COR.laranja : COR.borda}`,
                         }}>
-                        {c.nome.toLowerCase()}
+                        {/* Código visível (2026-09-28): o mesmo nome aparece em códigos
+                            diferentes (Custo 711…, Vendas 341…, Administrativa 342…) —
+                            sem o código, parecia conta duplicada. */}
+                        <span style={{ color: '#8A8F96' }}>{c.codigo}</span> {c.nome.toLowerCase()}
                       </span>
                     );
                   })}
