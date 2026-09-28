@@ -15111,57 +15111,476 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
   );
 }
 
+// ---------------------------------------------------------------------------
+// Resultados Consolidados por Unidade (2026-09-28): cinco visões navegáveis
+// com o mesmo filtro de unidade e período — Resultado (DRE), FC Operacional,
+// FC de Investimentos + FCF, FC de Financiamentos e Saldo de Caixa com
+// sensibilidade sobre o FCO. Tudo mês a mês, a partir dos mesmos cálculos da
+// plataforma (computeDRE/computeFluxoIndiretoMensal) — nenhum valor digitado
+// aqui, exceto os percentuais de sensibilidade (parâmetros).
+// ---------------------------------------------------------------------------
+const VISOES_RESULTADOS = [
+  { id: 'dre', nome: '1. Resultado (DRE)' },
+  { id: 'fco', nome: '2. FC Operacional' },
+  { id: 'fci', nome: '3. FC de Investimentos e FCF' },
+  { id: 'fin', nome: '4. FC de Financiamentos' },
+  { id: 'caixa', nome: '5. Saldo de Caixa e Sensibilidades' },
+];
+
+// saldo: 'inicio' = valor do primeiro mês do período; 'fim' = do último mês
+// (saldos não somam). Demais linhas: soma dos meses do período.
+const LINHAS_RESULTADOS = {
+  dre: [
+    { k: 'receitaBruta', label: 'Receita Operacional Bruta' },
+    { k: 'deducoes', label: '(−) Deduções' },
+    { k: 'receitaLiquida', label: '(=) Receita Operacional Líquida', total: true },
+    { k: 'cpv', label: '(−) Custos (CPV)' },
+    { k: 'lucroBruto', label: '(=) Lucro Bruto', total: true },
+    { k: 'despesas', label: '(−) Despesas Operacionais' },
+    { k: 'ebitda', label: '(=) EBITDA', total: true },
+    { k: 'depreciacao', label: '(−) Depreciação e Amortização' },
+    { k: 'resultadoFinanceiro', label: '(+/−) Resultado Financeiro' },
+    { k: 'outras', label: '(+/−) Outras Receitas e Despesas' },
+    { k: 'ebt', label: '(=) Resultado antes do IR/CS', total: true },
+    { k: 'ircsl', label: '(−) IR/CS' },
+    { k: 'lucroLiquido', label: '(=) Lucro Líquido', total: true },
+  ],
+  fco: [
+    { k: 'ebitda', label: 'EBITDA' },
+    { k: 'ircsl', label: '(−) IR/CS' },
+    { k: 'ajuste13', label: '(+/−) Ajuste 13º salário (competência × caixa)' },
+    { k: 'variacaoGiro', label: '(+/−) Variação de Capital de Giro' },
+    { k: 'ajustePagamento', label: '(+/−) Ajuste de pagamento (competência × caixa)' },
+    { k: 'fco', label: '(=) FC Operacional (FCO)', total: true },
+  ],
+  fci: [
+    { k: 'capexCarryover', label: '(−) CapEx — Carryover / Comprometido' },
+    { k: 'capexMelhoria', label: '(−) CapEx — Melhoria Interna' },
+    { k: 'capexDesenvolvimento', label: '(−) CapEx — Desenvolvimento e Expansão' },
+    { k: 'capexSemCategoria', label: '(−) CapEx — sem classificação', soSeHouver: true },
+    { k: 'aportesInvestidas', label: '(−) Aportes de capital em investidas' },
+    { k: 'dividendosRecebidos', label: '(+) Dividendos recebidos' },
+    { k: 'fci', label: '(=) FC de Investimentos (FCI)', total: true },
+    { k: 'fco', label: '(+) FC Operacional (FCO)', separador: true },
+    { k: 'fcf', label: '(=) Fluxo de Caixa Livre (FCF = FCO + FCI)', total: true },
+  ],
+  fin: [
+    { k: 'captacoes', label: '(+) Captações de empréstimos' },
+    { k: 'amortizacoes', label: '(−) Amortizações' },
+    { k: 'juros', label: '(−) Juros pagos' },
+    { k: 'aportesAcionistas', label: '(+) Aportes de acionistas' },
+    { k: 'distMinoritarios', label: '(−) Distribuição a minoritários' },
+    { k: 'distSocios', label: '(−) Distribuição a sócios' },
+    { k: 'emprestimosAcionistas', label: '(+) Empréstimos de acionistas' },
+    { k: 'devolucaoEmprestimos', label: '(−) Devoluções de empréstimos' },
+    { k: 'fin', label: '(=) FC de Financiamentos', total: true },
+  ],
+  caixa: [
+    { k: 'saldoInicial', label: 'Saldo inicial de caixa', saldo: 'inicio' },
+    { k: 'fco', label: '(+/−) FC Operacional' },
+    { k: 'fci', label: '(+/−) FC de Investimentos' },
+    { k: 'fin', label: '(+/−) FC de Financiamentos' },
+    { k: 'variacaoCaixa', label: '(=) Variação do período', total: true },
+    { k: 'saldoFinal', label: '(=) Saldo final de caixa', saldo: 'fim', total: true },
+    { k: 'bloqueadosNeg', label: '(−) Saldos bloqueados', saldo: 'fim' },
+    { k: 'disponivel', label: '(=) Saldo disponível', saldo: 'fim', total: true },
+  ],
+};
+
+// Waterfalls ano a ano (2025 → 2026): componentes = contas sintéticas da
+// visão. Ponto de partida e de chegada vêm da base de anos anteriores.
+const WATERFALLS_RESULTADOS = {
+  dre: [
+    { titulo: 'Receita Operacional', componentes: ['receitaBruta', 'deducoes'], total: 'receitaLiquida' },
+    { titulo: 'Custos', componentes: ['cpv'], total: 'cpv' },
+    { titulo: 'Despesas', componentes: ['despesas'], total: 'despesas' },
+    { titulo: 'EBITDA', componentes: ['receitaLiquida', 'cpv', 'despesas'], total: 'ebitda' },
+  ],
+  fco: [{ titulo: 'FC Operacional', componentes: ['ebitda', 'ircsl', 'ajuste13', 'variacaoGiro', 'ajustePagamento'], total: 'fco' }],
+  fci: [{ titulo: 'FC de Investimentos', componentes: ['capexCarryover', 'capexMelhoria', 'capexDesenvolvimento', 'aportesInvestidas', 'dividendosRecebidos'], total: 'fci' }],
+  fin: [{ titulo: 'FC de Financiamentos', componentes: ['captacoes', 'amortizacoes', 'juros', 'aportesAcionistas', 'distMinoritarios', 'distSocios', 'emprestimosAcionistas', 'devolucaoEmprestimos'], total: 'fin' }],
+  caixa: [{ titulo: 'Saldo de Caixa', componentes: ['fco', 'fci', 'fin', 'bloqueadosNeg'], total: 'disponivel' }],
+};
+// Realizado dos anos anteriores: a base da plataforma só tem o orçamento
+// corrente — enquanto não houver essa fonte, os waterfalls ficam como
+// pendência (nenhum valor digitado ou estimado).
+const ANOS_WATERFALL = { de: 2025, para: 2026 };
+const SERIE_ANOS_ANTERIORES = null;
+
+const negarSerie = (arr) => arr.map(v => -v);
+
+// Série mensal de um site (unidade editável) com todas as linhas das cinco visões.
+function serieResultadosSite(dados, siteId, ipcaAnualPct, cambios) {
+  const d = dados && !ehSnapshotConsolidado(dados) ? dados : emptyFormData(siteId);
+  const ref = referenciaDaUnidade(siteId);
+  const dre = computeDRE(d, ref, ipcaAnualPct, cambios);
+  const fd = computeFluxoIndiretoMensal(d, dre, ref, ipcaAnualPct);
+  const projetos = d.capex?.projetos || [];
+  const idsCapex = CATEGORIAS_CAPEX.map(c => c.id);
+  const catDe = (p) => p.categoria || 'melhoria_interna';
+  const capexDe = (filtro) => MESES.map((_, m) => projetos.filter(filtro).reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0));
+  const linhasFin = d.fcFinanciamentos?.linhas || [];
+  const finDe = (campo) => MESES.map((_, m) => linhasFin.reduce((acc, l) => acc + parseNum(l[campo]?.[m]), 0));
+  const movs = d.fcFinanciamentos?.movimentacoesAcionistas || [];
+  const movDe = (id) => MESES.map((_, m) => parseNum(movs.find(x => x.id === id)?.valores?.[m]));
+  const saldoFinal = fd.caixaAcumuladoMes;
+  const saldoInicial = MESES.map((_, m) => (m === 0 ? fd.caixaInicial : saldoFinal[m - 1]));
+  // Saldos bloqueados: não há campo na base — zero, listado em Pendências.
+  const bloqueados = MESES.map(() => 0);
+  const serie = {
+    receitaBruta: fd.receitaBrutaMes, deducoes: negarSerie(fd.deducoesMes), receitaLiquida: fd.receitaLiquidaMes,
+    cpv: negarSerie(fd.cpvMes), lucroBruto: fd.lucroBrutoMes, despesas: negarSerie(fd.despesasSemDAmes), ebitda: fd.ebitdaMes,
+    depreciacao: negarSerie(fd.depreciacaoMes), resultadoFinanceiro: fd.resultadoFinanceiroMes, outras: fd.outrasMes,
+    ebt: MESES.map((_, m) => fd.lucroLiquidoMes[m] + fd.ircslMes[m]), ircsl: negarSerie(fd.ircslMes), lucroLiquido: fd.lucroLiquidoMes,
+    ajuste13: fd.ajuste13Mes, variacaoGiro: fd.variacaoGiroMes, ajustePagamento: fd.ajustePagamentoMes, fco: fd.fcOperacionalMes,
+    capexCarryover: negarSerie(capexDe(p => catDe(p) === 'carryover')),
+    capexMelhoria: negarSerie(capexDe(p => catDe(p) === 'melhoria_interna')),
+    capexDesenvolvimento: negarSerie(capexDe(p => catDe(p) === 'desenvolvimento_expansao')),
+    capexSemCategoria: negarSerie(capexDe(p => !idsCapex.includes(catDe(p)))),
+    aportesInvestidas: negarSerie(MESES.map((_, m) => projetos.reduce((acc, p) => acc + parseNum(p.aportes?.[m]), 0))),
+    dividendosRecebidos: MESES.map((_, m) => projetos.reduce((acc, p) => acc + parseNum(p.dividendos?.[m]), 0)),
+    fci: fd.fcInvestimentoMes,
+    fcf: MESES.map((_, m) => fd.fcOperacionalMes[m] + fd.fcInvestimentoMes[m]),
+    captacoes: finDe('captacoes'), amortizacoes: negarSerie(finDe('amortizacoes')), juros: negarSerie(finDe('jurosPagos')),
+    aportesAcionistas: movDe('aportes'), distMinoritarios: negarSerie(movDe('dist_minoritarios')), distSocios: negarSerie(movDe('dist_socios')),
+    emprestimosAcionistas: movDe('emprestimos_acionistas'), devolucaoEmprestimos: negarSerie(movDe('devolucao_emprestimos')),
+    fin: fd.fcFinanciamentoMes,
+    saldoInicial, variacaoCaixa: fd.variacaoCaixaMes, saldoFinal,
+    bloqueados, bloqueadosNeg: negarSerie(bloqueados),
+    disponivel: MESES.map((_, m) => saldoFinal[m] - bloqueados[m]),
+  };
+  const nomeSite = UNIDADES.find(u => u.id === siteId)?.nome || siteId;
+  const pendencias = projetos
+    .filter(p => !idsCapex.includes(catDe(p)) && somaMes(desembolsosDoProjeto(p)) !== 0)
+    .map(p => `${nomeSite}: projeto de CapEx "${(p.nome || '').trim() || 'sem nome'}" sem categoria reconhecida ("${p.categoria}") — somado em "CapEx — sem classificação".`);
+  return { serie, dreAnual: dre, pendencias };
+}
+
+function somarSeriesResultados(lista) {
+  const out = {};
+  Object.keys(lista[0]).forEach(k => { out[k] = MESES.map((_, m) => lista.reduce((acc, s) => acc + (s[k]?.[m] || 0), 0)); });
+  return out;
+}
+
+// Série de uma unidade do Grupo — Consolidados (Agrícola, Resorts, ARA EI)
+// somam os sites ao vivo, mesmo racional de dreEDfcGrupoUnidade.
+function serieResultadosUnidade(statusUnidades, unidadeId, ipcaAnualPct, cambios) {
+  const sites = CONSOLIDADOS_MULTISITE[unidadeId]?.sites || [unidadeId];
+  const partes = sites.map(id => serieResultadosSite(statusUnidades[id], id, ipcaAnualPct, cambios));
+  return {
+    serie: somarSeriesResultados(partes.map(p => p.serie)),
+    dreAnual: partes.map(p => p.dreAnual).reduce((a, b) => somarDRE(a, b)),
+    pendencias: partes.flatMap(p => p.pendencias),
+  };
+}
+
+function valorNoPeriodo(arr, linha, ini, fim) {
+  if (linha.saldo === 'inicio') return arr[ini] || 0;
+  if (linha.saldo === 'fim') return arr[fim] || 0;
+  let t = 0;
+  for (let m = ini; m <= fim; m++) t += arr[m] || 0;
+  return t;
+}
+
+function TabelaResultados({ linhas, serie, porUnidade, ini, fim }) {
+  const [abertas, setAbertas] = useState({});
+  const meses = MESES.slice(ini, fim + 1);
+  const cel = { padding: '6px 6px', border: `1px solid ${COR.borda}`, fontSize: 10.5, textAlign: 'right' };
+  function Linha({ rotulo, arr, linha, nivel, clicavel, aberto, onClick }) {
+    const negrito = linha.total && nivel === 0;
+    const bg = linha.total && nivel === 0 ? COR.total : COR.branco;
+    return (
+      <tr style={{ background: bg }}>
+        <td onClick={onClick} style={{ ...cel, textAlign: 'left', fontSize: 11.5, fontWeight: negrito ? 700 : 400, paddingLeft: 10 + nivel * 18, position: 'sticky', left: 0, background: bg, color: nivel ? '#7A8088' : (negrito ? COR.azul : COR.texto), cursor: clicavel ? 'pointer' : 'default', borderTop: linha.separador && nivel === 0 ? `2px solid ${COR.azul}` : undefined }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {clicavel && (aberto ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
+            {rotulo}
+          </span>
+        </td>
+        {meses.map((_, i) => (
+          <td key={i} style={{ ...cel, fontWeight: negrito ? 700 : 400, color: nivel ? '#7A8088' : COR.texto }}>{formatValor(arr[ini + i] || 0)}</td>
+        ))}
+        <td style={{ ...cel, fontWeight: 700, fontSize: 11, color: nivel ? '#7A8088' : COR.azul }}>{formatValor(valorNoPeriodo(arr, linha, ini, fim))}</td>
+      </tr>
+    );
+  }
+  const unidadesDrill = porUnidade ? UNIDADES_PARA_TOTAL_GRUPO.filter(u => porUnidade[u.id]) : [];
+  return (
+    <div style={{ overflowX: 'auto', border: `1px solid ${COR.borda}`, borderRadius: 8 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: 'left', minWidth: 260, position: 'sticky', left: 0 }}>Conta sintética (R$)</th>
+            {meses.map(m => <th key={m} style={{ background: COR.azul, color: COR.branco, fontSize: 10, padding: '7px 4px', minWidth: 84 }}>{m}</th>)}
+            <th style={{ background: COR.laranja, color: COR.branco, fontSize: 10.5, padding: '7px 8px', minWidth: 100 }}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {linhas.map(linha => {
+            const arr = serie[linha.k];
+            if (linha.soSeHouver && !arr.some(v => v !== 0)) return null;
+            const chave = `${linha.k}|${linha.label}`;
+            const aberto = !!abertas[chave];
+            return (
+              <React.Fragment key={chave}>
+                <Linha rotulo={linha.label} arr={arr} linha={linha} nivel={0} clicavel={!!porUnidade} aberto={aberto}
+                  onClick={porUnidade ? () => setAbertas(prev => ({ ...prev, [chave]: !prev[chave] })) : undefined} />
+                {aberto && unidadesDrill.map(u => (
+                  <Linha key={u.id} rotulo={u.nome} arr={porUnidade[u.id].serie[linha.k]} linha={linha} nivel={1} />
+                ))}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Waterfall de um ano para o outro: parte do total do ano "de", mostra a
+// variação de cada componente e chega ao total do ano "para". Sem a base dos
+// anos anteriores, mostra a pendência no lugar do gráfico.
+function WaterfallAnual({ config, anterior, atual, nomeFiltro }) {
+  const titulo = `${config.titulo} — ${nomeFiltro} · ${ANOS_WATERFALL.de} → ${ANOS_WATERFALL.para}`;
+  if (!anterior || !atual) {
+    return (
+      <div style={{ border: `1px dashed ${COR.laranja}`, borderRadius: 8, padding: 14, background: COR.total }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{titulo}</div>
+        <div style={{ fontSize: 11, color: COR.texto }}>
+          Sem o realizado de {ANOS_WATERFALL.de} e de {ANOS_WATERFALL.para} na base da plataforma — gráfico pendente (ver Pendências).
+        </div>
+      </div>
+    );
+  }
+  const soma = (serie, k) => serie[k].reduce((a, v) => a + v, 0);
+  const etapas = [
+    { label: String(ANOS_WATERFALL.de), valor: soma(anterior, config.total), tipo: 'inicio' },
+    ...config.componentes.map(k => ({
+      label: (LINHAS_RESULTADOS.dre.concat(LINHAS_RESULTADOS.fco, LINHAS_RESULTADOS.fci, LINHAS_RESULTADOS.fin, LINHAS_RESULTADOS.caixa).find(l => l.k === k)?.label || k).replace(/^\([^)]*\)\s*/, ''),
+      valor: soma(atual, k) - soma(anterior, k), tipo: 'incremento',
+    })),
+    { label: String(ANOS_WATERFALL.para), valor: soma(atual, config.total), tipo: 'total' },
+  ];
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>{titulo}</div>
+      <GraficoBridge etapas={etapas} />
+    </div>
+  );
+}
+
+const CHAVE_SENSIBILIDADE_FCO = 'obz2027_sensibilidade_fco_pct';
+function lerPercentuaisSensibilidade() {
+  try {
+    const v = JSON.parse(localStorage.getItem(CHAVE_SENSIBILIDADE_FCO) || 'null');
+    if (Array.isArray(v) && v.length) return v.map(String);
+  } catch { /* storage indisponível: usa o padrão */ }
+  return ['100'];
+}
+
 function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct, cambios }) {
-  const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
-  const [linhasAbertasDFC, setLinhasAbertasDFC] = useState({});
+  const [visao, setVisao] = useState('dre');
+  const [filtroUnidade, setFiltroUnidade] = useState('grupo');
+  const [ini, setIni] = useState(0);
+  const [fim, setFim] = useState(11);
+  const [percentuais, setPercentuais] = useState(lerPercentuaisSensibilidade);
+  useEffect(() => {
+    try { localStorage.setItem(CHAVE_SENSIBILIDADE_FCO, JSON.stringify(percentuais)); } catch { /* sem storage */ }
+  }, [percentuais]);
 
-  const porUnidadeDRE = {};
-  const porUnidadeDFC = {};
-  UNIDADES_PARA_TOTAL_GRUPO.forEach(u => {
-    // 'agricola'/'resorts' somam sempre ao vivo dos sites — ver nota
-    // completa em dreEDfcGrupoUnidade (bug de 2026-08-30).
-    const { dre: t, dfc } = dreEDfcGrupoUnidade(statusUnidades, u.id, ipcaAnualPct, cambios);
-    porUnidadeDRE[u.id] = t;
-    porUnidadeDFC[u.id] = dfc;
+  const porUnidade = useMemo(() => {
+    const out = {};
+    UNIDADES_PARA_TOTAL_GRUPO.forEach(u => { out[u.id] = serieResultadosUnidade(statusUnidades, u.id, ipcaAnualPct, cambios); });
+    return out;
+  }, [statusUnidades, ipcaAnualPct, cambios]);
+  const grupo = useMemo(() => ({
+    serie: somarSeriesResultados(Object.values(porUnidade).map(p => p.serie)),
+    pendencias: Object.values(porUnidade).flatMap(p => p.pendencias),
+  }), [porUnidade]);
+
+  const ehGrupo = filtroUnidade === 'grupo';
+  const atual = ehGrupo ? grupo : porUnidade[filtroUnidade];
+  const serie = atual.serie;
+  const nomeFiltro = ehGrupo ? 'Grupo ARA — Consolidado' : (UNIDADES.find(u => u.id === filtroUnidade)?.nome || filtroUnidade);
+  const periodo = ini === 0 && fim === 11 ? 'Jan–Dez' : `${MESES[ini]}–${MESES[fim]}`;
+  const somaPeriodo = (k) => { let t = 0; for (let m = ini; m <= fim; m++) t += serie[k][m]; return t; };
+
+  // Sensibilidade: FCO considerado = FCO × %; saldo final = saldo inicial + FCO × % + FCI + Financiamentos.
+  const saldoInicialPeriodo = serie.saldoInicial[ini];
+  const bloqueadosFim = serie.bloqueados[fim];
+  const cenarios = percentuais.map(p => {
+    const pct = parseNum(p);
+    const fco = somaPeriodo('fco') * pct / 100;
+    const fci = somaPeriodo('fci');
+    const fin = somaPeriodo('fin');
+    const variacao = fco + fci + fin;
+    const saldoFinal = saldoInicialPeriodo + variacao;
+    return { pct, fco, fcf: fco + fci, variacao, saldoFinal, disponivel: saldoFinal - bloqueadosFim };
   });
-  const grupoDRE = agregarDRE(Object.values(porUnidadeDRE));
-  const grupoDFC = agregarDFC(Object.values(porUnidadeDFC));
 
-  function toggleDRE(id) { setLinhasAbertasDRE(prev => ({ ...prev, [id]: !prev[id] })); }
-  function toggleDFC(id) { setLinhasAbertasDFC(prev => ({ ...prev, [id]: !prev[id] })); }
+  // Checagens de integridade.
+  const tol = 0.01;
+  const perto = (a, b) => Math.abs(a - b) <= tol;
+  const soma12 = (arr) => arr.reduce((a, v) => a + v, 0);
+  const dreAnualFiltro = ehGrupo
+    ? agregarDRE(UNIDADES_PARA_TOTAL_GRUPO.map(u => dreEDfcGrupoUnidade(statusUnidades, u.id, ipcaAnualPct, cambios).dre))
+    : porUnidade[filtroUnidade].dreAnual;
+  const checagens = [
+    {
+      label: 'Soma dos meses = total do ano (Receita Bruta, EBITDA e Lucro Líquido da DRE)',
+      ok: perto(soma12(serie.receitaBruta), dreAnualFiltro.receitaBruta) && perto(soma12(serie.ebitda), dreAnualFiltro.ebitda) && perto(soma12(serie.lucroLiquido), dreAnualFiltro.lucroLiquido),
+    },
+    ...(ehGrupo ? [{
+      label: 'Soma das unidades = consolidado do Grupo',
+      ok: Object.keys(serie).every(k => MESES.every((_, m) => perto(serie[k][m], Object.values(porUnidade).reduce((a, p) => a + p.serie[k][m], 0)))),
+    }] : []),
+    {
+      label: 'Contas sintéticas somam o total de cada fluxo (FCO, FCI e Financiamentos)',
+      ok: MESES.every((_, m) => perto(serie.ebitda[m] + serie.ircsl[m] + serie.ajuste13[m] + serie.variacaoGiro[m] + serie.ajustePagamento[m], serie.fco[m])
+        && perto(serie.capexCarryover[m] + serie.capexMelhoria[m] + serie.capexDesenvolvimento[m] + serie.capexSemCategoria[m] + serie.aportesInvestidas[m] + serie.dividendosRecebidos[m], serie.fci[m])
+        && perto(serie.captacoes[m] + serie.amortizacoes[m] + serie.juros[m] + serie.aportesAcionistas[m] + serie.distMinoritarios[m] + serie.distSocios[m] + serie.emprestimosAcionistas[m] + serie.devolucaoEmprestimos[m], serie.fin[m])),
+    },
+    {
+      label: 'FCO + FCI + Financiamentos = variação de caixa (todos os meses)',
+      ok: MESES.every((_, m) => perto(serie.fco[m] + serie.fci[m] + serie.fin[m], serie.variacaoCaixa[m])),
+    },
+    {
+      label: 'Com FCO em 100,0%, saldo sensibilizado = saldo final realizado',
+      ok: perto(saldoInicialPeriodo + somaPeriodo('fco') + somaPeriodo('fci') + somaPeriodo('fin'), serie.saldoFinal[fim]),
+    },
+  ];
+
+  const pendencias = [
+    `Realizado de ${ANOS_WATERFALL.de} e de ${ANOS_WATERFALL.para}: não existe na base da plataforma (só o orçamento corrente) — os gráficos waterfall ficam pendentes até essa fonte ser carregada.`,
+    'Saldos bloqueados: não há campo na base — considerados R$ 0,00; o saldo disponível é igual ao saldo final.',
+    ...atual.pendencias,
+  ];
+
+  const linhas = LINHAS_RESULTADOS[visao];
+  const waterfalls = WATERFALLS_RESULTADOS[visao];
+  const selectStyle = { fontFamily: FONT, fontSize: 12.5, padding: '6px 10px', border: `1.5px solid ${COR.azul}`, borderRadius: 6, color: COR.azul, fontWeight: 700, background: COR.branco };
 
   return (
     <>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 22, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
         <CardTotal label="Receita líquida do Grupo" valor={totalGrupo.receitaLiquida} cor={COR.verde} />
         <CardTotal label="EBITDA do Grupo" valor={totalGrupo.ebitda} cor={COR.laranja} />
         <CardTotal label="Lucro líquido do Grupo" valor={totalGrupo.lucroLiquido} cor={COR.azul} />
       </div>
 
-      <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>DRE Consolidada do Grupo — por conta sintética (R$)</h3>
-      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir o drill-down por unidade.</p>
-      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 26 }}>
-        {CONTAS_SINTETICAS_DRE.map(conta => (
-          <LinhaContaConsolidada
-            key={conta.id} conta={conta} grupoObjeto={grupoDRE} porUnidade={porUnidadeDRE}
-            aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => toggleDRE(conta.id)}
-          />
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, padding: '10px 12px', background: COR.claro, border: `1px solid ${COR.borda}`, borderRadius: 8 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, fontWeight: 700, color: COR.texto }}>
+          Unidade de negócio:
+          <select value={filtroUnidade} onChange={e => setFiltroUnidade(e.target.value)} style={{ ...selectStyle, minWidth: 220 }}>
+            <option value="grupo">Grupo ARA — Consolidado</option>
+            {UNIDADES_PARA_TOTAL_GRUPO.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, fontWeight: 700, color: COR.texto }}>
+          Período:
+          <select value={ini} onChange={e => { const v = Number(e.target.value); setIni(v); if (v > fim) setFim(v); }} style={selectStyle}>
+            {MESES.map((m, i) => <option key={m} value={i}>{m}</option>)}
+          </select>
+          a
+          <select value={fim} onChange={e => { const v = Number(e.target.value); setFim(v); if (v < ini) setIni(v); }} style={selectStyle}>
+            {MESES.map((m, i) => <option key={m} value={i}>{m}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div style={{ display: 'flex', gap: 2, borderBottom: `2px solid ${COR.borda}`, marginBottom: 16, flexWrap: 'wrap' }}>
+        {VISOES_RESULTADOS.map(v => (
+          <button key={v.id} onClick={() => setVisao(v.id)}
+            style={{
+              fontFamily: FONT, fontSize: 12.5, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', border: 'none', marginBottom: -2,
+              borderBottom: visao === v.id ? `3px solid ${COR.laranja}` : '3px solid transparent',
+              background: 'transparent', color: visao === v.id ? COR.azul : '#8A8F96',
+            }}
+          >{v.nome}</button>
         ))}
       </div>
 
-      <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Fluxo de Caixa Consolidado do Grupo — por conta sintética</h3>
-      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Método indireto. Clique em uma conta para abrir o drill-down por unidade.</p>
-      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
-        {CONTAS_SINTETICAS_DFC.map(conta => (
-          <LinhaContaConsolidada
-            key={conta.id} conta={conta} grupoObjeto={grupoDFC} porUnidade={porUnidadeDFC}
-            aberto={!!linhasAbertasDFC[conta.id]} onToggle={() => toggleDFC(conta.id)}
-          />
+      <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>
+        {VISOES_RESULTADOS.find(v => v.id === visao).nome.replace(/^\d\.\s*/, '')} — {nomeFiltro} · {periodo}
+      </h3>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Valores em R$, calculados a partir do orçamento de cada unidade (negativos entre parênteses).
+        {ehGrupo ? ' Clique numa conta para abrir a quebra por unidade.' : ''}
+      </p>
+      <TabelaResultados linhas={linhas} serie={serie} porUnidade={ehGrupo ? porUnidade : null} ini={ini} fim={fim} />
+
+      {visao === 'caixa' && (
+        <div style={{ marginTop: 22 }}>
+          <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Sensibilidades — percentual do FCO considerado no período</h4>
+          <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>
+            Saldo final sensibilizado = saldo inicial + (FCO × percentual) + FCI + Financiamentos. Saldo disponível = saldo final − saldos bloqueados.
+            Com 100,0% o resultado reproduz o orçamento.
+          </p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+            {percentuais.map((p, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-end', gap: 4 }}>
+                <div style={{ width: 120 }}>
+                  <Rotulo>Cenário {i + 1}</Rotulo>
+                  <CampoNumero value={p} onChange={v => setPercentuais(prev => prev.map((x, j) => (j === i ? v : x)))} sufixo="%" placeholder="100,0" />
+                </div>
+                {percentuais.length > 1 && (
+                  <button onClick={() => setPercentuais(prev => prev.filter((_, j) => j !== i))} title="Remover cenário"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho, padding: '0 2px 9px' }}><Trash2 size={14} /></button>
+                )}
+              </div>
+            ))}
+            <Botao variante="fantasma" icone={Plus} onClick={() => setPercentuais(prev => [...prev, ''])}>Adicionar cenário</Botao>
+          </div>
+          <div style={{ overflowX: 'auto', border: `1px solid ${COR.borda}`, borderRadius: 8 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['% do FCO', 'FCO considerado', 'FCF', 'Variação de caixa', 'Saldo final', 'Saldo disponível'].map((h, i) => (
+                    <th key={h} style={{ background: i === 0 ? COR.azul : COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: i === 0 ? 'left' : 'right' }}>{h}{i > 0 ? ' (R$)' : ''}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {cenarios.map((c, i) => (
+                  <tr key={i} style={{ background: COR.branco }}>
+                    <td style={{ padding: '6px 10px', border: `1px solid ${COR.borda}`, fontSize: 11.5, fontWeight: 700, color: COR.azul }}>{formatPct(c.pct, 1)}</td>
+                    {[c.fco, c.fcf, c.variacao, c.saldoFinal, c.disponivel].map((v, j) => (
+                      <td key={j} style={{ padding: '6px 10px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', fontWeight: j >= 3 ? 700 : 400 }}>{formatValor(v)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Waterfall {ANOS_WATERFALL.de} → {ANOS_WATERFALL.para}</h4>
+      <div style={{ display: 'grid', gridTemplateColumns: waterfalls.length > 1 ? 'repeat(auto-fit, minmax(420px, 1fr))' : '1fr', gap: 16, marginBottom: 22 }}>
+        {waterfalls.map(w => (
+          <WaterfallAnual key={w.titulo} config={w} nomeFiltro={`${nomeFiltro} · ${periodo}`}
+            anterior={SERIE_ANOS_ANTERIORES?.[ANOS_WATERFALL.de]?.[filtroUnidade] || null}
+            atual={SERIE_ANOS_ANTERIORES?.[ANOS_WATERFALL.para]?.[filtroUnidade] || null} />
         ))}
       </div>
-      <p style={{ fontSize: 10.5, color: '#8A8F96', marginTop: 6 }}>
-        Variação de Capital de Giro: prazos de recebimento/pagamento e giro de estoque (aba 5, por unidade), aplicados sobre os saldos iniciais de contas a receber, contas a pagar e estoque (aba 8 — Balanço Patrimonial).
-      </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
+        <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>Checagens de integridade</div>
+          {checagens.map((c, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginBottom: 4 }}>
+              {c.ok ? <CheckCircle2 size={13} color={COR.verde} /> : <AlertTriangle size={13} color={COR.vermelho} />}
+              <span style={{ color: c.ok ? COR.texto : COR.vermelho }}>{c.label}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, background: COR.total }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>Pendências</div>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {pendencias.map((p, i) => <li key={i} style={{ fontSize: 11, color: COR.texto, marginBottom: 4 }}>{p}</li>)}
+          </ul>
+        </div>
+      </div>
     </>
   );
 }
