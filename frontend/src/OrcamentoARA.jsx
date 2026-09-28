@@ -3099,8 +3099,17 @@ function computeGruposReceitaTipo(lados, unidadeKind, cambios) {
   const mapa = new Map();
   lados.forEach(lado => {
     // ARA EI: a única receita é a do POC (La Fleur II).
+    // Agrícola (2026-09-28): cascata Produção → Vendas (receita.agricola) —
+    // antes lia `produtos` (modelo antigo) e a quebra saía zerada.
+    const receitaAgricola = lado.dados.receita.agricola ? computeReceitaAgricola(lado.dados.receita.agricola, cambios) : null;
     const tipos = unidadeKind === 'ei'
       ? [{ chave: 'poc', nome: 'Receita apropriada — POC (VGV + Espólio)', valoresMensal: lado.dre.receitaBrutaMes }]
+      : receitaAgricola
+      ? [
+          { chave: 'mercado_interno', nome: 'Mercado Interno', valoresMensal: receitaAgricola.receitaInternaMes },
+          { chave: 'refugo', nome: 'Refugo', valoresMensal: receitaAgricola.receitaRefugoMes },
+          ...['gbp', 'eur', 'usd'].map(m => ({ chave: `externo_${m}`, nome: `Mercado Externo — ${m.toUpperCase()}`, valoresMensal: receitaAgricola[m].receitaMes })),
+        ]
       : unidadeKind === 'resorts'
       ? LINHAS_RECEITA_RESORTS.filter(def => def.id !== LINHA_RECEITA_INFORMATIVA_RESORTS).map(def => {
           // Bug de 2026-08-30 (ver nota em tipoLinhaReceitaResorts): nunca
@@ -3142,8 +3151,9 @@ function computeGruposReceitaTipo(lados, unidadeKind, cambios) {
 // à mão em contas do pacote 'pessoal' (2026-09-08: na Resorts todo CC vê o
 // plano inteiro, então essas contas passaram a ser lançáveis — antes só o
 // Corporativo tinha esse caso, via CONTA_CONSULTORIA_PJ). O pacote
-// 'depreciacao' fica de fora do CPV (some depois do EBITDA, mesmo racional
-// de computeDRE).
+// 'depreciacao' lançado em CC de produção entra no CPV, como em computeDRE
+// (corrigido em 2026-09-28: antes ficava de fora e o detalhamento não fechava
+// com o CPV). Depreciação de CC de despesa segue abaixo do EBITDA.
 // Valor de uma linha lançada no mês, só se ela for do tipo contábil pedido
 // (tipoDaLinha: tipo do CC, ou origem da conta na Agrícola).
 function valorLinhaDoTipo(lado, cc, contaCodigo, m, tipo, ipcaAnualPct) {
@@ -3177,7 +3187,7 @@ function computeGruposCustosMensal(lados, ipcaAnualPct) {
     }),
   });
   const pacoteIds = new Map();
-  lados.forEach(lado => lado.ref.pacotes.forEach(p => { if (p.id !== 'pessoal' && p.id !== 'depreciacao') pacoteIds.set(p.id, p.nome); }));
+  lados.forEach(lado => lado.ref.pacotes.forEach(p => { if (p.id !== 'pessoal') pacoteIds.set(p.id, p.nome); }));
   pacoteIds.forEach((nome, pid) => {
     grupos.push({
       chave: pid,
@@ -10774,7 +10784,8 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const pessoalCalculadoCcMes = MESES.map((_, m) => folhaAtual.mensal[m].total * _fatorEncNovoHc + _calcCC.totalMes[m] - calculadasForaDoPessoalMes(_calcCC, m));
   // Comissão apropriada do POC (La Fleur II) — só no CC escolhido na aba Receita.
   const comissaoPocRow = _calcCC.comissaoPoc && _somaRow(_calcCC.comissaoPoc) !== 0 ? _calcCC.comissaoPoc : null;
-  const calculadaNaContaMes = (contaCodigo, m) => (contaCodigo === CONTA_COMISSAO_POC ? (comissaoPocRow?.[m] || 0) : 0);
+  // Linha calculada que mora numa conta (comissão POC → 34102001; licença do Novo HC → CORP10).
+  const calculadaNaContaMes = (contaCodigo, m) => (calculadaDaConta(_calcCC, contaCodigo)?.[m] || 0);
   // Dissídio do Novo HC: folhaAtual já tem o salário reajustado (ver
   // computeFolhaPessoalMes), então a linha de dissídio é só o ACRÉSCIMO
   // (folha com − folha sem) e a linha de folha mostra o valor sem dissídio.
@@ -10985,6 +10996,21 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                         totalValor: folhaCCAtual.totalAnual,
                         cor: COR.azul,
                       }] : []),
+                      // Encargos do Novo HC e linhas calculadas (meritocracia,
+                      // dissídio, bônus, bônus PJs, licença, comissão POC) — já
+                      // somam no total do CC; sem estas linhas a tabela não fechava.
+                      ...(folhaCCAtual.totalAnual > 0 && _fatorEncNovoHc !== 1 ? [{
+                        key: `${cc.codigo}__encargosNovoHc`,
+                        label: 'Encargos do Novo Headcount',
+                        valoresMensal: MESES.map((_, m) => (folhaCCAtual.mensal[m]?.total || 0) * (_fatorEncNovoHc - 1)),
+                        totalValor: folhaCCAtual.totalAnual * (_fatorEncNovoHc - 1),
+                        cor: COR.azul,
+                      }] : []),
+                      ...ROTULOS_PESSOAL_CALCULADO.map(([chave, rotulo]) => {
+                        const valores = calcPessoalCC(cc.codigo)[chave];
+                        const total = valores ? valores.reduce((a, v) => a + v, 0) : 0;
+                        return total === 0 ? null : { key: `${cc.codigo}__${chave}`, label: `${rotulo} (calculado)`, valoresMensal: valores, totalValor: total, cor: COR.azul };
+                      }).filter(Boolean),
                       ...contasCC.filter(c => c.nome !== 'Headcount Existente').map(c => ({
                         key: `${cc.codigo}_${c.codigo}`,
                         label: `${c.codigo} — ${c.nome}`,
@@ -11030,7 +11056,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
         // analíticas do pacote (Consultórias PJs, só Corporativo).
         const totalPacote = g.id === 'pessoal'
           ? _somaRow(pessoalCalculadoCcMes) + g.contas.reduce((acc, c) => acc + totalConta(c.codigo), 0)
-          : g.contas.reduce((acc, c) => acc + totalConta(c.codigo) + (c.codigo === 'CORP10' && unidadeId === 'corporativo' ? _somaRow(licencaSoftwareNovoHcRowCorp) : 0)
+          : g.contas.reduce((acc, c) => acc + totalConta(c.codigo)
             + MESES.reduce((a, _, m) => a + calculadaNaContaMes(c.codigo, m), 0), 0);
         const pacoteAberto = !!pacotesAbertos[g.id];
         return (
