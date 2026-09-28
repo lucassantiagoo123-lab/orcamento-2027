@@ -15154,10 +15154,10 @@ const LINHAS_RESULTADOS = {
     { k: 'fco', label: '(=) FC Operacional (FCO)', total: true },
   ],
   fci: [
-    { k: 'capexCarryover', label: '(−) CapEx — Carryover / Comprometido' },
-    { k: 'capexMelhoria', label: '(−) CapEx — Melhoria Interna' },
-    { k: 'capexDesenvolvimento', label: '(−) CapEx — Desenvolvimento e Expansão' },
-    { k: 'capexSemCategoria', label: '(−) CapEx — sem classificação', soSeHouver: true },
+    { k: 'capexCarryover', label: '(−) CapEx — 1. Carryover / Comprometido' },
+    { k: 'capexMelhoria', label: '(−) CapEx — 2. Melhoria Interna' },
+    { k: 'capexDesenvolvimento', label: '(−) CapEx — 3. Desenvolvimento e Expansão' },
+    { k: 'capexSemCategoria', label: '(−) CapEx — fora dos grupos de CapEx', soSeHouver: true },
     { k: 'aportesInvestidas', label: '(−) Aportes de capital em investidas' },
     { k: 'dividendosRecebidos', label: '(+) Dividendos recebidos' },
     { k: 'fci', label: '(=) FC de Investimentos (FCI)', total: true },
@@ -15197,15 +15197,16 @@ const WATERFALLS_RESULTADOS = {
     { titulo: 'EBITDA', componentes: ['receitaLiquida', 'cpv', 'despesas'], total: 'ebitda' },
   ],
   fco: [{ titulo: 'FC Operacional', componentes: ['ebitda', 'ircsl', 'ajuste13', 'variacaoGiro', 'ajustePagamento'], total: 'fco' }],
-  fci: [{ titulo: 'FC de Investimentos', componentes: ['capexCarryover', 'capexMelhoria', 'capexDesenvolvimento', 'aportesInvestidas', 'dividendosRecebidos'], total: 'fci' }],
+  fci: [{ titulo: 'FC de Investimentos', componentes: ['capexCarryover', 'capexMelhoria', 'capexDesenvolvimento', 'capexSemCategoria', 'aportesInvestidas', 'dividendosRecebidos'], total: 'fci' }],
   fin: [{ titulo: 'FC de Financiamentos', componentes: ['captacoes', 'amortizacoes', 'juros', 'aportesAcionistas', 'distMinoritarios', 'distSocios', 'emprestimosAcionistas', 'devolucaoEmprestimos'], total: 'fin' }],
-  caixa: [{ titulo: 'Saldo de Caixa', componentes: ['fco', 'fci', 'fin', 'bloqueadosNeg'], total: 'disponivel' }],
+  caixa: [{ titulo: 'Saldo de Caixa', componentes: ['fco', 'fci', 'fin', 'bloqueadosNeg'], total: 'disponivel', fluxo: true }],
 };
-// Realizado dos anos anteriores: a base da plataforma só tem o orçamento
-// corrente — enquanto não houver essa fonte, os waterfalls ficam como
-// pendência (nenhum valor digitado ou estimado).
-const ANOS_WATERFALL = { de: 2025, para: 2026 };
-const SERIE_ANOS_ANTERIORES = null;
+// 2027 = orçamento da plataforma. 2026: o usuário ainda vai compartilhar os
+// dados (2026-09-28) — enquanto isso, os waterfalls ficam como pendência
+// (nenhum valor digitado ou estimado). Quando chegar, SERIE_2026 recebe a
+// mesma estrutura de serieResultadosUnidade, por unidade ('grupo' incluso).
+const ANOS_WATERFALL = { de: 2026, para: 2027 };
+const SERIE_2026 = null;
 
 const negarSerie = (arr) => arr.map(v => -v);
 
@@ -15252,7 +15253,7 @@ function serieResultadosSite(dados, siteId, ipcaAnualPct, cambios) {
   const nomeSite = UNIDADES.find(u => u.id === siteId)?.nome || siteId;
   const pendencias = projetos
     .filter(p => !idsCapex.includes(catDe(p)) && somaMes(desembolsosDoProjeto(p)) !== 0)
-    .map(p => `${nomeSite}: projeto de CapEx "${(p.nome || '').trim() || 'sem nome'}" sem categoria reconhecida ("${p.categoria}") — somado em "CapEx — sem classificação".`);
+    .map(p => `${nomeSite}: projeto de CapEx "${(p.nome || '').trim() || 'sem nome'}" fora dos grupos de CapEx ("${p.categoria}") — somado em "CapEx — fora dos grupos de CapEx".`);
   return { serie, dreAnual: dre, pendencias };
 }
 
@@ -15337,30 +15338,52 @@ function TabelaResultados({ linhas, serie, porUnidade, ini, fim }) {
   );
 }
 
-// Waterfall de um ano para o outro: parte do total do ano "de", mostra a
-// variação de cada componente e chega ao total do ano "para". Sem a base dos
-// anos anteriores, mostra a pendência no lugar do gráfico.
-function WaterfallAnual({ config, anterior, atual, nomeFiltro }) {
+// Waterfall 2026 → 2027 (pedido do usuário, 2026-09-28): parte do total de
+// 2026, mostra a variação de cada conta sintética e chega ao total do
+// orçamento 2027 (a base atual), no mesmo período do filtro. O Saldo de
+// Caixa é de fluxo: parte do saldo final de 2026 e soma FCO, FCI,
+// Financiamentos e saldos bloqueados de 2027 até o saldo disponível. Sem os
+// dados de 2026, mostra a pendência no lugar do gráfico.
+const TODAS_LINHAS_RESULTADOS = Object.values(LINHAS_RESULTADOS).flat();
+function rotuloCurto(k) {
+  return (TODAS_LINHAS_RESULTADOS.find(l => l.k === k)?.label || k).replace(/^\([^)]*\)\s*/, '');
+}
+function WaterfallAnual({ config, anterior, atual, ini, fim, nomeFiltro }) {
   const titulo = `${config.titulo} — ${nomeFiltro} · ${ANOS_WATERFALL.de} → ${ANOS_WATERFALL.para}`;
-  if (!anterior || !atual) {
+  if (!anterior) {
     return (
       <div style={{ border: `1px dashed ${COR.laranja}`, borderRadius: 8, padding: 14, background: COR.total }}>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{titulo}</div>
         <div style={{ fontSize: 11, color: COR.texto }}>
-          Sem o realizado de {ANOS_WATERFALL.de} e de {ANOS_WATERFALL.para} na base da plataforma — gráfico pendente (ver Pendências).
+          Aguardando os dados de {ANOS_WATERFALL.de} — gráfico pendente (ver Pendências). O lado {ANOS_WATERFALL.para} já vem do orçamento.
         </div>
       </div>
     );
   }
-  const soma = (serie, k) => serie[k].reduce((a, v) => a + v, 0);
-  const etapas = [
-    { label: String(ANOS_WATERFALL.de), valor: soma(anterior, config.total), tipo: 'inicio' },
-    ...config.componentes.map(k => ({
-      label: (LINHAS_RESULTADOS.dre.concat(LINHAS_RESULTADOS.fco, LINHAS_RESULTADOS.fci, LINHAS_RESULTADOS.fin, LINHAS_RESULTADOS.caixa).find(l => l.k === k)?.label || k).replace(/^\([^)]*\)\s*/, ''),
-      valor: soma(atual, k) - soma(anterior, k), tipo: 'incremento',
-    })),
-    { label: String(ANOS_WATERFALL.para), valor: soma(atual, config.total), tipo: 'total' },
-  ];
+  const linhaDe = (k) => TODAS_LINHAS_RESULTADOS.find(l => l.k === k) || {};
+  const noPeriodo = (serie, k) => valorNoPeriodo(serie[k] || [], linhaDe(k), ini, fim);
+  let etapas;
+  if (config.fluxo) {
+    // Saldo final de 2026 deveria ser o saldo inicial de 2027 do orçamento;
+    // se não bater, a diferença aparece como barra própria (as barras
+    // continuam somando até o total, sem esconder a divergência).
+    const saldoAnterior = (anterior.saldoFinal || [])[fim] || 0;
+    const diferencaAbertura = (atual.saldoInicial?.[ini] || 0) - saldoAnterior;
+    etapas = [
+      { label: `Saldo ${ANOS_WATERFALL.de}`, valor: saldoAnterior, tipo: 'inicio' },
+      ...(Math.abs(diferencaAbertura) > 0.01 ? [{ label: 'Diferença de abertura', valor: diferencaAbertura, tipo: 'incremento' }] : []),
+      ...config.componentes.map(k => ({ label: rotuloCurto(k), valor: noPeriodo(atual, k), tipo: 'incremento' })),
+      { label: `Saldo ${ANOS_WATERFALL.para}`, valor: noPeriodo(atual, config.total), tipo: 'total' },
+    ];
+  } else {
+    etapas = [
+      { label: String(ANOS_WATERFALL.de), valor: noPeriodo(anterior, config.total), tipo: 'inicio' },
+      ...config.componentes
+        .map(k => ({ k, label: rotuloCurto(k), valor: noPeriodo(atual, k) - noPeriodo(anterior, k), tipo: 'incremento' }))
+        .filter(e => !(linhaDe(e.k).soSeHouver && e.valor === 0)),
+      { label: String(ANOS_WATERFALL.para), valor: noPeriodo(atual, config.total), tipo: 'total' },
+    ];
+  }
   return (
     <div>
       <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>{titulo}</div>
@@ -15451,7 +15474,7 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct,
   ];
 
   const pendencias = [
-    `Realizado de ${ANOS_WATERFALL.de} e de ${ANOS_WATERFALL.para}: não existe na base da plataforma (só o orçamento corrente) — os gráficos waterfall ficam pendentes até essa fonte ser carregada.`,
+    `Dados de ${ANOS_WATERFALL.de}: ainda não carregados na plataforma — os gráficos waterfall ${ANOS_WATERFALL.de} → ${ANOS_WATERFALL.para} ficam pendentes até esses dados serem compartilhados (o lado ${ANOS_WATERFALL.para} já vem do orçamento).`,
     'Saldos bloqueados: não há campo na base — considerados R$ 0,00; o saldo disponível é igual ao saldo final.',
     ...atual.pendencias,
   ];
@@ -15558,9 +15581,8 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct,
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Waterfall {ANOS_WATERFALL.de} → {ANOS_WATERFALL.para}</h4>
       <div style={{ display: 'grid', gridTemplateColumns: waterfalls.length > 1 ? 'repeat(auto-fit, minmax(420px, 1fr))' : '1fr', gap: 16, marginBottom: 22 }}>
         {waterfalls.map(w => (
-          <WaterfallAnual key={w.titulo} config={w} nomeFiltro={`${nomeFiltro} · ${periodo}`}
-            anterior={SERIE_ANOS_ANTERIORES?.[ANOS_WATERFALL.de]?.[filtroUnidade] || null}
-            atual={SERIE_ANOS_ANTERIORES?.[ANOS_WATERFALL.para]?.[filtroUnidade] || null} />
+          <WaterfallAnual key={w.titulo} config={w} nomeFiltro={`${nomeFiltro} · ${periodo}`} ini={ini} fim={fim}
+            anterior={SERIE_2026?.[filtroUnidade] || null} atual={serie} />
         ))}
       </div>
 
