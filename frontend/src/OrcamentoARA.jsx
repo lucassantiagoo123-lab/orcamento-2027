@@ -156,11 +156,15 @@ function contaLancavelNaAba(conta, pacoteId, unidadeId) {
 
 // Tipo contábil de uma linha lançada: pelo tipo do CC (regra geral) ou, onde
 // ref.dreSegueOrigemConta (Agrícola), pela origem da conta — Custo → CPV.
+// Depreciação (pacote 'depreciacao') sempre abaixo do EBITDA, mesmo em conta
+// de origem Custo como 71102008 (pedido do usuário, 2026-09-28) — só nessa
+// exceção a origem não decide.
 function tipoDaLinha(ref, cc, contaCodigo) {
   if (ref.dreSegueOrigemConta) {
-    const origem = ref.todasContas?.[contaCodigo]?.origem;
-    if (origem === 'Custo') return 'producao';
-    if (origem === 'Despesa') return 'despesa';
+    const conta = ref.todasContas?.[contaCodigo];
+    if (conta?.pacoteId === 'depreciacao') return 'despesa';
+    if (conta?.origem === 'Custo') return 'producao';
+    if (conta?.origem === 'Despesa') return 'despesa';
   }
   return cc.tipo;
 }
@@ -1048,6 +1052,13 @@ export const CCS_AGRICOLA = [
   { codigo: '50502', nome: 'Adm PH', tipo: 'producao', nivel: 3, areaCodigo: '505' },
   { codigo: '50503', nome: 'Operações PH', tipo: 'producao', nivel: 3, areaCodigo: '505' },
   { codigo: '50504', nome: 'Embalagem', tipo: 'producao', nivel: 3, areaCodigo: '505' },
+  // 50505/50506 (2026-09-28, pedido do usuário): códigos reais da Terra do
+  // Sol no Protheus para Logística e Câmara Fria — a Frutos do Sol usa
+  // 50605/50606 para as mesmas funções (ver notas lá). Confirmado na Base
+  // orçamento 2026.xlsx: 158 lançamentos em 50505 e 72 em 50506, nenhum em
+  // 50605/50606 para a filial TDS. Mesmo tipo e nome dos CCs equivalentes.
+  { codigo: '50505', nome: 'Logística', tipo: 'despesa', nivel: 3, areaCodigo: '505' },
+  { codigo: '50506', nome: 'Câmara Fria', tipo: 'producao', nivel: 3, areaCodigo: '505' },
 
   { codigo: '506', nome: 'Comercial', tipo: 'despesa', nivel: 2, areaCodigo: null },
   { codigo: '50601', nome: 'Vendas', tipo: 'despesa', nivel: 3, areaCodigo: '506' },
@@ -1144,8 +1155,8 @@ export const CONTAS_POR_CC_AGRICOLA = {
   '50502': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101011', '71101015', '71102001', '71102003', '71102004', '71102007', '71102008', '71102009', '71102012', '71102018', '71102019', '71102022', '71102024', '71102026', '71102032', '71102033', '71102034', '71102036', '71102040', '71102045', '71102046', '71102049', '71102050', '71102090', '71103099'], // Adm PH
   '50503': ['71101001', '71101002', '71101003', '71101004', '71101005', '71101006', '71101007', '71101008', '71101010', '71102008'], // Operações PH
   '50504': ['71102013'], // Embalagem
-  '50505': ['34101001', '34101003', '34101004', '34101005', '34101006', '34101014', '34101015', '34104009', '34104031', '34202010', '34202011', '34202015', '34202036', '71102038', '71102039'], // Logística
-  '50506': ['71101001', '71101002', '71101004', '71101005', '71101006', '71101007'], // Câmara Fria
+  '50505': ['34101001', '34101003', '34101004', '34101005', '34101006', '34101014', '34101015', '34104009', '34104031', '34202010', '34202011', '34202015', '34202036', '71102038', '71102039'], // Logística (Terra do Sol — CC próprio desde 2026-09-28)
+  '50506': ['71101001', '71101002', '71101004', '71101005', '71101006', '71101007'], // Câmara Fria (Terra do Sol — CC próprio desde 2026-09-28)
   '50601': ['34102001', '34104003', '34202034', '71102042'], // Vendas
   '50602': ['34103001', '34202010'], // Marketing
   '50605': ['34202006', '34202010', '34202036', '71102009', '71102026', '71102038', '71102039', '71103001'], // Logística (Comercial)
@@ -3157,9 +3168,10 @@ function computeGruposReceitaTipo(lados, unidadeKind, cambios) {
 // à mão em contas do pacote 'pessoal' (2026-09-08: na Resorts todo CC vê o
 // plano inteiro, então essas contas passaram a ser lançáveis — antes só o
 // Corporativo tinha esse caso, via CONTA_CONSULTORIA_PJ). O pacote
-// 'depreciacao' lançado em CC de produção entra no CPV, como em computeDRE
-// (corrigido em 2026-09-28: antes ficava de fora e o detalhamento não fechava
-// com o CPV). Depreciação de CC de despesa segue abaixo do EBITDA.
+// 'depreciacao' nunca soma no CPV (tipoDaLinha sempre devolve 'despesa' para
+// ele na Agrícola/Resorts, ver nota lá, mesmo em conta de origem Custo) —
+// fica de fora deste detalhamento, mesma regra das demais unidades: some
+// só na linha "Depreciação e Amortização" abaixo do EBITDA.
 // Valor de uma linha lançada no mês, só se ela for do tipo contábil pedido
 // (tipoDaLinha: tipo do CC, ou origem da conta na Agrícola).
 function valorLinhaDoTipo(lado, cc, contaCodigo, m, tipo, ipcaAnualPct) {

@@ -444,12 +444,15 @@ export function computeFolhaPessoalAnual(funcionariosCC, premissas) {
 // "Headcount Existente" do pacote Pessoal, somada como qualquer conta em
 // custos.linhas (ver cpv/despesasSemDA abaixo). Só 'novo' passa por aqui.
 // Tipo contábil de uma linha: tipo do CC, ou origem da conta onde
-// ref.dreSegueOrigemConta (Agrícola) — espelho do frontend.
+// ref.dreSegueOrigemConta (Agrícola) — espelho do frontend. Depreciação
+// (pacote 'depreciacao') sempre abaixo do EBITDA, mesmo em conta de origem
+// Custo como 71102008 (pedido do usuário, 2026-09-28).
 export function tipoDaLinha(ref, cc, contaCodigo) {
   if (ref.dreSegueOrigemConta) {
-    const origem = ref.todasContas?.[contaCodigo]?.origem;
-    if (origem === 'Custo') return 'producao';
-    if (origem === 'Despesa') return 'despesa';
+    const conta = ref.todasContas?.[contaCodigo];
+    if (conta?.pacoteId === 'depreciacao') return 'despesa';
+    if (conta?.origem === 'Custo') return 'producao';
+    if (conta?.origem === 'Despesa') return 'despesa';
   }
   return cc.tipo;
 }

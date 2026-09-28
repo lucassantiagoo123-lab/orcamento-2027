@@ -77,6 +77,13 @@ export const CCS_AGRICOLA = [
   { codigo: '50502', nome: 'Adm PH', tipo: 'producao', nivel: 3, areaCodigo: '505' },
   { codigo: '50503', nome: 'Operações PH', tipo: 'producao', nivel: 3, areaCodigo: '505' },
   { codigo: '50504', nome: 'Embalagem', tipo: 'producao', nivel: 3, areaCodigo: '505' },
+  // 50505/50506 (2026-09-28, pedido do usuário): códigos reais da Terra do
+  // Sol no Protheus para Logística e Câmara Fria — a Frutos do Sol usa
+  // 50605/50606 para as mesmas funções (ver notas lá). Confirmado na Base
+  // orçamento 2026.xlsx: 158 lançamentos em 50505 e 72 em 50506, nenhum em
+  // 50605/50606 para a filial TDS. Mesmo tipo e nome dos CCs equivalentes.
+  { codigo: '50505', nome: 'Logística', tipo: 'despesa', nivel: 3, areaCodigo: '505' },
+  { codigo: '50506', nome: 'Câmara Fria', tipo: 'producao', nivel: 3, areaCodigo: '505' },
 
   { codigo: '506', nome: 'Comercial', tipo: 'despesa', nivel: 2, areaCodigo: null },
   { codigo: '50601', nome: 'Vendas', tipo: 'despesa', nivel: 3, areaCodigo: '506' },
