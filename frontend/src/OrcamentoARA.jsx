@@ -148,8 +148,16 @@ function contasDoPacoteNoCc(planoContas, pacoteId, cc, unidadeId) {
 // pacote Pessoal só entram Headcount Existente, as contas `individual` (EPI,
 // treinamento…) e, no Corporativo, Consultorias PJ — as demais (salários,
 // encargos, férias…) já estão na folha. Nos outros pacotes, todas.
+// Exceção ARA Agrícola (2026-09-28, pedido do usuário): todo o pacote
+// Pessoal é editável — há CCs sem estrutura por função (ex.: TDS 50101) em
+// que o pessoal foi lançado direto nas contas analíticas (ver
+// ehUnidadeAgricola e o bloco "Demais contas de pessoal" na aba Custos).
+function ehUnidadeAgricola(unidadeId) {
+  return unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds' || unidadeId === 'agricola';
+}
 function contaLancavelNaAba(conta, pacoteId, unidadeId) {
   if (pacoteId !== 'pessoal') return true;
+  if (ehUnidadeAgricola(unidadeId)) return true;
   return conta.nome === 'Headcount Existente' || conta.codigo.startsWith('HC_EXISTENTE') || !!conta.individual
     || (unidadeId === 'corporativo' && conta.codigo === CONTA_CONSULTORIA_PJ);
 }
@@ -4111,23 +4119,8 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   // não precisa ser por fornecedor"). Tinha sido adicionado em 2026-08-23,
   // ver histórico do commit se precisar recuperar.
 
-  const inadMensal = (data.provisoes.inadimplencia || []).map(parseNum);
-  const inadForaFaixa = inadMensal.some(v => v < 0 || v > 100);
-  checks.push({
-    label: 'Inadimplência dentro da faixa 0% a 100% em todos os meses',
-    ok: !inadForaFaixa,
-    detalhe: inadForaFaixa ? 'Há mês com inadimplência fora da faixa' : 'Todos os meses dentro da faixa',
-  });
-
-  if (temReceita) {
-    const somaDeducoesMensal = MESES.map((_, m) => (data.receita.deducoes || []).reduce((acc, d) => acc + parseNum(d.pcts?.[m]), 0));
-    const deducaoForaFaixa = somaDeducoesMensal.some(v => v < 0 || v > 40);
-    checks.push({
-      label: 'Deduções sobre receita dentro de faixa plausível (0% a 40%) em todos os meses',
-      ok: !deducaoForaFaixa,
-      detalhe: deducaoForaFaixa ? 'Há mês com soma de deduções fora da faixa' : 'Todos os meses dentro da faixa',
-    });
-  }
+  // Checks de faixa de inadimplência (0–100%) e de deduções (0–40%)
+  // retirados em 2026-09-28 (pedido do usuário) — espelho no backend.
 
   // ARA Agrícola (2026-09-07): checa negativo em todos os arrays mensais da
   // cascata (embaladaKg, refugoPct é um único valor — checado à parte).
@@ -10324,7 +10317,7 @@ function SeletorCcs({ ccs, ccSel, onSelect }) {
 // Folha calculada" (a folha nunca é uma conta em custos.linhas) antes das
 // contas analíticas de verdade do pacote (ex.: Consultórias PJs, só
 // Corporativo — ver CONTA_CONSULTORIA_PJ).
-function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC, folhaCC }) {
+function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC, folhaCC, unidadeId }) {
   const [pacotesAbertos, setPacotesAbertos] = useState({});
   const [contasAbertas, setContasAbertas] = useState({});
 
@@ -10453,7 +10446,8 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
                   </React.Fragment>
                 )}
                 {/* HC Existente já está dentro da linha CLT acima — não renderizar de novo */}
-                {pAberto && contas.filter(c => c.nome !== 'Headcount Existente').map(c => {
+                {/* Só contas lançáveis na aba (ver contaLancavelNaAba) ou com valor gravado — as de folha (salários, encargos…) já estão na linha CLT. */}
+                {pAberto && contas.filter(c => c.nome !== 'Headcount Existente' && (contaLancavelNaAba(c, p.id, unidadeId) || totalContaAnual(c) !== 0)).map(c => {
                   const chaveConta = `${p.id}|${c.codigo}`;
                   const cAberto = !!contasAbertas[chaveConta];
                   // Só os CCs que de fato têm lançamento nesta conta — desde
@@ -10939,7 +10933,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                 Soma de todos os Centros de Custo desta unidade, agrupada por Pacote → Conta analítica → Centro de Custo —
                 clique numa linha com seta para abrir a quebra. Visível para Admin FP&A e Gestor da Unidade.
               </p>
-              <VisaoConsolidadaPorPacote refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} />
+              <VisaoConsolidadaPorPacote refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} unidadeId={unidadeId} />
             </div>
           )}
         </div>
@@ -11597,6 +11591,48 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                             />
                           </div>
                         ))}
+
+                        {/* ARA Agrícola (2026-09-28, pedido do usuário): demais contas do
+                            pacote Pessoal (salários, 13º, férias, INSS, FGTS, horas extras…)
+                            ganham campo de edição. Há CCs sem estrutura por função (ex.: TDS
+                            50101) em que o pessoal foi carregado direto nessas contas — o
+                            valor existia e somava na DRE, mas não aparecia em nenhum campo.
+                            Nas demais unidades essas contas continuam vindo só da folha. */}
+                        {ehUnidadeAgricola(unidadeId) && (() => {
+                          const contasFolha = g.contas.filter(c => !c.individual && c.nome !== 'Headcount Existente');
+                          if (contasFolha.length === 0) return null;
+                          return (
+                            <div style={{ marginTop: 16 }}>
+                              <h5 style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '4px 0 8px' }}>1.3 Demais contas de pessoal</h5>
+                              <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: 12, marginBottom: 10, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                                <Info size={16} color={COR.laranja} style={{ flexShrink: 0, marginTop: 1 }} />
+                                <div style={{ fontSize: 11, color: COR.texto }}>
+                                  Contas analíticas de pessoal do plano oficial. Use-as nos CCs sem planilha de pessoal por função (o pessoal é lançado
+                                  conta a conta). Se o CC já tem valor no <b>Headcount Existente</b> acima, não repita salários e encargos aqui — o valor
+                                  seria contado duas vezes.
+                                </div>
+                              </div>
+                              {contasFolha.map(c => (
+                                <div key={c.codigo} style={{ marginTop: 10 }}>
+                                  <LinhaConta
+                                    conta={c}
+                                    linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                                    aberta={contaAberta === chaveLinha(c.codigo)}
+                                    onToggle={() => toggleConta(c.codigo)}
+                                    onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                                    onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                                    onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                                    onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                                    total={totalConta(c.codigo)}
+                                    receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                                    unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                                    receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </>
                     ) : (
                       // Sem HC_EXISTENTE: layout original ────────────────────

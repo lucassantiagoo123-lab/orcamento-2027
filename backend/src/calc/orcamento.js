@@ -1296,23 +1296,8 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
   // como obrigatória para todas as unidades"). Espelho de
   // frontend/src/OrcamentoARA.jsx.
 
-  const inadMensal = (data.provisoes.inadimplencia || []).map(parseNum);
-  const inadForaFaixa = inadMensal.some(v => v < 0 || v > 100);
-  checks.push({
-    label: 'Inadimplência dentro da faixa 0% a 100% em todos os meses',
-    ok: !inadForaFaixa,
-    detalhe: inadForaFaixa ? 'Há mês com inadimplência fora da faixa' : 'Todos os meses dentro da faixa',
-  });
-
-  if (temReceita) {
-    const somaDeducoesMensal = MESES.map((_, m) => (data.receita.deducoes || []).reduce((acc, d) => acc + parseNum(d.pcts?.[m]), 0));
-    const deducaoForaFaixa = somaDeducoesMensal.some(v => v < 0 || v > 40);
-    checks.push({
-      label: 'Deduções sobre receita dentro de faixa plausível (0% a 40%) em todos os meses',
-      ok: !deducaoForaFaixa,
-      detalhe: deducaoForaFaixa ? 'Há mês com soma de deduções fora da faixa' : 'Todos os meses dentro da faixa',
-    });
-  }
+  // Checks de faixa de inadimplência (0–100%) e de deduções (0–40%)
+  // retirados em 2026-09-28 (pedido do usuário) — espelho do frontend.
 
   // ARA Agrícola (2026-09-07): checa negativo em todos os arrays mensais da
   // cascata (embaladaKg, refugoPct é um único valor — checado à parte).
