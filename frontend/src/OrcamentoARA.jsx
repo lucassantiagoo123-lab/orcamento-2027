@@ -4606,8 +4606,21 @@ function PainelPlanoContas({ refUnidade }) {
                 </div>
                 {p.ref && <div style={{ fontSize: 9.5, color: '#8A8F96', marginBottom: 4 }}>{p.ref}</div>}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                  {contas.map(c => {
+                  {contas.map((c, idx) => {
                     const sintetica = c.codigo.startsWith('HC_EXISTENTE');
+                    // HC_EXISTENTE_C (CC de produção → CPV) e _D (CC de despesa →
+                    // Despesas) viram um item só no painel (2026-09-28): cada CC só
+                    // vê uma delas, mas lado a lado pareciam conta repetida.
+                    const hcs = contas.filter(x => x.codigo.startsWith('HC_EXISTENTE'));
+                    if (sintetica && hcs.length > 1) {
+                      if (contas.findIndex(x => x.codigo.startsWith('HC_EXISTENTE')) !== idx) return null;
+                      return (
+                        <span key="__hc_existente__" title="Conta sintética da plataforma: _C nos CCs de produção (CPV), _D nos CCs de despesa. Cada CC mostra só uma."
+                          style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: COR.branco, color: COR.texto, border: `1px dashed ${COR.laranja}` }}>
+                          <span style={{ color: '#8A8F96' }}>{hcs.map(x => x.codigo).join(' / ')}</span> headcount existente (C = CC de produção, D = CC de despesa)
+                        </span>
+                      );
+                    }
                     return (
                       <span key={c.origem + c.codigo} title={sintetica ? `${c.codigo} — conta sintética, não vem de nenhum arquivo-fonte` : c.codigo}
                         style={{
