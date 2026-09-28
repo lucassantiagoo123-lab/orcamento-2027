@@ -10816,11 +10816,10 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
 
       <SeletorCcs ccs={ccsVisiveis} ccSel={ccSel} onSelect={cc => { setCcSel(cc); setContaAberta(null); }} />
 
-      {/* Consolidado por pacote (2026-08-23, revisado): só Admin FP&A —
-          é uma visão de auditoria/governança da unidade inteira
-          (Pacote > Conta analítica > Centro de Custo, todos os CCs), não
-          faz sentido pro Gestor de Unidade nem pro Gestor de CC. */}
-      {usuario?.perfil === 'admin_fpa' && (
+      {/* Consolidado por pacote e por CC (2026-08-23): visão da unidade
+          inteira (todos os CCs). Liberada também ao Gestor da Unidade em
+          2026-09-28 (pedido do usuário); Gestor de CC continua sem ela. */}
+      {(usuario?.perfil === 'admin_fpa' || usuario?.perfil === 'gerente_unidade') && (
         <React.Fragment>
         <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
           <button
@@ -10840,7 +10839,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             <div style={{ padding: 8 }}>
               <p style={{ fontSize: 11, color: '#7A8088', margin: '2px 2px 8px' }}>
                 Soma de todos os Centros de Custo desta unidade, agrupada por Pacote → Conta analítica → Centro de Custo —
-                clique numa linha com seta para abrir a quebra. Só visível para Admin FP&A.
+                clique numa linha com seta para abrir a quebra. Visível para Admin FP&A e Gestor da Unidade.
               </p>
               <VisaoConsolidadaPorPacote refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} />
             </div>
@@ -10864,7 +10863,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             <div style={{ padding: 8 }}>
               <p style={{ fontSize: 11, color: '#7A8088', margin: '2px 2px 8px' }}>
                 Soma de todos os Centros de Custo desta unidade, agrupada por CC → Conta sintética (Pacote) → Conta analítica —
-                clique numa linha com seta para abrir a quebra. Só visível para Admin FP&A.
+                clique numa linha com seta para abrir a quebra. Visível para Admin FP&A e Gestor da Unidade.
               </p>
               <VisaoConsolidadaPorCC refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} encargosNovoHcPct={premissasPessoal?.encargosNovoHcPct} calcPessoalCC={calcPessoalCC} />
             </div>
