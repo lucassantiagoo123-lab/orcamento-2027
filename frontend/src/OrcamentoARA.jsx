@@ -138,6 +138,16 @@ function contasDoPacoteNoCc(planoContas, pacoteId, cc, unidadeId) {
   return contas.filter(c => c.origem === origem || (liberadas && liberadas.includes(c.codigo)));
 }
 
+// Conta que aparece como campo de lançamento na aba Custos (2026-09-28). No
+// pacote Pessoal só entram Headcount Existente, as contas `individual` (EPI,
+// treinamento…) e, no Corporativo, Consultorias PJ — as demais (salários,
+// encargos, férias…) já estão na folha. Nos outros pacotes, todas.
+function contaLancavelNaAba(conta, pacoteId, unidadeId) {
+  if (pacoteId !== 'pessoal') return true;
+  return conta.nome === 'Headcount Existente' || conta.codigo.startsWith('HC_EXISTENTE') || !!conta.individual
+    || (unidadeId === 'corporativo' && conta.codigo === CONTA_CONSULTORIA_PJ);
+}
+
 // Tipo contábil de uma linha lançada: pelo tipo do CC (regra geral) ou, onde
 // ref.dreSegueOrigemConta (Agrícola), pela origem da conta — Custo → CPV.
 function tipoDaLinha(ref, cc, contaCodigo) {
@@ -10936,7 +10946,11 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
         {ccsAbertosMacro.__secao__ && (
         <div style={{ padding: 8 }}>
         {ccsConsolidado.map(cc => {
-          const contasCC = contasDoCc(cc);
+          // Só as contas lançáveis na aba (ver contaLancavelNaAba). Conta de
+          // pessoal que já tenha valor gravado continua aparecendo, para a
+          // soma das linhas fechar com o total do CC — nenhum dado é escondido.
+          const contasCC = contasDoCc(cc).filter(c =>
+            contaLancavelNaAba(c, refUnidade.todasContas?.[c.codigo]?.pacoteId, unidadeId) || totalContaAnualCC(cc.codigo, c.codigo) !== 0);
           const folhaCCAtual = folhaCC(cc.codigo);
           const aberto = !!ccsAbertosMacro[cc.codigo];
           const totalCcAno = totalCcAnual(cc.codigo);
