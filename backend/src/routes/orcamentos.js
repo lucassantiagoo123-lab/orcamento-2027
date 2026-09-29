@@ -42,7 +42,7 @@ export const orcamentosRouter = Router();
 
 // Só pra mensagem do e-mail de notificação — não é usado em nenhum cálculo.
 const NOME_UNIDADE = {
-  textil: 'ARA Têxtil',
+  textil: 'ARA Têxtil — Produção Core', textil_bg: 'ARA Têxtil — Produção BG', textil_consolidado: 'ARA Têxtil — Consolidado',
   agricola: 'ARA Agrícola — Consolidado', agricola_tds: 'ARA Agrícola — Terra do Sol', agricola_fds: 'ARA Agrícola — Frutos do Sol',
   resorts: 'ARA Resorts — Consolidado', samoa_beach: 'ARA Resorts — Samoa Beach', samoa_villa: 'ARA Resorts — Samoa Villa',
   corporativo: 'Corporativo', energia: 'Escritório de Investimentos',
@@ -86,7 +86,7 @@ function verificarPerdasAposSalvar(req, antes, depois) {
 // formulário de premissa próprio, só essas duas chamadas).
 // 2026-09-27: ARA EI (Holding, La Fleur II, South Bay + Consolidado 'ei') e
 // Escritório de Investimentos ('energia', só aportes/dividendos) habilitados.
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'textil_bg', 'textil_consolidado', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
 
 // Período de edição encerrado pelo Admin FP&A (por unidade): Gestor de CC
 // só visualiza. Demais perfis seguem editando.

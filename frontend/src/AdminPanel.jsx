@@ -12,7 +12,7 @@ import {
 } from './api/admin.js';
 import { definirSenhaUsuario } from './api/senha.js';
 import { ApiError } from './api/client.js';
-import { CCS_TEXTIL, CCS_AGRICOLA, CCS_RESORTS, CCS_CORPORATIVO, CCS_EI, FAMILIA_AGRICOLA, FAMILIA_RESORTS, FAMILIA_EI } from './OrcamentoARA.jsx';
+import { CCS_TEXTIL, CCS_AGRICOLA, CCS_RESORTS, CCS_CORPORATIVO, CCS_EI, FAMILIA_AGRICOLA, FAMILIA_RESORTS, FAMILIA_EI, FAMILIA_TEXTIL } from './OrcamentoARA.jsx';
 
 const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9D9D9', claro: '#F7F7F7' };
 // 2026-08-20: Agrícola e Resorts viraram 3 "unidades" cada — os 2 sites
@@ -22,7 +22,7 @@ const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9
 // vinculadas pra ter o pacote completo (editar os dois sites + enviar o
 // Consolidado); um Gestor de CC só precisa dos dois sites (não acessa o
 // Consolidado).
-const UNIDADES_IDS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'resorts', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'ei', 'energia', 'corporativo'];
+const UNIDADES_IDS = ['textil', 'textil_bg', 'textil_consolidado', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'resorts', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'ei', 'energia', 'corporativo'];
 // Bug encontrado em 2026-08-30: os 3 botões de uma família (ex.: samoa_beach/
 // samoa_villa/resorts) eram toggles independentes — marcar só 'resorts' (ou
 // esquecer um dos dois sites) deixava um Gestor da Unidade com vínculo
@@ -31,7 +31,7 @@ const UNIDADES_IDS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'sam
 // juntos (Promise.all) e quebra com "Sem acesso à unidade samoa_villa" (ou
 // samoa_beach) assim que falta um dos três. Agrupar aqui pra marcar/
 // desmarcar a família inteira de uma vez elimina esse estado inválido.
-const FAMILIAS_UNIDADE = [FAMILIA_AGRICOLA, FAMILIA_RESORTS, FAMILIA_EI];
+const FAMILIAS_UNIDADE = [FAMILIA_AGRICOLA, FAMILIA_RESORTS, FAMILIA_EI, FAMILIA_TEXTIL];
 const PERFIL_LABEL = {
   admin_fpa: 'Admin FP&A',
   gerente_unidade: 'Gestor da Unidade',
@@ -46,6 +46,8 @@ const PERFIL_LABEL = {
 // CC real; ARA EI ganhou CC em 2026-09-27. Escritório de Investimentos não tem CC.
 const CCS_POR_UNIDADE = {
   textil: CCS_TEXTIL,
+  textil_bg: CCS_TEXTIL, // Produção BG (2026-09-29): mesma estrutura da Produção Core
+  textil_consolidado: [], // Consolidado — sem CC próprio
   agricola_tds: CCS_AGRICOLA,
   agricola_fds: CCS_AGRICOLA,
   agricola: [], // Consolidado — sem CC próprio pra vincular Gestor de CC (ver nota acima)
@@ -644,7 +646,8 @@ const CAMPO_LABEL = {
   balanco: 'Balanço Patrimonial', plano5y: 'Plano 5Y (2028-2031)', sensibilidades: 'Sensibilidades',
 };
 const UNIDADE_LABEL = {
-  textil: 'ARA Têxtil', agricola: 'ARA Agrícola — Consolidado',
+  textil: 'ARA Têxtil — Produção Core', textil_bg: 'ARA Têxtil — Produção BG', textil_consolidado: 'ARA Têxtil — Consolidado',
+  agricola: 'ARA Agrícola — Consolidado',
   agricola_tds: 'ARA Agrícola — Terra do Sol', agricola_fds: 'ARA Agrícola — Frutos do Sol',
   resorts: 'ARA Resorts — Consolidado', samoa_beach: 'ARA Resorts — Samoa Beach',
   samoa_villa: 'ARA Resorts — Samoa Villa', corporativo: 'Corporativo',

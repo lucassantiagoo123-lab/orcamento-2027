@@ -248,7 +248,7 @@ export function contaTemNegativo(contaRaw) {
 // linhas de hotelaria (Resorts). unidades sem modelo definido (Corporativo,
 // EI, Energia) caem no genérico vazio — não têm lançamento habilitado mesmo.
 function receitaVazia(unidadeId) {
-  if (unidadeId === 'textil') {
+  if (unidadeId === 'textil' || unidadeId === 'textil_bg') {
     return {
       produtos: PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
@@ -331,7 +331,7 @@ export function emptyFormData(unidadeId = 'textil') {
       // Só usado por ARA Têxtil (ver Premissas Têxtil.xlsx, aba Premissas
       // Kgiro — decisão de 2026-08-16). Agrícola/Resorts continuam só com
       // os prazos em dias acima.
-      ...(unidadeId === 'textil' ? {
+      ...(unidadeId === 'textil' || unidadeId === 'textil_bg' ? {
         recebimentosEmCarteira: mesesVazios(),
         recebimentosVendasNovDez: mesesVazios(),
         premissasRecebimento: premissasRecebimentoVazias(),
@@ -370,7 +370,7 @@ export function emptyFormData(unidadeId = 'textil') {
       // saldosIniciais = coluna Dez/25 (saldo de partida, um valor por
       // conta) — substitui os campos escalares antigos (caixaInicial etc.)
       // como fonte dos cálculos de FC para Têxtil (ver saldosAberturaFc).
-      ...(unidadeId === 'textil' ? { planoContas: planoContasBalancoVazio(), saldosIniciais: saldosIniciaisBalancoVazio() } : {}),
+      ...(unidadeId === 'textil' || unidadeId === 'textil_bg' ? { planoContas: planoContasBalancoVazio(), saldosIniciais: saldosIniciaisBalancoVazio() } : {}),
     },
     plano5y: {
       anos: {
@@ -781,6 +781,7 @@ const CONSOLIDADOS_MULTISITE = {
   agricola: { tipo: 'consolidado_agricola', sites: ['agricola_tds', 'agricola_fds'] },
   resorts: { tipo: 'consolidado_resorts', sites: ['samoa_beach', 'samoa_villa'] },
   ei: { tipo: 'consolidado_ei', sites: ['ei_holding', 'ei_lafleur', 'ei_southbay'] },
+  textil_consolidado: { tipo: 'consolidado_textil', sites: ['textil', 'textil_bg'] },
 };
 // true se `d` é um dos wrappers acima (qualquer família) — espelho de
 // ehSnapshotConsolidado em frontend/src/OrcamentoARA.jsx.

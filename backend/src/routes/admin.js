@@ -41,7 +41,7 @@ const PERFIS_VALIDOS = ['admin_fpa', 'gerente_unidade', 'gerente_cc_corporativo'
 // /usuarios/:id/unidades pra qualquer site individual sempre voltava 400
 // unidadeId_invalido, silenciosamente (o frontend não tinha tratamento de
 // erro nesse clique — parecia que o botão não fazia nada).
-const UNIDADES_VALIDAS = ['textil', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'resorts', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia', 'corporativo'];
+const UNIDADES_VALIDAS = ['textil', 'textil_bg', 'textil_consolidado', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'resorts', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia', 'corporativo'];
 
 adminRouter.get('/usuarios', async (req, res, next) => {
   try {
@@ -231,7 +231,7 @@ adminRouter.post('/migracoes/plano-contas-resorts', async (req, res, next) => {
 });
 
 // --- Período de edição dos Gestores de CC, por unidade (2026-09-23) ---
-const UNIDADES_PERIODO_EDICAO = ['textil', 'agricola_tds', 'agricola_fds', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
+const UNIDADES_PERIODO_EDICAO = ['textil', 'textil_bg', 'agricola_tds', 'agricola_fds', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
 
 adminRouter.get('/periodo-edicao', async (req, res, next) => {
   try {

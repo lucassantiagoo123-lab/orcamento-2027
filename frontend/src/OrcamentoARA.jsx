@@ -37,7 +37,7 @@ const PERFIL_LABEL = {
 // — não têm formulário de premissa próprio (a tela não deixa editar `dados`
 // neles).
 // 2026-09-27: ARA EI (família de 3 + Consolidado) e Escritório de Investimentos.
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'textil_bg', 'textil_consolidado', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
 
 const COR = {
   azul: '#0C4391',
@@ -55,7 +55,12 @@ const COR = {
 // mesmo tamanho") — o tamanho na tela agora vem só da caixa fixa no render
 // do nav (ver VisaoGerente), não mais de um valor por unidade aqui.
 const UNIDADES = [
-  { id: 'textil', nome: 'ARA Têxtil', cor: '#0069B4', logo: '/logos/ara-textil.jpg' },
+  // ARA Têxtil virou família em 2026-09-29 (pedido do usuário): 'textil' continua
+  // sendo o orçamento que já existia (Produção Core, sem migrar dado nenhum),
+  // 'textil_bg' é a Produção BG (mesma estrutura) e 'textil_consolidado' a soma.
+  { id: 'textil', nome: 'ARA Têxtil — Produção Core', cor: '#0069B4', logo: '/logos/ara-textil.jpg' },
+  { id: 'textil_bg', nome: 'ARA Têxtil — Produção BG', cor: '#0069B4', logo: '/logos/ara-textil.jpg' },
+  { id: 'textil_consolidado', nome: 'ARA Têxtil — Consolidado', cor: '#0069B4', logo: '/logos/ara-textil.jpg' },
   // ARA Agrícola virou 3 "unidades" em 2026-08-20 (duas fazendas + o
   // consolidado das duas) — ver FAMILIA_AGRICOLA/ConsolidadoAgricola. O
   // nav agrupa as 3 sob um único botão "ARA Agrícola"; escolher a fazenda
@@ -88,6 +93,18 @@ const UNIDADES = [
 // único botão "ARA Agrícola" na barra de navegação (ver VisaoGerente).
 // Exportado (2026-08-30) pra AdminPanel.jsx vincular a família inteira de
 // uma vez ao marcar um Gestor da Unidade — ver nota em toggleUnidade lá.
+// ARA Têxtil (2026-09-29): Produção Core + Produção BG + Consolidado.
+export const FAMILIA_TEXTIL = ['textil', 'textil_bg', 'textil_consolidado'];
+const SUBUNIDADES_TEXTIL = [
+  { id: 'textil', nome: 'Produção Core' },
+  { id: 'textil_bg', nome: 'Produção BG' },
+  { id: 'textil_consolidado', nome: 'Consolidado' },
+];
+// Unidade com a estrutura da Têxtil (produtos, estoque, Kgiro e Balanço
+// próprios): Produção Core e Produção BG.
+function ehUnidadeTextil(unidadeId) {
+  return unidadeId === 'textil' || unidadeId === 'textil_bg';
+}
 export const FAMILIA_AGRICOLA = ['agricola_tds', 'agricola_fds', 'agricola'];
 const SUBUNIDADES_AGRICOLA = [
   { id: 'agricola_tds', nome: 'Terra do Sol (TDS)' },
@@ -180,6 +197,7 @@ function tipoDaLinha(ref, cc, contaCodigo) {
 // agrupar a barra de navegação genericamente (ver VisaoGerente) sem
 // precisar de um bloco de código separado por família.
 const FAMILIAS_MULTISITE = [
+  { ids: FAMILIA_TEXTIL, subunidades: SUBUNIDADES_TEXTIL, nome: 'ARA Têxtil', cor: '#0069B4', logo: '/logos/ara-textil.jpg', logoAltura: 20 },
   { ids: FAMILIA_AGRICOLA, subunidades: SUBUNIDADES_AGRICOLA, nome: 'ARA Agrícola', cor: '#009640', logo: '/logos/ara-agricola.png', logoAltura: 17 },
   { ids: FAMILIA_RESORTS, subunidades: SUBUNIDADES_RESORTS, nome: 'ARA Resorts', cor: '#79834F', logo: '/logos/ara-resorts.jpg', logoAltura: 24 },
   { ids: FAMILIA_EI, subunidades: SUBUNIDADES_EI, nome: 'ARA EI', cor: '#F07D00', logo: null, logoAltura: 17 },
@@ -1785,6 +1803,9 @@ const REGRAS_AGRICOLA = { hcExistenteComDissidio: true, bonusSomenteElegiveis: t
 
 const REFERENCIA_POR_UNIDADE = {
   textil: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS, todasContas: TODAS_CONTAS, pacotes: PACOTES_TEXTIL },
+  // Produção BG e Consolidado da Têxtil (2026-09-29): mesma estrutura da Produção Core.
+  textil_bg: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS, todasContas: TODAS_CONTAS, pacotes: PACOTES_TEXTIL },
+  textil_consolidado: { ccs: CCS_TEXTIL, planoContas: PLANO_CONTAS, todasContas: TODAS_CONTAS, pacotes: PACOTES_TEXTIL },
   // Agrícola ganhou CC real em 2026-08-20 (Plano Centro de Custo.xlsx) — as
   // duas fazendas (agricola_tds/agricola_fds, unidades próprias, cada uma
   // com orçamento editável) usam a mesma estrutura de CC e plano de contas.
@@ -1912,7 +1933,7 @@ const TIPOS_PREMISSA = [
 // Unidades onde "Custo/Despesa por kg" aparece nas opções — só onde a
 // Receita tem Volume em toneladas por produto (Têxtil/Agrícola usam o
 // modelo `produtos`; Resorts/Corporativo não têm essa noção de volume).
-const UNIDADES_COM_CUSTO_POR_KG = ['textil', 'agricola_tds', 'agricola_fds'];
+const UNIDADES_COM_CUSTO_POR_KG = ['textil', 'textil_bg', 'agricola_tds', 'agricola_fds'];
 // Unidades onde "Base × % Receita Hospedagem" aparece nas opções — só
 // Resorts (as três variantes), única unidade com linha de hospedagem
 // na receita. Têxtil/Agrícola/Corporativo não têm esse conceito.
@@ -2307,7 +2328,7 @@ function InputNumerico({ value, onChange, onPaste, placeholder, style }) {
 // referência pré-carregada (Têxtil), produtos genéricos (Agrícola), ou
 // linhas de hotelaria (Resorts).
 function receitaVazia(unidadeId) {
-  if (unidadeId === 'textil') {
+  if (ehUnidadeTextil(unidadeId)) {
     return {
       produtos: PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
@@ -2419,7 +2440,7 @@ function emptyFormData(unidadeId = 'textil') {
     capitalGiro: {
       prazoRecebimento: mesesVazios(), prazoPagamento: mesesVazios(), giroEstoque: mesesVazios(), justificativa: '',
       // Só ARA Têxtil — ver PREMISSAS_RECEBIMENTO_REF e nota de 2026-08-16.
-      ...(unidadeId === 'textil' ? {
+      ...(ehUnidadeTextil(unidadeId) ? {
         recebimentosEmCarteira: mesesVazios(),
         recebimentosVendasNovDez: mesesVazios(),
         premissasRecebimento: premissasRecebimentoVazias(),
@@ -2482,7 +2503,7 @@ function emptyFormData(unidadeId = 'textil') {
       // saldosIniciais = coluna Dez/25 (saldo de partida por conta) —
       // substitui os campos escalares acima como fonte dos cálculos de FC
       // para Têxtil (ver saldosAberturaFc).
-      ...(unidadeId === 'textil' ? { planoContas: planoContasBalancoVazio(), saldosIniciais: saldosIniciaisBalancoVazio() } : {}),
+      ...(ehUnidadeTextil(unidadeId) ? { planoContas: planoContasBalancoVazio(), saldosIniciais: saldosIniciaisBalancoVazio() } : {}),
     },
     plano5y: {
       anos: {
@@ -3308,6 +3329,7 @@ const CONSOLIDADOS_MULTISITE = {
   agricola: { tipo: 'consolidado_agricola', sites: ['agricola_tds', 'agricola_fds'], labels: ['Terra do Sol', 'Frutos do Sol'] },
   resorts: { tipo: 'consolidado_resorts', sites: ['samoa_beach', 'samoa_villa'], labels: ['Samoa Beach', 'Samoa Villa'] },
   ei: { tipo: 'consolidado_ei', sites: ['ei_holding', 'ei_lafleur', 'ei_southbay'], labels: ['Holding', 'La Fleur II', 'South Bay'] },
+  textil_consolidado: { tipo: 'consolidado_textil', sites: ['textil', 'textil_bg'], labels: ['Produção Core', 'Produção BG'] },
 };
 // true se `d` é um dos wrappers acima (qualquer família) — usado pra pular
 // (não crashar) em painéis que assumem o formato normal de `dados`
@@ -4969,7 +4991,7 @@ export default function OrcamentoARA({ usuario }) {
   function updatePremissasPessoalCorporativo(campo, valor) {
     const COMPARTILHADOS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'bonusMultiplicador', 'bonusPjMultiplicador', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
     if (COMPARTILHADOS.includes(campo)) {
-      updatePremissasPessoalUnidade(['textil', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'], campo, valor);
+      updatePremissasPessoalUnidade(['textil', 'textil_bg', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'], campo, valor);
     }
     return updatePremissasPessoalUnidade('corporativo', campo, valor);
   }
@@ -6852,7 +6874,11 @@ function VisaoGerente(props) {
           decisão explícita do usuário, não suposição. ARA EI (2026-09-27)
           virou família (Holding, La Fleur II, South Bay + Consolidado) e o
           Escritório de Investimentos ganhou a aba de aportes/dividendos. */}
-      {unidadeAtual === 'ei' ? (
+      {unidadeAtual === 'textil_consolidado' ? (
+        // Consolidado da Têxtil (2026-09-29): Produção Core + Produção BG somadas,
+        // com o próprio envio/histórico. Ver ConsolidadoTextil.
+        <ConsolidadoTextil autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
+      ) : unidadeAtual === 'ei' ? (
         // Consolidado da ARA EI (2026-09-27): sempre Holding + La Fleur II +
         // South Bay somados, com o próprio envio/histórico. Ver ConsolidadoEI.
         <ConsolidadoEI autorNome={autorNome} setAutorNome={setAutorNome} abrirVersao={abrirVersao} ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
@@ -8529,6 +8555,223 @@ function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cam
     </div>
   );
 }
+
+const SITES_TEXTIL = CONSOLIDADOS_MULTISITE.textil_consolidado.sites.map((id, i) => ({ id, nome: CONSOLIDADOS_MULTISITE.textil_consolidado.labels[i] }));
+const UNIDADES_FAMILIA_TEXTIL = UNIDADES.filter(u => CONSOLIDADOS_MULTISITE.textil_consolidado.sites.includes(u.id));
+
+function ConsolidadoTextil({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cambios }) {
+  const [dadosSites, setDadosSites] = useState(null);
+  const [versoes, setVersoes] = useState([]);
+  const [aguardandoLiberacao, setAguardandoLiberacao] = useState(false);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
+  const [comentarioEnvio, setComentarioEnvio] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    setErro(null);
+    try {
+      const respostas = await Promise.all([...SITES_TEXTIL.map(s => getOrcamento(s.id)), getOrcamento('textil_consolidado')]);
+      setDadosSites(Object.fromEntries(SITES_TEXTIL.map((s, i) => [s.id, respostas[i].orcamento.dados])));
+      setAguardandoLiberacao(respostas[SITES_TEXTIL.length].orcamento.aguardando_liberacao || false);
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : 'Falha ao carregar os dados da Produção Core e da Produção BG.');
+    }
+    try {
+      setVersoes(await listarVersoes('textil_consolidado'));
+    } catch (e) {
+      setVersoes([]);
+    }
+    setCarregando(false);
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  if (carregando) return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Carregando Produção Core e Produção BG…</p>;
+  if (!dadosSites) {
+    return (
+      <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12 }}>
+        {erro || 'Não foi possível carregar os dados da Produção Core e da Produção BG.'}
+      </div>
+    );
+  }
+
+  const lados = SITES_TEXTIL.map(s => {
+    const ref = referenciaDaUnidade(s.id);
+    const dadosS = dadosSites[s.id];
+    const dreS = computeDRE(dadosS, ref, ipcaAnualPct, cambios);
+    return {
+      id: s.id, nome: s.nome, dados: dadosS, ref, dre: dreS,
+      fd: computeFluxoIndiretoMensal(dadosS, dreS, ref, ipcaAnualPct),
+      checks: runAuditoria(dadosS, dreS, ref, s.id, ipcaAnualPct),
+    };
+  });
+  const dre = lados.map(l => l.dre).reduce((acc, d) => somarDRE(acc, d));
+  const tudoOk = lados.every(l => l.checks.filter(c => c.obrigatorio !== false).every(c => c.ok));
+  const somaAno = (campo) => lados.reduce((acc, l) => acc + l.fd[campo].reduce((a, v) => a + v, 0), 0);
+  const totalFcOperacional = somaAno('fcOperacionalMes');
+  const linhasFcdPorLado = lados.map(l => linhasFcDireto(computeFluxoCaixaDiretoMensal(l.dados, l.dre, l.ref, ipcaAnualPct)));
+  const linhasFcdConsolidado = linhasFcdPorLado[0].map((linha, i) => ({
+    ...linha,
+    valoresMensal: linha.valoresMensal.map((_, m) => linhasFcdPorLado.reduce((acc, ls) => acc + ls[i].valoresMensal[m], 0)),
+    totalValor: linhasFcdPorLado.reduce((acc, ls) => acc + ls[i].totalValor, 0),
+  }));
+  const bridgeReceitaEbitda = [
+    { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'inicio' },
+    { label: 'Deduções/Impostos', valor: -dre.deducoes, tipo: 'incremento' },
+    { label: 'Custos (CPV)', valor: -dre.cpv, tipo: 'incremento' },
+    { label: 'Despesas', valor: -dre.despesasSemDA, tipo: 'incremento' },
+    { label: 'EBITDA', valor: dre.ebitda, tipo: 'total' },
+  ];
+  const bridgeEbitdaFco = [
+    { label: 'EBITDA', valor: dre.ebitda, tipo: 'inicio' },
+    { label: 'Impostos', valor: -somaAno('ircslMes'), tipo: 'incremento' },
+    { label: 'Var. Capital de Giro', valor: somaAno('variacaoGiroMes'), tipo: 'incremento' },
+    { label: 'Outros Ajustes', valor: somaAno('ajuste13Mes') + somaAno('ajustePagamentoMes'), tipo: 'incremento' },
+    { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
+  ];
+
+  async function handleEnviar() {
+    setEnviando(true);
+    setErro(null);
+    try {
+      await putOrcamento('textil_consolidado', { _tipo: CONSOLIDADOS_MULTISITE.textil_consolidado.tipo, ...dadosSites });
+      await enviarVersaoApi('textil_consolidado', { comentario: comentarioEnvio, autorNome });
+      setComentarioEnvio('');
+      await carregar();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) setAguardandoLiberacao(true);
+      setErro(e instanceof ApiError ? e.message : 'Falha ao enviar a versão consolidada.');
+    }
+    setEnviando(false);
+  }
+
+  const porUnidadeDre = Object.fromEntries(lados.map(l => [l.id, l.dre]));
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>ARA Têxtil — Consolidado</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Soma da Produção Core e da Produção BG — sempre calculada ao vivo a partir do orçamento atual das duas produções.
+        O envio e o histórico de versões da ARA Têxtil acontecem aqui, não em cada produção.
+      </p>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 18 }}>
+        <CardTotal label="Receita bruta" valor={dre.receitaBruta} cor={COR.azul} />
+        <CardTotal label="EBITDA" valor={dre.ebitda} cor={COR.laranja} />
+        <CardTotal label="Lucro líquido" valor={dre.lucroLiquido} cor={COR.verde} />
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por produção.</p>
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
+        {CONTAS_SINTETICAS_DRE.map(conta => (
+          <LinhaContaConsolidada
+            key={conta.id} conta={conta} grupoObjeto={dre} porUnidade={porUnidadeDre}
+            aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => setLinhasAbertasDRE(prev => ({ ...prev, [conta.id]: !prev[conta.id] }))}
+            unidades={UNIDADES_FAMILIA_TEXTIL}
+          />
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
+          <GraficoBridge etapas={bridgeReceitaEbitda} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
+          <GraficoBridge etapas={bridgeEbitdaFco} />
+        </div>
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>DRE mensal — por tipo de receita/custo/despesa, aberta por produção</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma linha com seta para abrir a quebra por produção.</p>
+      <div style={{ marginBottom: 24 }}>
+        <DREMensalConsolidada lados={lados} unidadeKind="textil" ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal (Produção Core + Produção BG)</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Soma das duas produções. As premissas ficam em cada produção.</p>
+      <div style={{ marginBottom: 24 }}>
+        <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={linhasFcdConsolidado} />
+      </div>
+
+      <DetalheSiteConsolidado
+        titulo="Detalhe por produção (Receita e Custos e Despesas)" rotulo="Produção"
+        sites={lados.map(l => ({ id: l.id, nome: l.nome, dados: l.dados, dre: l.dre, ref: l.ref }))}
+        cambios={cambios} ipcaAnualPct={ipcaAnualPct}
+      />
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Auditoria — checagens de completude</h4>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 10 }}>
+        {lados.map(l => (
+          <div key={l.id} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>{l.nome}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {l.checks.map((c, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                  {c.ok ? <CheckCircle2 size={13} color={COR.verde} /> : <AlertTriangle size={13} color={c.obrigatorio === false ? COR.laranja : COR.vermelho} />}
+                  <span style={{ color: c.ok ? COR.texto : (c.obrigatorio === false ? '#7A8088' : COR.vermelho) }}>
+                    {c.label}{c.detalhe ? ` — ${c.detalhe}` : ''}{!c.ok && c.obrigatorio === false ? ' (opcional)' : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, margin: '20px 0 14px' }}>
+        <div>
+          <Rotulo>Seu nome (autor da versão)</Rotulo>
+          <CampoTexto value={autorNome} onChange={setAutorNome} placeholder="Nome do gerente" />
+        </div>
+        <div>
+          <Rotulo>Comentário da versão (opcional)</Rotulo>
+          <CampoTexto value={comentarioEnvio} onChange={setComentarioEnvio} placeholder="Ex.: revisão de premissas de volume e preço" />
+        </div>
+      </div>
+
+      {erro && (
+        <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>{erro}</div>
+      )}
+      {!tudoOk && (
+        <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, color: COR.texto, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+          Existem checagens de Auditoria pendentes em alguma das produções. Corrija-as antes de enviar (painel acima).
+        </div>
+      )}
+      {aguardandoLiberacao && (
+        <div style={{ background: '#E9F0FB', border: `1px solid ${COR.azul}`, color: COR.azul, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
+          Este orçamento consolidado já foi enviado e está aguardando liberação do FP&A para permitir um novo envio.
+        </div>
+      )}
+
+      <Botao variante="laranja" icone={Send} onClick={handleEnviar} disabled={!tudoOk || enviando || aguardandoLiberacao}>
+        {enviando ? 'Enviando…' : aguardandoLiberacao ? 'Aguardando liberação do FP&A' : 'Enviar versão consolidada'}
+      </Botao>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 30, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <History size={15} /> Histórico de versões — Consolidado
+      </h4>
+      {versoes.length === 0 ? (
+        <p style={{ fontSize: 12, color: '#7A8088' }}>Nenhuma versão consolidada enviada ainda.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {versoes.map(v => (
+            <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${COR.borda}`, borderRadius: 6, padding: '8px 12px', fontSize: 11.5 }}>
+              <span>{formatData(v.timestamp)} — <b>{v.autor}</b>{v.comentario ? ` — ${v.comentario}` : ''}</span>
+              <button onClick={() => abrirVersao('textil_consolidado', v.id)} style={{ ...botaoSecundarioLocal }}>Abrir</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatusBadge({ status }) {
   const map = {
     nao_iniciado: { texto: 'Não iniciado', bg: COR.claro, cor: '#8A8F96' },
@@ -8667,7 +8910,7 @@ function AbaEstrategicas({ estrategicas, atualizar, premissasMacro, addObjetivo,
 const MOEDAS_ME = [{ id: 'usd', nome: 'USD' }, { id: 'eur', nome: 'EUR' }, { id: 'gbp', nome: 'GBP' }];
 
 function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, justificativaGeral, estoqueProducao, updateProduto, updateDeducao, atualizar, dre, cambios }) {
-  const mostrarReferenciaTextil = unidadeId === 'textil';
+  const mostrarReferenciaTextil = ehUnidadeTextil(unidadeId);
   const volumeTotalMes = MESES.map((_, m) => produtos.reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0));
   const volumeTotalAnual = volumeTotalMes.reduce((a, v) => a + v, 0);
   const precoPonderadoMes = MESES.map((_, m) => (volumeTotalMes[m] > 0 ? dre.receitaBrutaMes[m] / volumeTotalMes[m] : 0));
@@ -8678,7 +8921,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
   // Compras de matéria-prima ficam para fase posterior (ainda não inputadas).
   // Vendas = soma dos volumes de todos os produtos (volumeTotalMes, automático).
   let estoqueSection = null;
-  if (unidadeId === 'textil') {
+  if (ehUnidadeTextil(unidadeId)) {
     const est = estoqueProducao || {};
     const saldoInicialJanV = parseNum(est.saldoInicialJan || '');
     const producaoMes = (est.producaoMes || mesesVazios()).map(parseNum);
@@ -14666,7 +14909,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const _propInicial = useRef(false);
   const COMPARTILHADOS_PREMISSAS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'bonusMultiplicador', 'bonusPjMultiplicador', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
-  const OUTRAS_UNIDADES = ['textil', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'];
+  const OUTRAS_UNIDADES = ['textil', 'textil_bg', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'];
   useEffect(() => {
     if (_propInicial.current) return;
     const corpPremi = statusUnidades['corporativo']?.custos?.premissasPessoal;
@@ -14832,7 +15075,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
           <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Dissídio: 4,5% em Janeiro + 7% em Agosto. Meritocracia e Bônus idênticos ao Corporativo.</p>
           {(() => {
             const _pp = statusUnidades['textil']?.custos?.premissasPessoal || {};
-            const upd = (c, v) => updatePremissasPessoalUnidade('textil', c, v);
+            const upd = (c, v) => updatePremissasPessoalUnidade(['textil', 'textil_bg'], c, v);
             return (
               <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 14, marginBottom: 24 }}>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>

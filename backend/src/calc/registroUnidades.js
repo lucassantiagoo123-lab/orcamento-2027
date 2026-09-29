@@ -22,6 +22,9 @@ const REGRAS_AGRICOLA = { hcExistenteComDissidio: true, bonusSomenteElegiveis: t
 
 export const UNIDADES_ORCAMENTO = {
   textil: { ccs: CCS_TEXTIL, todasContas: TODAS_CONTAS, planoContas: PLANO_CONTAS },
+  // Produção BG e Consolidado da Têxtil (2026-09-29): mesma estrutura da Produção Core.
+  textil_bg: { ccs: CCS_TEXTIL, todasContas: TODAS_CONTAS, planoContas: PLANO_CONTAS },
+  textil_consolidado: { ccs: CCS_TEXTIL, todasContas: TODAS_CONTAS, planoContas: PLANO_CONTAS },
   // Agrícola ganhou CC real em 2026-08-20 (Plano Centro de Custo.xlsx) — as
   // duas fazendas (agricola_tds/agricola_fds) usam a mesma estrutura de CC
   // e plano de contas. 'agricola' (sem sufixo, Consolidado) não é editada
