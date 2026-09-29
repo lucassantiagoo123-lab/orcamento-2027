@@ -220,6 +220,10 @@ const mesesVazios = () => Array(12).fill('');
 // ---- Produtos (aba "1.1 DRE" / "Orçamento Receita") — referência 2026, não pré-preenchida ----
 // Grupos de receita da Produção BG (sem referência de 2026): pedido de 2026-09-29.
 const PRODUTOS_BG = [{ nome: 'BAIXO GIRO ANTIGO' }, { nome: 'BAIXO GIRO NOVO' }];
+// Produção BG (2026-09-29): o volume do BAIXO GIRO NOVO = % (pctCore, por mês)
+// × volume total da Produção Core. O servidor aplica o mesmo cálculo na leitura
+// (aplicarVolumeBgNovo no backend); mês sem % mantém o volume salvo.
+const NOME_BG_NOVO = 'BAIXO GIRO NOVO';
 const PRODUTOS_REF = [
   { nome: 'ALGODAO PENTEADO 1,20', volumeRef: 405, precoRef: 41.70 },
   { nome: 'COTTON LIGHT', volumeRef: 495, precoRef: 47.50 },
@@ -2334,7 +2338,7 @@ function receitaVazia(unidadeId) {
     return {
       // Produção BG (2026-09-29): só dois grupos de receita — Baixo Giro Antigo e
       // Baixo Giro Novo. Produção Core segue com os 9 produtos de sempre.
-      produtos: (unidadeId === 'textil_bg' ? PRODUTOS_BG : PRODUTOS_REF).map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      produtos: (unidadeId === 'textil_bg' ? PRODUTOS_BG : PRODUTOS_REF).map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(), ...(p.nome === NOME_BG_NOVO ? { pctCore: mesesVazios() } : {}) })),
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
       // Movimentação de estoque em volume (2026-09-13) — só Têxtil.
       // producaoMes: volume produzido em cada mês, adiciona ao estoque (2026-09-14).
@@ -4727,6 +4731,9 @@ export default function OrcamentoARA({ usuario }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unidadeAtual]);
   const [dados, setDados] = useState(emptyFormData());
+  // Produção BG: projeção da Produção Core (volume total e por produto) que vem
+  // junto do GET — base do % do BAIXO GIRO NOVO. Null nas demais unidades.
+  const [referenciaCore, setReferenciaCore] = useState(null);
   const [versoes, setVersoes] = useState([]);
   const [statusUnidades, setStatusUnidades] = useState({});
   // { [unidadeId]: { campo: valor } } — só os campos de premissasPessoal que o
@@ -4788,12 +4795,14 @@ export default function OrcamentoARA({ usuario }) {
       const r = await getOrcamento(idUnidade);
       setDados(r.orcamento.dados);
       dadosBaseRef.current = r.orcamento.dados;
+      setReferenciaCore(r.referenciaCore || null);
       setAguardandoLiberacao(r.orcamento.aguardando_liberacao || false);
       setEdicaoEncerrada(ehGestorCc && r.periodoEdicaoEncerrado === true);
     } catch (e) {
       const vazio = emptyFormData();
       setDados(vazio);
       dadosBaseRef.current = vazio;
+      setReferenciaCore(null);
       setAguardandoLiberacao(false);
       setEdicaoEncerrada(false);
     }
@@ -5207,7 +5216,15 @@ export default function OrcamentoARA({ usuario }) {
   }
 
   function updateProduto(id, campo, valor) {
-    atualizar(['receita', 'produtos'], dados.receita.produtos.map(p => p.id === id ? { ...p, [campo]: valor } : p));
+    atualizar(['receita', 'produtos'], dados.receita.produtos.map(p => {
+      if (p.id !== id) return p;
+      const novo = { ...p, [campo]: valor };
+      // BAIXO GIRO NOVO: ao mudar o %, o volume é recalculado sobre a Core.
+      if (campo === 'pctCore' && p.nome === NOME_BG_NOVO) {
+        novo.volumes = valor.map((v, m) => (String(v ?? '').trim() === '' ? '' : (parseNum(v) / 100) * (referenciaCore?.volumeMes?.[m] || 0)));
+      }
+      return novo;
+    }));
   }
   function updateDeducao(id, valor) {
     atualizar(['receita', 'deducoes'], dados.receita.deducoes.map(d => d.id === id ? { ...d, pcts: valor } : d));
@@ -6506,7 +6523,7 @@ export default function OrcamentoARA({ usuario }) {
           pedindoMotivo={pedindoMotivo} motivoBloqueio={motivoBloqueio} setMotivoBloqueio={setMotivoBloqueio}
           unidadeAtual={unidadeAtual} setUnidadeAtual={setUnidadeAtual} unidadeObj={unidadeObj}
           aba={aba} setAba={setAba} dados={dados} dre={dre} checks={checks} tudoOk={tudoOk} aguardandoLiberacao={aguardandoLiberacao}
-          updateProduto={updateProduto} updateDeducao={updateDeducao}
+          updateProduto={updateProduto} updateDeducao={updateDeducao} referenciaCore={referenciaCore}
           premissasMacro={premissasMacro}
           addObjetivo={addObjetivo} updateObjetivo={updateObjetivo} removeObjetivo={removeObjetivo}
           addIniciativa={addIniciativa} updateIniciativa={updateIniciativa} removeIniciativa={removeIniciativa}
@@ -6681,7 +6698,7 @@ function VisaoGerente(props) {
     unidadesVisiveis, salvarRascunhoAgora, salvandoRascunho, ultimoSalvoEm,
     pedindoMotivo, motivoBloqueio, setMotivoBloqueio,
     unidadeAtual, setUnidadeAtual, unidadeObj, aba, setAba, dados, dre, checks, tudoOk, aguardandoLiberacao,
-    updateProduto, updateDeducao, premissasMacro,
+    updateProduto, updateDeducao, referenciaCore, premissasMacro,
     addObjetivo, updateObjetivo, removeObjetivo, addIniciativa, updateIniciativa, removeIniciativa,
     updateConta, updateSublinha, addSublinha, removeSublinha, addDetalhe, updateDetalhe, removeDetalhe,
     addFuncionario, updateFuncionario, removeFuncionario, updatePremissaPessoal,
@@ -6982,6 +6999,7 @@ function VisaoGerente(props) {
               deducoesJustificativa={dados.receita.deducoesJustificativa} justificativaGeral={dados.receita.justificativaGeral}
               estoqueProducao={dados.receita.estoqueProducao}
               updateProduto={updateProduto} updateDeducao={updateDeducao} atualizar={atualizar} dre={dre} cambios={cambios}
+              referenciaCore={referenciaCore}
             />
           )
         )}
@@ -8913,7 +8931,7 @@ function AbaEstrategicas({ estrategicas, atualizar, premissasMacro, addObjetivo,
 
 const MOEDAS_ME = [{ id: 'usd', nome: 'USD' }, { id: 'eur', nome: 'EUR' }, { id: 'gbp', nome: 'GBP' }];
 
-function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, justificativaGeral, estoqueProducao, updateProduto, updateDeducao, atualizar, dre, cambios }) {
+function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, justificativaGeral, estoqueProducao, updateProduto, updateDeducao, atualizar, dre, cambios, referenciaCore }) {
   // Referência 2026 (produtos, deduções, receita líquida) é da Produção Core; a BG não tem.
   const mostrarReferenciaTextil = unidadeId === 'textil';
   const volumeTotalMes = MESES.map((_, m) => produtos.reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0));
@@ -8985,12 +9003,45 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
 
       {estoqueSection}
 
+      {unidadeId === 'textil_bg' && (
+        <div style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: COR.branco }}>
+          <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Projeção de volume da Produção Core (referência)</h4>
+          <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
+            Somente leitura. O volume do BAIXO GIRO NOVO é o % informado abaixo aplicado sobre o volume total da Produção Core, mês a mês.
+          </p>
+          {referenciaCore ? (
+            <TabelaMensal
+              linhas={[]}
+              onChangeCelula={() => {}}
+              linhasCalculadas={[
+                ...referenciaCore.produtos.filter(pc => (pc.volumes || []).some(v => parseNum(v) !== 0)).map(pc => {
+                  const vals = MESES.map((_, m) => parseNum(pc.volumes?.[m]));
+                  return { key: `core_${pc.nome}`, label: `${pc.nome} (t)`, valoresMensal: vals, totalValor: vals.reduce((a, v) => a + v, 0), cor: '#8A8F96', formatarCelula: formatarQtdLeitura, formatarTotal: formatarQtdLeitura };
+                }),
+                { key: 'core_total', label: 'Volume total Produção Core (t)', valoresMensal: referenciaCore.volumeMes, totalValor: referenciaCore.volumeMes.reduce((a, v) => a + v, 0), cor: COR.azul, formatarCelula: formatarQtdLeitura, formatarTotal: formatarQtdLeitura },
+              ]}
+            />
+          ) : (
+            <p style={{ fontSize: 11.5, color: COR.vermelho }}>Não foi possível carregar a projeção da Produção Core. Recarregue a página.</p>
+          )}
+        </div>
+      )}
+
       {produtos.map((p, i) => {
         const ref = PRODUTOS_REF.find(r => r.nome === p.nome);
         // Mercado Interno × Externo (2026-08-23, ver receitaVazia/
         // receitaBrutaPorMes): produtos sem o campo `mercado` (Têxtil) são
         // sempre tratados como Interno — não ganham o toggle.
         const temMercado = p.mercado !== undefined;
+        // BAIXO GIRO NOVO (Produção BG): % sobre o volume da Core (input), volume
+        // calculado (somente leitura) e preço (input).
+        const ehBgNovo = unidadeId === 'textil_bg' && p.nome === NOME_BG_NOVO;
+        const pctCoreArr = p.pctCore || mesesVazios();
+        const pctMedioPonderado = (() => {
+          const totCore = (referenciaCore?.volumeMes || []).reduce((a, v) => a + v, 0);
+          const totBg = MESES.reduce((acc, _, m) => acc + parseNum(p.volumes?.[m]), 0);
+          return totCore > 0 ? (totBg / totCore) * 100 : 0;
+        })();
         const externo = p.mercado === 'externo';
         const moedaNome = MOEDAS_ME.find(m => m.id === (p.moeda || 'usd'))?.nome || 'USD';
         const taxaCambio = parseNum(cambios?.[p.moeda || 'usd']);
@@ -9051,7 +9102,11 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
               </p>
             )}
             <TabelaMensal
-              linhas={externo ? [
+              linhas={ehBgNovo ? [
+                { key: 'pctCore', label: '% do volume da Produção Core', valores: pctCoreArr, totalValor: pctMedioPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` },
+                { key: 'volume', calculada: true, label: 'Volume (t) — calculado', valoresMensal: MESES.map((_, m) => parseNum(p.volumes?.[m])), totalValor: volumeAnualProduto, cor: COR.azul, formatarCelula: formatarQtdLeitura, formatarTotal: formatarQtdLeitura },
+                { key: 'preco', label: 'Preço (R$/t)', valores: p.precos, totalValor: precoPonderadoProduto(p.precos), formatarTotal: v => formatValor(v) },
+              ] : externo ? [
                 { key: 'volume', label: 'Volume (t)', valores: p.volumes },
                 { key: 'precoMoeda', label: `Preço (${moedaNome}/t)`, valores: p.precoMoeda, totalValor: precoPonderadoProduto(p.precoMoeda), formatarTotal: v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
               ] : [
@@ -9059,6 +9114,10 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
                 { key: 'preco', label: 'Preço (R$/t)', valores: p.precos, totalValor: precoPonderadoProduto(p.precos), formatarTotal: v => formatValor(v) },
               ]}
               onChangeCelula={(linhaKey, mesIdx, valor) => {
+                if (ehBgNovo && linhaKey === 'pctCore') {
+                  updateProduto(p.id, 'pctCore', atualizarArray(p.pctCore, mesIdx, valor));
+                  return;
+                }
                 if (!externo) {
                   const campo = linhaKey === 'volume' ? 'volumes' : 'precos';
                   updateProduto(p.id, campo, atualizarArray(p[campo], mesIdx, valor));

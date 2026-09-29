@@ -248,11 +248,38 @@ export function contaTemNegativo(contaRaw) {
 // linhas de hotelaria (Resorts). unidades sem modelo definido (Corporativo,
 // EI, Energia) caem no genérico vazio — não têm lançamento habilitado mesmo.
 const PRODUTOS_BG = [{ nome: 'BAIXO GIRO ANTIGO' }, { nome: 'BAIXO GIRO NOVO' }];
+
+// Produção BG (2026-09-29): o volume do BAIXO GIRO NOVO não é digitado — é um
+// % (`pctCore`, por mês) sobre o volume total da Produção Core (soma dos
+// volumes de todos os produtos do documento 'textil'). Preço continua input.
+// Aplicado na LEITURA (GET/envio), sem gravar nada na Core; mês sem % digitado
+// mantém o volume que já estiver salvo (nenhum dado preenchido é sobrescrito).
+export const NOME_BG_NOVO = 'BAIXO GIRO NOVO';
+export function volumeTotalCoreMes(dadosCore) {
+  const produtos = Array.isArray(dadosCore?.receita?.produtos) ? dadosCore.receita.produtos : [];
+  return MESES.map((_, m) => produtos.reduce((acc, p) => acc + parseNum(p?.volumes?.[m]), 0));
+}
+export function aplicarVolumeBgNovo(dadosBg, volumeCoreMes) {
+  const produtos = dadosBg?.receita?.produtos;
+  if (!Array.isArray(produtos) || !Array.isArray(volumeCoreMes)) return dadosBg;
+  const novos = produtos.map(p => {
+    if (p?.nome !== NOME_BG_NOVO) return p;
+    const pct = Array.isArray(p.pctCore) ? p.pctCore : [];
+    const base = Array.isArray(p.volumes) ? p.volumes : mesesVazios();
+    const volumes = MESES.map((_, m) => {
+      const bruto = pct[m];
+      if (bruto === undefined || bruto === null || String(bruto).trim() === '') return base[m] ?? '';
+      return (parseNum(bruto) / 100) * (volumeCoreMes[m] || 0);
+    });
+    return { ...p, volumes };
+  });
+  return { ...dadosBg, receita: { ...dadosBg.receita, produtos: novos } };
+}
 function receitaVazia(unidadeId) {
   if (unidadeId === 'textil' || unidadeId === 'textil_bg') {
     return {
       // Produção BG (2026-09-29): só Baixo Giro Antigo e Baixo Giro Novo — espelho do frontend.
-      produtos: (unidadeId === 'textil_bg' ? PRODUTOS_BG : PRODUTOS_REF).map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      produtos: (unidadeId === 'textil_bg' ? PRODUTOS_BG : PRODUTOS_REF).map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(), ...(p.nome === NOME_BG_NOVO ? { pctCore: mesesVazios() } : {}) })),
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
     };
   }

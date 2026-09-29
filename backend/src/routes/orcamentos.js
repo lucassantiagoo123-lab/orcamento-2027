@@ -8,7 +8,7 @@ import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, lib
 import { listarLog } from '../db/logAlteracoes.js';
 import { mesclarCustos, mesclarCapex } from '../db/mesclarCustos.js';
 import { mesclarDados, iguais } from '../db/mesclarDados.js';
-import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade, ehSnapshotConsolidado } from '../calc/orcamento.js';
+import { computeDRE, computeDFC, computeFluxoIndiretoMensal, computeFluxoCaixaDiretoMensal, runAuditoria, dreDaUnidade, ehSnapshotConsolidado, volumeTotalCoreMes, aplicarVolumeBgNovo } from '../calc/orcamento.js';
 import { buscarReferencia } from '../calc/registroUnidades.js';
 import { notificarEnvioParaFpa, notificarAlertaPerda } from '../email/notificacoes.js';
 import { detectarPerdas } from '../db/detectarPerdas.js';
@@ -224,11 +224,29 @@ function verificarBloqueio(atual, usuario, motivo) {
 // pra rota não explodir se algo tentar carregar os dados de qualquer forma.
 const REF_VAZIA = { ccs: [], todasContas: {} };
 
+// Produção BG (2026-09-29): o volume do BAIXO GIRO NOVO deriva do volume total
+// da Produção Core. Devolve o documento da BG com o volume aplicado (só em
+// memória — nada é gravado na Core) e a referência da Core para a tela exibir.
+async function aplicarReferenciaCore(dadosBg) {
+  const core = await buscarOuCriarOrcamento('textil', ANO_ATUAL);
+  const volumeMes = volumeTotalCoreMes(core.dados);
+  const produtos = (Array.isArray(core.dados?.receita?.produtos) ? core.dados.receita.produtos : [])
+    .map(p => ({ nome: p.nome, volumes: p.volumes }));
+  return { dados: aplicarVolumeBgNovo(dadosBg, volumeMes), referenciaCore: { volumeMes, produtos } };
+}
+
 orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res, next) => {
   try {
     const { unidadeId } = req.params;
     const ref = buscarReferencia(unidadeId) || REF_VAZIA;
-    const orcamento = await buscarOuCriarOrcamento(unidadeId, ANO_ATUAL);
+    const orcamentoSalvo = await buscarOuCriarOrcamento(unidadeId, ANO_ATUAL);
+    let orcamento = orcamentoSalvo;
+    let referenciaCore = null;
+    if (unidadeId === 'textil_bg') {
+      const r = await aplicarReferenciaCore(orcamentoSalvo.dados);
+      orcamento = { ...orcamentoSalvo, dados: r.dados };
+      referenciaCore = r.referenciaCore;
+    }
     // Consolidado (Agrícola/Resorts, 2026-08-20): depois do primeiro envio,
     // orcamento.dados de 'agricola'/'resorts' é o snapshot combinado — ver
     // frontend ConsolidadoAgricola/ConsolidadoResorts.
@@ -249,6 +267,7 @@ orcamentosRouter.get('/:unidadeId', exigirUnidade('unidadeId'), async (req, res,
     const dre = dreDaUnidade(orcamento.dados, unidadeId, ref, ipcaAnualPct, cambios);
     res.json({
       orcamento,
+      ...(referenciaCore ? { referenciaCore } : {}),
       periodoEdicaoEncerrado: await edicaoEncerrada(unidadeId),
       dre,
       dfc: ehConsolidado ? null : computeDFC(orcamento.dados, dre, ref, ipcaAnualPct),
@@ -348,9 +367,13 @@ orcamentosRouter.post('/:unidadeId/enviar', exigirUnidade('unidadeId'), exigirAc
     // de mandar e-mail/gravar versão com totais zerados).
     const ipcaAnualPct = await buscarIpcaAnualPct();
     const cambios = await buscarCambios();
-    const dre = dreDaUnidade(atual.dados, req.params.unidadeId, ref, ipcaAnualPct, cambios);
+    // Produção BG: o snapshot enviado e os totais levam o volume do BG Novo já
+    // calculado sobre a Core; o documento salvo em `orcamentos` não é alterado
+    // pelo cálculo (o envio grava o snapshot, como nas demais unidades).
+    const dadosEnvio = req.params.unidadeId === 'textil_bg' ? (await aplicarReferenciaCore(atual.dados)).dados : atual.dados;
+    const dre = dreDaUnidade(dadosEnvio, req.params.unidadeId, ref, ipcaAnualPct, cambios);
     const totais = { receitaLiquida: dre.receitaLiquida, ebitda: dre.ebitda, lucroLiquido: dre.lucroLiquido };
-    const { orcamento, versao } = await registrarEnvio(atual.id, atual.dados, req.usuario.id, req.body.comentario, totais);
+    const { orcamento, versao } = await registrarEnvio(atual.id, dadosEnvio, req.usuario.id, req.body.comentario, totais);
     res.json({ orcamento, versao });
 
     // Depois da resposta — best-effort, não atrasa nem derruba o envio se o
