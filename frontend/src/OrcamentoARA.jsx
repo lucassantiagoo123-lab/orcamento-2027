@@ -10656,9 +10656,28 @@ function SeletorCcs({ ccs, ccSel, onSelect }) {
 // Folha calculada" (a folha nunca é uma conta em custos.linhas) antes das
 // contas analíticas de verdade do pacote (ex.: Consultórias PJs, só
 // Corporativo — ver CONTA_CONSULTORIA_PJ).
-function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC, folhaCC, unidadeId }) {
+function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC: totalContaMesCCBruto, folhaCC, unidadeId, encargosNovoHcPct, calcPessoalCC }) {
   const [pacotesAbertos, setPacotesAbertos] = useState({});
   const [contasAbertas, setContasAbertas] = useState({});
+
+  // Mesmas regras da "Visão consolidada por CC" (2026-09-29): a folha do Novo
+  // HC entra com encargos e benefícios, e as linhas calculadas (meritocracia,
+  // dissídio, bônus do HC) ficam no CLT; as que pertencem a uma conta analítica
+  // vão para ela — bônus de PJs em Consultórias PJs, licença de software em
+  // CORP10, comissão do POC na conta própria.
+  const fatorEncNovoHc = 1 + parseNum(encargosNovoHcPct) / 100;
+  function extraDaContaCCMes(ccCodigo, contaCodigo, m) {
+    if (!calcPessoalCC) return 0;
+    const calc = calcPessoalCC(ccCodigo);
+    return (calculadaDaConta(calc, contaCodigo)?.[m] || 0) + (contaCodigo === CONTA_CONSULTORIA_PJ ? (calc.bonusPj?.[m] || 0) : 0);
+  }
+  const totalContaMesCC = (ccCodigo, contaCodigo, m) => totalContaMesCCBruto(ccCodigo, contaCodigo, m) + extraDaContaCCMes(ccCodigo, contaCodigo, m);
+  // Linhas calculadas que ficam no CLT: total calculado menos o que mora em conta própria.
+  function calculadasCltCCMes(ccCodigo, m) {
+    if (!calcPessoalCC) return 0;
+    const calc = calcPessoalCC(ccCodigo);
+    return calc.totalMes[m] - calculadasForaDoPessoalMes(calc, m) - (calc.bonusPj?.[m] || 0);
+  }
 
   // Soma a conta em TODOS os CCs, não só nos do tipo "esperado" pela origem
   // dela (2026-09-08): na ARA Resorts todo CC enxerga o plano inteiro (ver
@@ -10681,9 +10700,14 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
       accC + ccsConsolidado.reduce((accCC, cc) => accCC + totalContaMesCC(cc.codigo, c.codigo, m), 0), 0
     );
   }
+  function folhaNovoMes(m) {
+    return ccsConsolidado.reduce((acc, cc) => acc + (folhaCC(cc.codigo).mensal[m]?.total || 0), 0) * fatorEncNovoHc;
+  }
+  function calculadasCltMes(m) {
+    return ccsConsolidado.reduce((acc, cc) => acc + calculadasCltCCMes(cc.codigo, m), 0);
+  }
   function totalFolhaMes(m) {
-    const folhaNovo = ccsConsolidado.reduce((acc, cc) => acc + (folhaCC(cc.codigo).mensal[m]?.total || 0), 0);
-    return folhaNovo + hcExistenteMes(m);
+    return folhaNovoMes(m) + hcExistenteMes(m) + calculadasCltMes(m);
   }
   function totalPacoteMes(pacoteId, m) {
     const contas = refUnidade.planoContas[pacoteId] || [];
@@ -10775,11 +10799,18 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
                         ))}
                         {ccsConsolidado.map(cc => (
                           <Linha
-                            key={cc.codigo} label={`${cc.nome} — Folha CLT`} indent={2} cor="#8A8F96" bg={COR.claro}
-                            valoresMensal={MESES.map((_, m) => folhaCC(cc.codigo).mensal[m]?.total || 0)}
-                            total={folhaCC(cc.codigo).totalAnual}
+                            key={cc.codigo} label={`${cc.nome} — Folha Novo HC (com encargos e benefícios)`} indent={2} cor="#8A8F96" bg={COR.claro}
+                            valoresMensal={MESES.map((_, m) => (folhaCC(cc.codigo).mensal[m]?.total || 0) * fatorEncNovoHc)}
+                            total={folhaCC(cc.codigo).totalAnual * fatorEncNovoHc}
                           />
                         ))}
+                        {MESES.some((_, m) => calculadasCltMes(m) !== 0) && (
+                          <Linha
+                            label="Meritocracia, dissídio e bônus do HC (calculados)" indent={2} cor="#8A8F96" bg={COR.claro}
+                            valoresMensal={MESES.map((_, m) => calculadasCltMes(m))}
+                            total={MESES.reduce((acc, _, m) => acc + calculadasCltMes(m), 0)}
+                          />
+                        )}
                       </React.Fragment>
                     )}
                   </React.Fragment>
@@ -10825,8 +10856,13 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
   const [ccsAbertos, setCcsAbertos] = useState({});
   const [pacotesAbertos, setPacotesAbertos] = useState({});
 
+  // Conta analítica + a linha calculada que mora nela: licença (CORP10), comissão
+  // do POC e — desde 2026-09-29 — o bônus de PJs em Consultórias PJs.
   function totalContaMesPorCC(ccCodigo, contaCodigo, m) {
-    return totalContaMesCC(ccCodigo, contaCodigo, m);
+    const calc = calcPessoalCC(ccCodigo);
+    return totalContaMesCC(ccCodigo, contaCodigo, m)
+      + (calculadaDaConta(calc, contaCodigo)?.[m] || 0)
+      + (contaCodigo === CONTA_CONSULTORIA_PJ ? (calc.bonusPj?.[m] || 0) : 0);
   }
   const _fatorEncNovoHc = 1 + parseNum(encargosNovoHcPct) / 100;
   const contasHCPessoal = (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome === 'Headcount Existente');
@@ -10834,15 +10870,12 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
     const folhaNovo = (folhaCC(ccCodigo).mensal[m]?.total || 0) * _fatorEncNovoHc;
     const hcExistente = contasHCPessoal.reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0);
     const calc = calcPessoalCC(ccCodigo);
-    return folhaNovo + hcExistente + calc.totalMes[m] - calculadasForaDoPessoalMes(calc, m);
+    return folhaNovo + hcExistente + calc.totalMes[m] - calculadasForaDoPessoalMes(calc, m) - (calc.bonusPj?.[m] || 0);
   }
   function totalPacoteCCMes(ccCodigo, pacoteId, m) {
     const contas = (refUnidade.planoContas[pacoteId] || []).filter(c => c.nome !== 'Headcount Existente');
     const totalContas = contas.reduce((acc, c) => acc + totalContaMesPorCC(ccCodigo, c.codigo, m), 0);
-    // Linhas calculadas que moram numa conta deste pacote (licença CORP10, comissão POC 34102001).
-    const calc = calcPessoalCC(ccCodigo);
-    const calculadas = contas.reduce((acc, c) => acc + (calculadaDaConta(calc, c.codigo)?.[m] || 0), 0);
-    return totalContas + calculadas + (pacoteId === 'pessoal' ? totalFolhaCCMes(ccCodigo, m) : 0);
+    return totalContas + (pacoteId === 'pessoal' ? totalFolhaCCMes(ccCodigo, m) : 0);
   }
   function totalCCMes(ccCodigo, m) {
     return refUnidade.pacotes.reduce((acc, p) => acc + totalPacoteCCMes(ccCodigo, p.id, m), 0);
@@ -11535,7 +11568,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                 Soma de todos os Centros de Custo desta unidade, agrupada por Pacote → Conta analítica → Centro de Custo —
                 clique numa linha com seta para abrir a quebra. Visível para Admin FP&A e Gestor da Unidade.
               </p>
-              <VisaoConsolidadaPorPacote refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} unidadeId={unidadeId} />
+              <VisaoConsolidadaPorPacote refUnidade={refUnidade} ccsConsolidado={ccsConsolidado} totalContaMesCC={totalContaMesCC} folhaCC={folhaCC} unidadeId={unidadeId} encargosNovoHcPct={premissasPessoal?.encargosNovoHcPct} calcPessoalCC={calcPessoalCC} />
             </div>
           )}
         </div>
