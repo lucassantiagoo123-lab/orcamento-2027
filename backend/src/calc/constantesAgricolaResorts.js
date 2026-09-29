@@ -604,6 +604,8 @@ export const CCS_CORPORATIVO = [
   { codigo: "0010118", nome: "FP&A", tipo: 'despesa' },
   { codigo: "0010119", nome: "SECRETARIA DE GOVERNANÇA", tipo: 'despesa' },
   { codigo: "0010120", nome: "INOVAÇÃO E TECNOLOGIA", tipo: 'despesa' },
+  { codigo: "0010121", nome: "Governança de Dados", tipo: 'despesa' },
+  { codigo: "102", nome: "CSC", tipo: 'despesa' },
   { codigo: "0020102", nome: "MARKETING", tipo: 'despesa' },
 ];
 

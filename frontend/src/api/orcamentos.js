@@ -84,3 +84,9 @@ export async function liberarCc(unidadeId, ccCodigo) {
   const { conclusoes } = await apiFetch(`/api/orcamentos/${unidadeId}/cc/${encodeURIComponent(ccCodigo)}/liberar`, { method: 'POST' });
   return conclusoes;
 }
+
+// Notas de ajustes gerenciais da unidade — só Admin FP&A.
+export async function getNotasGerenciais(unidadeId) {
+  const { notas } = await apiFetch(`/api/orcamentos/${unidadeId}/notas-gerenciais`);
+  return notas;
+}

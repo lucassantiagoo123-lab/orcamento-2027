@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { exigirUnidade, exigirCc, exigirPerfil, exigirAcessoNaoExpirado } from '../middleware/authorize.js';
 import { listarReferencia2026, listarConclusoes, ccsConcluidos, concluirCc, liberarCc } from '../db/conclusaoCc.js';
+import { listarNotasGerenciais } from '../db/notasGerenciais.js';
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
 import { mesclarCustos, mesclarCapex } from '../db/mesclarCustos.js';
@@ -399,6 +400,13 @@ orcamentosRouter.get('/:unidadeId/referencia-2026', exigirUnidade('unidadeId'), 
 orcamentosRouter.get('/:unidadeId/conclusao-cc', exigirUnidade('unidadeId'), async (req, res, next) => {
   try {
     res.json({ conclusoes: await listarConclusoes(req.params.unidadeId, ccsDoUsuario(req.usuario, req.params.unidadeId)) });
+  } catch (err) { next(err); }
+});
+
+// Notas de ajustes gerenciais — só Admin FP&A.
+orcamentosRouter.get('/:unidadeId/notas-gerenciais', exigirUnidade('unidadeId'), exigirPerfil('admin_fpa'), async (req, res, next) => {
+  try {
+    res.json({ notas: await listarNotasGerenciais(req.params.unidadeId) });
   } catch (err) { next(err); }
 });
 

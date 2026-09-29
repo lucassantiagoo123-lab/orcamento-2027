@@ -10,7 +10,7 @@ import {
   Building2, ChevronDown, ChevronRight, Plus, Trash2, Clock, ShieldCheck,
   Users, Loader2, Info, Upload, FileText,
 } from 'lucide-react';
-import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi, getReferencia2026, getConclusoesCc, concluirCc, liberarCc } from './api/orcamentos.js';
+import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi, getReferencia2026, getConclusoesCc, getNotasGerenciais, concluirCc, liberarCc } from './api/orcamentos.js';
 import { mesclarDados, iguais } from './mesclarDados.js';
 import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, definirFontePremissaMacro as definirFontePremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
 import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
@@ -11008,6 +11008,7 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
   const [erro, setErro] = useState(null);
   const [ocupado, setOcupado] = useState(null);
   const [abertos, setAbertos] = useState({});
+  const [notas, setNotas] = useState([]);
   const ehGestorCc = usuario?.perfil === 'gerente_cc_corporativo';
   const ehAdmin = usuario?.perfil === 'admin_fpa';
 
@@ -11019,6 +11020,10 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
         if (!vivo) return;
         setLinhas2026(l);
         setConclusoes(c);
+        // Notas de ajustes gerenciais: só o Admin FP&A vê (o servidor também exige).
+        if (ehAdmin) {
+          try { const n = await getNotasGerenciais(unidadeId); if (vivo) setNotas(n); } catch (e) { /* segue sem as notas */ }
+        }
         onConclusoesChange?.(c);
       } catch (e) {
         if (vivo) setErro(e instanceof ApiError ? e.message : 'Falha ao carregar o comparativo com 2026.');
@@ -11082,6 +11087,17 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
 
   return (
     <div>
+      {notas.length > 0 && (
+        <div style={{ background: '#FFF6E5', border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: COR.laranja, marginBottom: 4 }}>Notas de ajustes gerenciais (visível só para o Admin FP&A)</div>
+          {notas.map(n => (
+            <div key={n.id} style={{ fontSize: 11.5, color: COR.texto, marginBottom: 6 }}>
+              <b>{n.titulo}</b> <span style={{ color: '#8A8F96', fontSize: 10 }}>· {formatData(n.criadoEm)}</span>
+              <div style={{ marginTop: 2 }}>{n.texto}</div>
+            </div>
+          ))}
+        </div>
+      )}
       <p style={{ fontSize: 11, color: '#7A8088', margin: '2px 2px 8px' }}>
         Anual, em R$. <b>2026</b> = realizado de janeiro a agosto + orçado de setembro a dezembro; <b>2027</b> = o orçamento em preenchimento.
         Variação em vermelho quando 2027 é maior que 2026 e em verde quando é menor. {ehGestorCc ? 'Você vê apenas o(s) seu(s) CC(s).' : 'Clique num CC para abrir as contas analíticas.'}
