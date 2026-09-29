@@ -10979,6 +10979,7 @@ function totais2027PorCcConta(data, refUnidade, ccs, dre, ipcaAnualPct, unidadeI
   const bases = { receitaBrutaMes: dre.receitaBrutaMes, receitaLiquidaMes: dre.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dre.volumeTotalKgMes, receitaHospedagemMes: dre.receitaHospedagemMes, receitaAebMes: dre.receitaAebMes };
   const soma = (arr) => (arr || []).reduce((a, v) => a + (v || 0), 0);
   const mapa = {};
+  const mapaBonus = {};
   ccs.forEach(cc => {
     const calc = pessoalCalculadoPorCC(data, refUnidade, cc.codigo, bases);
     const funcs = (data.custos.funcionarios || []).filter(f => f.ccCodigo === cc.codigo && f.origem === 'novo');
@@ -10997,9 +10998,15 @@ function totais2027PorCcConta(data, refUnidade, ccs, dre, ipcaAnualPct, unidadeI
         if (c.codigo === CONTA_CONSULTORIA_PJ) v += bonusPjAnual;
       }
       mapa[`${cc.codigo}|${c.codigo}`] = v;
+      // Bônus embutido na conta: bônus do HC Existente (na conta de Headcount)
+      // e bônus de PJs (em Consultórias PJs).
+      let b = 0;
+      if (c.nome === 'Headcount Existente' && c === contasHc[0]) b += soma(calc.bonus);
+      if (c.codigo === CONTA_CONSULTORIA_PJ) b += bonusPjAnual;
+      mapaBonus[`${cc.codigo}|${c.codigo}`] = b;
     });
   });
-  return mapa;
+  return { total: mapa, bonus: mapaBonus };
 }
 
 function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct, usuario, ccs, onConclusoesChange }) {
@@ -11033,7 +11040,7 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unidadeId]);
 
-  const mapa2027 = useMemo(
+  const { total: mapa2027, bonus: mapaBonus2027 } = useMemo(
     () => totais2027PorCcConta(dados, refUnidade, ccs, dre, ipcaAnualPct, unidadeId),
     [dados, refUnidade, ccs, dre, ipcaAnualPct, unidadeId]
   );
@@ -11060,29 +11067,42 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
     setOcupado(null);
   }
 
-  const Celulas = ({ a, b, cor, semVar }) => {
+  // a = 2026; b = 2027 original; c = 2027 sem bônus (HC Existente e PJs).
+  // Colunas: 2026 | 2027 | 2027 sem bônus | Δ R$ | Δ % | Δ R$ sem bônus | Δ % sem bônus.
+  const Celulas = ({ a, b, c, cor, semVar }) => {
     const v = variacao(a, b);
-    const corVar = semVar ? '#8A8F96' : (v.abs > 0 ? COR.vermelho : v.abs < 0 ? COR.verde : cor);
+    const vc = variacao(a, c);
+    const corDe = (x) => (semVar ? '#8A8F96' : (x.abs > 0 ? COR.vermelho : x.abs < 0 ? COR.verde : cor));
+    const td = (conteudo, corTxt) => (
+      <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', color: corTxt }}>{conteudo}</td>
+    );
     return (
       <>
-        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', color: cor }}>{formatValor(a)}</td>
-        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', color: cor }}>{semVar && b === 0 ? '—' : formatValor(b)}</td>
-        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', color: corVar }}>{semVar ? '—' : formatValor(v.abs)}</td>
-        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', color: corVar }}>{semVar || v.pct === null ? '—' : formatPct(v.pct)}</td>
+        {td(formatValor(a), cor)}
+        {td(semVar && b === 0 ? '—' : formatValor(b), cor)}
+        {td(semVar && c === 0 ? '—' : formatValor(c), cor)}
+        {td(semVar ? '—' : formatValor(v.abs), corDe(v))}
+        {td(semVar || v.pct === null ? '—' : formatPct(v.pct), corDe(v))}
+        {td(semVar ? '—' : formatValor(vc.abs), corDe(vc))}
+        {td(semVar || vc.pct === null ? '—' : formatPct(vc.pct), corDe(vc))}
       </>
     );
   };
   const th = { background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 8px', textAlign: 'right' };
 
-  let totalA = 0; let totalB = 0;
+  let totalA = 0; let totalB = 0; let totalC = 0;
   const blocos = ccs.map(cc => {
     const contas = refUnidade.pacotes.flatMap(p => contasDoPacoteNoCc(refUnidade.planoContas, p.id, cc, unidadeId));
-    const linhasConta = contas.map(c => ({ codigo: c.codigo, nome: c.nome, a: v2026[`${cc.codigo}|${c.codigo}`] || 0, b: mapa2027[`${cc.codigo}|${c.codigo}`] || 0 }));
+    const linhasConta = contas.map(c => {
+      const b = mapa2027[`${cc.codigo}|${c.codigo}`] || 0;
+      return { codigo: c.codigo, nome: c.nome, a: v2026[`${cc.codigo}|${c.codigo}`] || 0, b, c: b - (mapaBonus2027[`${cc.codigo}|${c.codigo}`] || 0) };
+    });
     const naoClass = v2026[`${cc.codigo}|${CONTA_NAO_CLASSIFICADO_2026}`] || 0;
     const a = linhasConta.reduce((s, x) => s + x.a, 0) + naoClass;
     const b = linhasConta.reduce((s, x) => s + x.b, 0);
-    totalA += a; totalB += b;
-    return { cc, linhasConta, naoClass, a, b };
+    const c = linhasConta.reduce((s, x) => s + x.c, 0);
+    totalA += a; totalB += b; totalC += c;
+    return { cc, linhasConta, naoClass, a, b, c };
   });
 
   return (
@@ -11100,19 +11120,20 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
       )}
       <p style={{ fontSize: 11, color: '#7A8088', margin: '2px 2px 8px' }}>
         Anual, em R$. <b>2026</b> = realizado de janeiro a agosto + orçado de setembro a dezembro; <b>2027</b> = o orçamento em preenchimento.
-        Variação em vermelho quando 2027 é maior que 2026 e em verde quando é menor. {ehGestorCc ? 'Você vê apenas o(s) seu(s) CC(s).' : 'Clique num CC para abrir as contas analíticas.'}
+        <b>2027 sem bônus</b> = 2027 menos o bônus do Headcount Existente e o bônus de Consultorias PJs (em 2026 não houve bônus); acompanha qualquer ajuste feito em Custos e Despesas. Variação em vermelho quando 2027 é maior que 2026 e em verde quando é menor. {ehGestorCc ? 'Você vê apenas o(s) seu(s) CC(s).' : 'Clique num CC para abrir as contas analíticas.'}
       </p>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%' }}>
           <thead>
             <tr>
               <th style={{ ...th, textAlign: 'left', minWidth: 260 }}>CC / Conta analítica (R$)</th>
-              <th style={th}>2026</th><th style={th}>2027</th><th style={th}>Δ R$</th><th style={th}>Δ %</th>
+              <th style={th}>2026</th><th style={th}>2027</th><th style={th}>2027 sem bônus</th>
+              <th style={th}>Δ R$</th><th style={th}>Δ %</th><th style={th}>Δ R$ sem bônus</th><th style={th}>Δ % sem bônus</th>
               <th style={{ ...th, textAlign: 'left', minWidth: 210 }}>Status do CC</th>
             </tr>
           </thead>
           <tbody>
-            {blocos.map(({ cc, linhasConta, naoClass, a, b }) => {
+            {blocos.map(({ cc, linhasConta, naoClass, a, b, c }) => {
               const aberto = !!abertos[cc.codigo];
               const conc = concluidoDe(cc.codigo);
               return (
@@ -11123,7 +11144,7 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
                         {aberto ? <ChevronDown size={12} /> : <ChevronRight size={12} />}{cc.nome}
                       </span>
                     </td>
-                    <Celulas a={a} b={b} cor={COR.azul} />
+                    <Celulas a={a} b={b} c={c} cor={COR.azul} />
                     <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11 }} onClick={e => e.stopPropagation()}>
                       {conc ? (
                         <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -11151,17 +11172,17 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
                       )}
                     </td>
                   </tr>
-                  {aberto && linhasConta.filter(x => x.a !== 0 || x.b !== 0).map(x => (
+                  {aberto && linhasConta.filter(x => x.a !== 0 || x.b !== 0 || x.c !== 0).map(x => (
                     <tr key={x.codigo} style={{ background: COR.claro }}>
                       <td style={{ padding: '6px 10px 6px 34px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#7A8088' }}>{x.codigo} — {x.nome}</td>
-                      <Celulas a={x.a} b={x.b} cor="#7A8088" />
+                      <Celulas a={x.a} b={x.b} c={x.c} cor="#7A8088" />
                       <td style={{ border: `1px solid ${COR.borda}` }} />
                     </tr>
                   ))}
                   {aberto && naoClass !== 0 && (
                     <tr style={{ background: COR.claro }}>
                       <td style={{ padding: '6px 10px 6px 34px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#7A8088', fontStyle: 'italic' }}>Realizado jan–jul sem classificação por conta (arquivo-fonte)</td>
-                      <Celulas a={naoClass} b={0} cor="#7A8088" semVar />
+                      <Celulas a={naoClass} b={0} c={0} cor="#7A8088" semVar />
                       <td style={{ border: `1px solid ${COR.borda}` }} />
                     </tr>
                   )}
@@ -11170,7 +11191,7 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
             })}
             <tr style={{ background: COR.total }}>
               <td style={{ padding: '6px 10px', border: `1px solid ${COR.borda}`, fontSize: 11.5, fontWeight: 700, color: COR.laranja }}>{ehGestorCc ? 'Total do(s) meu(s) CC(s)' : 'Total da unidade'}</td>
-              <Celulas a={totalA} b={totalB} cor={COR.laranja} />
+              <Celulas a={totalA} b={totalB} c={totalC} cor={COR.laranja} />
               <td style={{ border: `1px solid ${COR.borda}` }} />
             </tr>
           </tbody>
