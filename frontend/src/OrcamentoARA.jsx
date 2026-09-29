@@ -2425,7 +2425,9 @@ function emptyFormData(unidadeId = 'textil') {
         // parâmetros por unidade para linhas calculadas do pacote Pessoal
         // Corporativo — dissídio e meritocracia % já existiam, agora ganha
         // mês de meritocracia, mês+% de bônus e % de encargos Novo HC.
-        meritocraciaMes: '', bonusMes: '', bonusPct: '', encargosNovoHcPct: '',
+        // encargosNovoHcPct (2026-09-29): padrão geral de 180% do salário
+        // (encargos + benefícios), editável por unidade.
+        meritocraciaMes: '', bonusMes: '', bonusPct: '', encargosNovoHcPct: '180',
         // bonusPjMes/bonusPjAtendimentoPct (2026-09-19): bônus de Consultórias
         // PJs (CORP03, Corporativo) — calculado pela plataforma, editável apenas
         // em Gestão do Orçamento, visível como linha somente leitura na conta.
