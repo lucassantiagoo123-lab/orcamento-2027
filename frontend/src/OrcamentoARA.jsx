@@ -11013,6 +11013,7 @@ function totais2027PorCcConta(data, refUnidade, ccs, dre, ipcaAnualPct, unidadeI
   const soma = (arr) => (arr || []).reduce((a, v) => a + (v || 0), 0);
   const mapa = {};
   const mapaBonus = {};
+  let totalBonusHc = 0; let totalBonusPj = 0;
   ccs.forEach(cc => {
     const calc = pessoalCalculadoPorCC(data, refUnidade, cc.codigo, bases);
     const funcs = (data.custos.funcionarios || []).filter(f => f.ccCodigo === cc.codigo && f.origem === 'novo');
@@ -11034,12 +11035,12 @@ function totais2027PorCcConta(data, refUnidade, ccs, dre, ipcaAnualPct, unidadeI
       // Bônus embutido na conta: bônus do HC Existente (na conta de Headcount)
       // e bônus de PJs (em Consultórias PJs).
       let b = 0;
-      if (c.nome === 'Headcount Existente' && c === contasHc[0]) b += soma(calc.bonus);
-      if (c.codigo === CONTA_CONSULTORIA_PJ) b += bonusPjAnual;
+      if (c.nome === 'Headcount Existente' && c === contasHc[0]) { const bh = soma(calc.bonus); b += bh; totalBonusHc += bh; }
+      if (c.codigo === CONTA_CONSULTORIA_PJ) { b += bonusPjAnual; totalBonusPj += bonusPjAnual; }
       mapaBonus[`${cc.codigo}|${c.codigo}`] = b;
     });
   });
-  return { total: mapa, bonus: mapaBonus };
+  return { total: mapa, bonus: mapaBonus, bonusHc: totalBonusHc, bonusPj: totalBonusPj };
 }
 
 function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct, usuario, ccs, onConclusoesChange }) {
@@ -11073,7 +11074,7 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unidadeId]);
 
-  const { total: mapa2027, bonus: mapaBonus2027 } = useMemo(
+  const { total: mapa2027, bonus: mapaBonus2027, bonusHc: bonusHcTotal, bonusPj: bonusPjTotal } = useMemo(
     () => totais2027PorCcConta(dados, refUnidade, ccs, dre, ipcaAnualPct, unidadeId),
     [dados, refUnidade, ccs, dre, ipcaAnualPct, unidadeId]
   );
@@ -11155,6 +11156,18 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
         Anual, em R$. <b>2026</b> = realizado de janeiro a agosto + orçado de setembro a dezembro; <b>2027</b> = o orçamento em preenchimento.
         <b>2027 sem bônus</b> = 2027 menos o bônus do Headcount Existente e o bônus de Consultorias PJs (em 2026 não houve bônus); acompanha qualquer ajuste feito em Custos e Despesas. Variação em vermelho quando 2027 é maior que 2026 e em verde quando é menor. {ehGestorCc ? 'Você vê apenas o(s) seu(s) CC(s).' : 'Clique num CC para abrir as contas analíticas.'}
       </p>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+        {[
+          ['Bônus 2027 — Headcount Existente', bonusHcTotal],
+          ['Bônus 2027 — Consultorias PJs', bonusPjTotal],
+          ['Bônus 2027 — total', bonusHcTotal + bonusPjTotal],
+        ].map(([rotulo, valor]) => (
+          <div key={rotulo} style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: '6px 12px', background: COR.claro }}>
+            <div style={{ fontSize: 10, color: '#7A8088' }}>{rotulo}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: COR.azul }}>{formatBRL(valor)}</div>
+          </div>
+        ))}
+      </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%' }}>
           <thead>
