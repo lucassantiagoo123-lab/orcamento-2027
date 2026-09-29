@@ -247,10 +247,12 @@ export function contaTemNegativo(contaRaw) {
 // (Têxtil), produtos genéricos vazios com deduções próprias (Agrícola), ou
 // linhas de hotelaria (Resorts). unidades sem modelo definido (Corporativo,
 // EI, Energia) caem no genérico vazio — não têm lançamento habilitado mesmo.
+const PRODUTOS_BG = [{ nome: 'BAIXO GIRO ANTIGO' }, { nome: 'BAIXO GIRO NOVO' }];
 function receitaVazia(unidadeId) {
   if (unidadeId === 'textil' || unidadeId === 'textil_bg') {
     return {
-      produtos: PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      // Produção BG (2026-09-29): só Baixo Giro Antigo e Baixo Giro Novo — espelho do frontend.
+      produtos: (unidadeId === 'textil_bg' ? PRODUTOS_BG : PRODUTOS_REF).map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
     };
   }

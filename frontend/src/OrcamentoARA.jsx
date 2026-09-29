@@ -218,6 +218,8 @@ const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'O
 const mesesVazios = () => Array(12).fill('');
 
 // ---- Produtos (aba "1.1 DRE" / "Orçamento Receita") — referência 2026, não pré-preenchida ----
+// Grupos de receita da Produção BG (sem referência de 2026): pedido de 2026-09-29.
+const PRODUTOS_BG = [{ nome: 'BAIXO GIRO ANTIGO' }, { nome: 'BAIXO GIRO NOVO' }];
 const PRODUTOS_REF = [
   { nome: 'ALGODAO PENTEADO 1,20', volumeRef: 405, precoRef: 41.70 },
   { nome: 'COTTON LIGHT', volumeRef: 495, precoRef: 47.50 },
@@ -2330,7 +2332,9 @@ function InputNumerico({ value, onChange, onPaste, placeholder, style }) {
 function receitaVazia(unidadeId) {
   if (ehUnidadeTextil(unidadeId)) {
     return {
-      produtos: PRODUTOS_REF.map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
+      // Produção BG (2026-09-29): só dois grupos de receita — Baixo Giro Antigo e
+      // Baixo Giro Novo. Produção Core segue com os 9 produtos de sempre.
+      produtos: (unidadeId === 'textil_bg' ? PRODUTOS_BG : PRODUTOS_REF).map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios() })),
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
       // Movimentação de estoque em volume (2026-09-13) — só Têxtil.
       // producaoMes: volume produzido em cada mês, adiciona ao estoque (2026-09-14).
@@ -8910,7 +8914,8 @@ function AbaEstrategicas({ estrategicas, atualizar, premissasMacro, addObjetivo,
 const MOEDAS_ME = [{ id: 'usd', nome: 'USD' }, { id: 'eur', nome: 'EUR' }, { id: 'gbp', nome: 'GBP' }];
 
 function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, justificativaGeral, estoqueProducao, updateProduto, updateDeducao, atualizar, dre, cambios }) {
-  const mostrarReferenciaTextil = ehUnidadeTextil(unidadeId);
+  // Referência 2026 (produtos, deduções, receita líquida) é da Produção Core; a BG não tem.
+  const mostrarReferenciaTextil = unidadeId === 'textil';
   const volumeTotalMes = MESES.map((_, m) => produtos.reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0));
   const volumeTotalAnual = volumeTotalMes.reduce((a, v) => a + v, 0);
   const precoPonderadoMes = MESES.map((_, m) => (volumeTotalMes[m] > 0 ? dre.receitaBrutaMes[m] / volumeTotalMes[m] : 0));
