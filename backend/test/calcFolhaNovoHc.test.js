@@ -70,6 +70,18 @@ test('Bônus do HC Existente (unidades): HC do mês × multiplicador × %, e ent
   // incide só sobre o salário → 10.000 / 1,83 × 20% (1.092,90), não sobre os 10.000.
   d.custos.premissasPessoal.encargosNovoHcPct = '83';
   assert.equal(arred(computeDRE(d, ref, 0, {}).despesasSemDA), 121092.9);
+
+  // Base do bônus = (HC Existente + meritocracia já vigente no mês) ÷ (1 + enc.).
+  // Mérito de 5% a partir de Abr: 500/mês × 9 meses = 4.500; base = 10.500 / 1,8;
+  // bônus = 5.833,33 × 20% = 1.166,67 → 120.000 + 4.500 + 1.166,67.
+  d.custos.premissasPessoal.encargosNovoHcPct = '80';
+  d.custos.premissasPessoal.meritocraciaMes = 'Abr';
+  d.custos.premissasPessoal.meritocraciaPct = '5';
+  assert.equal(arred(computeDRE(d, ref, 0, {}).despesasSemDA), 125666.67);
+  // Mérito só a partir de Mai (depois do bônus de Abr): não entra na base do bônus.
+  d.custos.premissasPessoal.meritocraciaMes = 'Mai';
+  // 120.000 + mérito 500 × 8 meses (4.000) + bônus 10.000 / 1,8 × 20% (1.111,11)
+  assert.equal(arred(computeDRE(d, ref, 0, {}).despesasSemDA), 125111.11);
 });
 
 test('Agrícola: HC Existente já com dissídio, bônus só dos elegíveis, meritocracia sobre o HC', () => {

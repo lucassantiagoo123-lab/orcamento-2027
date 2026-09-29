@@ -2670,11 +2670,12 @@ function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
   // Agrícola: base do bônus = salários reajustados só das funções elegíveis.
   // Demais unidades (2026-09-29): o bônus incide só sobre o SALÁRIO, mas o HC
   // Existente já traz encargos e benefícios — o salário é extraído dividindo
-  // pelo mesmo fator (1 + encargosNovoHcPct/100) do Novo HC. Sem o % preenchido
+  // pelo mesmo fator (1 + encargosNovoHcPct/100) do Novo HC, sobre HC Existente +
+  // meritocracia + dissídios já vigentes no mês do bônus. Sem o % preenchido
   // o fator é 1 e o cálculo fica como era.
   const baseBonus = ref.bonusSomenteElegiveis
     ? parseNum(pp.baseBonusElegiveisPorCC?.[ccCodigo])
-    : (hcMes ? hcMes[iBonus] / (1 + parseNum(pp.encargosNovoHcPct) / 100) : 0);
+    : (hcMes && iBonus >= 0 ? ((hcMes[iBonus] + (meritocracia?.[iBonus] || 0) + (dissidio1?.[iBonus] || 0) + (dissidio2?.[iBonus] || 0)) / (1 + parseNum(pp.encargosNovoHcPct) / 100)) : 0);
   const bonus = hcMes || ref.bonusSomenteElegiveis
     ? MESES.map((_, m) => (iBonus >= 0 && m === iBonus ? baseBonus * multiplicadorBonus(pp.bonusMultiplicador) * parseNum(pp.bonusPct) / 100 : 0))
     : null;
@@ -11763,7 +11764,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                 <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.bonusPct ? `${_ppC.bonusPct}%${_ppC.bonusMultiplicador ? ` × ${_ppC.bonusMultiplicador}` : ''}` : '—'}</span>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
-                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Encargos — Novo HC (%)</label>
+                                <label style={{ fontSize: 10.5, color: '#7A8088' }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
                                 <span style={{ fontSize: 12, padding: '5px 0' }}>{_ppC.encargosNovoHcPct ? `${_ppC.encargosNovoHcPct}%` : '—'}</span>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
@@ -15374,7 +15375,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                     <CampoNumero value={_pp.bonusMultiplicador} onChange={v => updatePremissasPessoalCorporativo('bonusMultiplicador', v)} sufixo="×" placeholder="1,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
-                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos — Novo HC (%)</label>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
                     <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => updatePremissasPessoalCorporativo('encargosNovoHcPct', v)} sufixo="%" placeholder="0,00" />
                   </div>
                   <div style={{ width: '100%', borderTop: `1px solid ${COR.borda}`, margin: '8px 0' }} />
@@ -15450,7 +15451,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                     <CampoNumero value={_pp.bonusMultiplicador} onChange={v => upd('bonusMultiplicador', v)} sufixo="×" placeholder="1,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
-                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos Novo HC — %</label>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
                     <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
                   </div>
                 </div>
@@ -15504,7 +15505,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                     <CampoNumero value={_pp.bonusMultiplicador} onChange={v => upd('bonusMultiplicador', v)} sufixo="×" placeholder="1,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
-                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos Novo HC — %</label>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
                     <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
                   </div>
                 </div>
@@ -15550,7 +15551,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                     <CampoNumero value={_pp.bonusMultiplicador} onChange={v => upd('bonusMultiplicador', v)} sufixo="×" placeholder="1,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
-                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos Novo HC — %</label>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
                     <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
                   </div>
                 </div>

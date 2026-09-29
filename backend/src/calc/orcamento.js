@@ -515,11 +515,12 @@ export function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
   // Agrícola: base do bônus = salários reajustados só das funções elegíveis.
   // Demais unidades (2026-09-29): o bônus incide só sobre o SALÁRIO, mas o HC
   // Existente já traz encargos e benefícios — o salário é extraído dividindo
-  // pelo mesmo fator (1 + encargosNovoHcPct/100) do Novo HC. Sem o % preenchido
+  // pelo mesmo fator (1 + encargosNovoHcPct/100) do Novo HC, sobre HC Existente +
+  // meritocracia + dissídios já vigentes no mês do bônus. Sem o % preenchido
   // o fator é 1 e o cálculo fica como era.
   const baseBonus = ref.bonusSomenteElegiveis
     ? parseNum(pp.baseBonusElegiveisPorCC?.[ccCodigo])
-    : (hcMes ? hcMes[iBonus] / (1 + parseNum(pp.encargosNovoHcPct) / 100) : 0);
+    : (hcMes && iBonus >= 0 ? ((hcMes[iBonus] + (meritocracia?.[iBonus] || 0) + (dissidio1?.[iBonus] || 0) + (dissidio2?.[iBonus] || 0)) / (1 + parseNum(pp.encargosNovoHcPct) / 100)) : 0);
   const bonus = hcMes || ref.bonusSomenteElegiveis
     ? MESES.map((_, m) => (iBonus >= 0 && m === iBonus ? baseBonus * multiplicadorBonus(pp.bonusMultiplicador) * parseNum(pp.bonusPct) / 100 : 0))
     : null;
