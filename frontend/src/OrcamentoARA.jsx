@@ -11081,7 +11081,7 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
   return (
     <div>
       <p style={{ fontSize: 11, color: '#7A8088', margin: '2px 2px 8px' }}>
-        Anual, em R$. <b>2026</b> = realizado de janeiro a julho + orçado de agosto a dezembro; <b>2027</b> = o orçamento em preenchimento.
+        Anual, em R$. <b>2026</b> = realizado de janeiro a agosto + orçado de setembro a dezembro; <b>2027</b> = o orçamento em preenchimento.
         Variação em vermelho quando 2027 é maior que 2026 e em verde quando é menor. {ehGestorCc ? 'Você vê apenas o(s) seu(s) CC(s).' : 'Clique num CC para abrir as contas analíticas.'}
       </p>
       <div style={{ overflowX: 'auto' }}>
