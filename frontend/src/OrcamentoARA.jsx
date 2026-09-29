@@ -7085,6 +7085,7 @@ function VisaoGerente(props) {
         )}
         {aba === 'revisao' && unidadeAtual !== 'energia' && usuario.perfil !== 'gerente_cc_corporativo' && (
           <AbaRevisao
+            usuario={usuario}
             refUnidade={referenciaDaUnidade(unidadeAtual)}
             unidadeId={unidadeAtual} versoes={versoes}
             dados={dados} dre={dre} ipcaAnualPct={ipcaAnualPct} cambios={cambios} autorNome={autorNome} setAutorNome={setAutorNome}
@@ -11212,7 +11213,6 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   // seletor de CC.
   const [mostrarConsolidado, setMostrarConsolidado] = useState(false);
   const [mostrarConsolidadoCC, setMostrarConsolidadoCC] = useState(false);
-  const [mostrarComparativo2026, setMostrarComparativo2026] = useState(false);
   const [ccsAbertosMacro, setCcsAbertosMacro] = useState({});
   // Grupos colapsáveis do pacote Pessoal — Corporativo (2026-09-19)
   const [hcExistenteAberto, setHcExistenteAberto] = useState(false);
@@ -11525,32 +11525,6 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             </div>
           )}
         </div>
-        {UNIDADES_COM_REFERENCIA_2026.includes(unidadeId) && (
-          <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
-            <button
-              onClick={() => setMostrarComparativo2026(prev => !prev)}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: 7, justifyContent: 'space-between',
-                padding: '9px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT,
-              }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, color: COR.azul }}>
-                {mostrarComparativo2026 ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                Comparativo anual 2026 × 2027 — por CC e conta analítica
-              </span>
-              <span style={{ fontSize: 10.5, color: '#8A8F96', fontWeight: 400 }}>{ccsConsolidado.length} CC(s)</span>
-            </button>
-            {mostrarComparativo2026 && (
-              <div style={{ padding: 8 }}>
-                <PainelComparativo2026
-                  unidadeId={unidadeId} refUnidade={refUnidade} ccs={ccsConsolidado} usuario={usuario}
-                  dados={{ receita, custos: { linhas, funcionarios, premissasPessoal } }}
-                  dre={dre} ipcaAnualPct={ipcaAnualPct}
-                />
-              </div>
-            )}
-          </div>
-        )}
         </React.Fragment>
       )}
 
@@ -14725,7 +14699,7 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
   );
 }
 
-function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, cambios, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade, podeEnviar = true }) {
+function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, cambios, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade, podeEnviar = true }) {
   const [ifrs18, setIfrs18] = useState(false);
   const fd = computeFluxoIndiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
@@ -14782,6 +14756,19 @@ function AbaRevisao({ refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, 
           ? 'O envio grava a versão no histórico e no backlog do FP&A.'
           : 'Painel só de análise — o envio da versão consolidada acontece na tela do Consolidado desta unidade.'}
       </p>
+
+      {/* Comparativo anual 2026 × 2027 por CC e conta (2026-09-29): fica aqui,
+          na Revisão — Gestor de CC vê o dele na própria aba (RevisaoCC). */}
+      {UNIDADES_COM_REFERENCIA_2026.includes(unidadeId) && (
+        <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 16, padding: 12 }}>
+          <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 6 }}>Comparativo anual 2026 × 2027 — por CC e conta analítica</h4>
+          <PainelComparativo2026
+            unidadeId={unidadeId} refUnidade={refUnidade} usuario={usuario}
+            ccs={refUnidade.ccs.filter(cc => !cc.nivel || cc.nivel === 3)}
+            dados={dados} dre={dre} ipcaAnualPct={ipcaAnualPct}
+          />
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         <button
