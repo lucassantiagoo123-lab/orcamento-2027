@@ -11068,7 +11068,7 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
   }
 
   // a = 2026; b = 2027 original; c = 2027 sem bônus (HC Existente e PJs).
-  // Colunas: 2026 | 2027 | 2027 sem bônus | Δ R$ | Δ % | Δ R$ sem bônus | Δ % sem bônus.
+  // Colunas: 2026 | 2027 | Δ R$ | Δ % | 2027 sem bônus | Δ R$ sem bônus | Δ % sem bônus.
   const Celulas = ({ a, b, c, cor, semVar }) => {
     const v = variacao(a, b);
     const vc = variacao(a, c);
@@ -11080,9 +11080,9 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
       <>
         {td(formatValor(a), cor)}
         {td(semVar && b === 0 ? '—' : formatValor(b), cor)}
-        {td(semVar && c === 0 ? '—' : formatValor(c), cor)}
         {td(semVar ? '—' : formatValor(v.abs), corDe(v))}
         {td(semVar || v.pct === null ? '—' : formatPct(v.pct), corDe(v))}
+        {td(semVar && c === 0 ? '—' : formatValor(c), cor)}
         {td(semVar ? '—' : formatValor(vc.abs), corDe(vc))}
         {td(semVar || vc.pct === null ? '—' : formatPct(vc.pct), corDe(vc))}
       </>
@@ -11127,8 +11127,8 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
           <thead>
             <tr>
               <th style={{ ...th, textAlign: 'left', minWidth: 260 }}>CC / Conta analítica (R$)</th>
-              <th style={th}>2026</th><th style={th}>2027</th><th style={th}>2027 sem bônus</th>
-              <th style={th}>Δ R$</th><th style={th}>Δ %</th><th style={th}>Δ R$ sem bônus</th><th style={th}>Δ % sem bônus</th>
+              <th style={th}>2026</th><th style={th}>2027</th><th style={th}>Δ R$</th><th style={th}>Δ %</th>
+              <th style={th}>2027 sem bônus</th><th style={th}>Δ R$ sem bônus</th><th style={th}>Δ % sem bônus</th>
               <th style={{ ...th, textAlign: 'left', minWidth: 210 }}>Status do CC</th>
             </tr>
           </thead>
