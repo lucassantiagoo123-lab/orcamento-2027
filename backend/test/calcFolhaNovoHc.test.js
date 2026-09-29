@@ -65,6 +65,11 @@ test('Bônus do HC Existente (unidades): HC do mês × multiplicador × %, e ent
   d.custos.premissasPessoal.bonusMultiplicador = '';
   // multiplicador vazio = 1×: 10.000 × 20% = 2.000
   assert.equal(arred(computeDRE(d, ref, 0, {}).despesasSemDA), 122000);
+
+  // Com encargos e benefícios (83%) o HC Existente é salário × 1,83: o bônus
+  // incide só sobre o salário → 10.000 / 1,83 × 20% (1.092,90), não sobre os 10.000.
+  d.custos.premissasPessoal.encargosNovoHcPct = '83';
+  assert.equal(arred(computeDRE(d, ref, 0, {}).despesasSemDA), 121092.9);
 });
 
 test('Agrícola: HC Existente já com dissídio, bônus só dos elegíveis, meritocracia sobre o HC', () => {
