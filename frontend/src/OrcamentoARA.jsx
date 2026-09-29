@@ -10,7 +10,7 @@ import {
   Building2, ChevronDown, ChevronRight, Plus, Trash2, Clock, ShieldCheck,
   Users, Loader2, Info, Upload, FileText,
 } from 'lucide-react';
-import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi } from './api/orcamentos.js';
+import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi, getReferencia2026, getConclusoesCc, concluirCc, liberarCc } from './api/orcamentos.js';
 import { mesclarDados, iguais } from './mesclarDados.js';
 import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, definirFontePremissaMacro as definirFontePremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
 import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
@@ -2242,9 +2242,15 @@ const ABAS_ESCRITORIO = [
 ];
 // Abas de cada unidade: Holding e South Bay (ARA EI) não têm Receita
 // (2026-09-27); o Corporativo mantém a aba com o aviso de sempre.
+// Gestor de CC: todos os CCs dele nesta unidade estão concluídos?
+function todosCcsConcluidos(usuario, unidadeId, conclusoes) {
+  const meus = (usuario?.ccsPermitidos || []).filter(p => p.unidadeId === unidadeId).map(p => p.codigo);
+  return meus.length > 0 && meus.every(c => (conclusoes || []).some(x => x.ccCodigo === c));
+}
+
 function abasDaUnidade(unidadeId, usuario) {
   if (unidadeId === 'energia') return ABAS_ESCRITORIO;
-  if (usuario?.perfil === 'gerente_cc_corporativo') return ABAS.filter(a => a.id === 'custos' || a.id === 'capex');
+  if (usuario?.perfil === 'gerente_cc_corporativo') return ABAS.filter(a => a.id === 'custos' || a.id === 'capex' || a.id === 'revisao');
   if (unidadeId === 'ei_holding' || unidadeId === 'ei_southbay') return ABAS.filter(a => a.id !== 'receita');
   return ABAS;
 }
@@ -4803,7 +4809,13 @@ export default function OrcamentoARA({ usuario }) {
       dadosBaseRef.current = r.orcamento.dados;
       setReferenciaCore(r.referenciaCore || null);
       setAguardandoLiberacao(r.orcamento.aguardando_liberacao || false);
-      setEdicaoEncerrada(ehGestorCc && r.periodoEdicaoEncerrado === true);
+      // Gestor de CC com todos os CCs concluídos: tela só de visualização
+      // (a trava real é no servidor — ver validarCcConcluido no backend).
+      let todosConcluidos = false;
+      if (ehGestorCc) {
+        try { todosConcluidos = todosCcsConcluidos(usuario, idUnidade, await getConclusoesCc(idUnidade)); } catch (e) { /* segue sem a trava visual */ }
+      }
+      setEdicaoEncerrada(ehGestorCc && (r.periodoEdicaoEncerrado === true || todosConcluidos));
     } catch (e) {
       const vazio = emptyFormData();
       setDados(vazio);
@@ -4821,6 +4833,11 @@ export default function OrcamentoARA({ usuario }) {
   }, []);
 
   useEffect(() => { if (role === 'gerente') carregarUnidade(unidadeAtual); }, [role, unidadeAtual, carregarUnidade]);
+
+  // Gestor de CC concluiu o(s) último(s) CC(s) dele: a tela passa a só visualização.
+  const onConclusoesCcChange = useCallback((lista) => {
+    if (ehGestorCc && todosCcsConcluidos(usuario, unidadeAtual, lista)) setEdicaoEncerrada(true);
+  }, [ehGestorCc, usuario, unidadeAtual]);
 
   const carregarFPA = useCallback(async () => {
     setCarregando(true);
@@ -6529,7 +6546,7 @@ export default function OrcamentoARA({ usuario }) {
           pedindoMotivo={pedindoMotivo} motivoBloqueio={motivoBloqueio} setMotivoBloqueio={setMotivoBloqueio}
           unidadeAtual={unidadeAtual} setUnidadeAtual={setUnidadeAtual} unidadeObj={unidadeObj}
           aba={aba} setAba={setAba} dados={dados} dre={dre} checks={checks} tudoOk={tudoOk} aguardandoLiberacao={aguardandoLiberacao}
-          updateProduto={updateProduto} updateDeducao={updateDeducao} referenciaCore={referenciaCore}
+          updateProduto={updateProduto} updateDeducao={updateDeducao} referenciaCore={referenciaCore} onConclusoesCcChange={onConclusoesCcChange}
           premissasMacro={premissasMacro}
           addObjetivo={addObjetivo} updateObjetivo={updateObjetivo} removeObjetivo={removeObjetivo}
           addIniciativa={addIniciativa} updateIniciativa={updateIniciativa} removeIniciativa={removeIniciativa}
@@ -6704,7 +6721,7 @@ function VisaoGerente(props) {
     unidadesVisiveis, salvarRascunhoAgora, salvandoRascunho, ultimoSalvoEm,
     pedindoMotivo, motivoBloqueio, setMotivoBloqueio,
     unidadeAtual, setUnidadeAtual, unidadeObj, aba, setAba, dados, dre, checks, tudoOk, aguardandoLiberacao,
-    updateProduto, updateDeducao, referenciaCore, premissasMacro,
+    updateProduto, updateDeducao, referenciaCore, onConclusoesCcChange, premissasMacro,
     addObjetivo, updateObjetivo, removeObjetivo, addIniciativa, updateIniciativa, removeIniciativa,
     updateConta, updateSublinha, addSublinha, removeSublinha, addDetalhe, updateDetalhe, removeDetalhe,
     addFuncionario, updateFuncionario, removeFuncionario, updatePremissaPessoal,
@@ -7059,7 +7076,14 @@ function VisaoGerente(props) {
         )}
         {aba === 'balanco' && <AbaBalanco balanco={dados.balanco} atualizar={atualizar} />}
         {aba === 'plano5y' && <AbaPlano5Y dre={dre} plano5y={dados.plano5y} updatePremissa5Y={updatePremissa5Y} atualizar={atualizar} />}
-        {aba === 'revisao' && unidadeAtual !== 'energia' && (
+        {aba === 'revisao' && unidadeAtual !== 'energia' && usuario.perfil === 'gerente_cc_corporativo' && (
+          <RevisaoCC
+            unidadeId={unidadeAtual} refUnidade={referenciaDaUnidade(unidadeAtual)}
+            dados={dados} dre={dre} ipcaAnualPct={ipcaAnualPct} usuario={usuario}
+            onConclusoesChange={onConclusoesCcChange}
+          />
+        )}
+        {aba === 'revisao' && unidadeAtual !== 'energia' && usuario.perfil !== 'gerente_cc_corporativo' && (
           <AbaRevisao
             refUnidade={referenciaDaUnidade(unidadeAtual)}
             unidadeId={unidadeAtual} versoes={versoes}
@@ -10932,6 +10956,232 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
   );
 }
 
+// ---------------------------------------------------------------------------
+// Comparativo 2026 × 2027 (2026-09-29) — anual, por CC e conta analítica, com
+// variação em R$ e %. O 2026 vem de uma tabela própria do banco (somente
+// leitura, nunca mistura com o documento do orçamento) e o servidor entrega a
+// cada perfil só os CCs dele. 2026 = realizado jan–jul + orçado ago–dez.
+// Por ora só o Corporativo tem referência carregada.
+// ---------------------------------------------------------------------------
+const UNIDADES_COM_REFERENCIA_2026 = ['corporativo'];
+const CONTA_NAO_CLASSIFICADO_2026 = 'NAO_CLASSIFICADO';
+
+// 2027 anual por `${cc}|${conta}` — mesmas regras da "Visão consolidada por CC"
+// (HC Existente + Novo HC com encargos + linhas calculadas), com as linhas
+// calculadas alocadas na conta a que pertencem: licença → CORP10, comissão do
+// POC → conta própria e bônus de PJs → Consultórias PJs (CORP03).
+function totais2027PorCcConta(data, refUnidade, ccs, dre, ipcaAnualPct, unidadeId) {
+  const linhas = data.custos.linhas || {};
+  const pp = data.custos.premissasPessoal || {};
+  const fator = 1 + parseNum(pp.encargosNovoHcPct) / 100;
+  const bases = { receitaBrutaMes: dre.receitaBrutaMes, receitaLiquidaMes: dre.receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes: dre.volumeTotalKgMes, receitaHospedagemMes: dre.receitaHospedagemMes, receitaAebMes: dre.receitaAebMes };
+  const soma = (arr) => (arr || []).reduce((a, v) => a + (v || 0), 0);
+  const mapa = {};
+  ccs.forEach(cc => {
+    const calc = pessoalCalculadoPorCC(data, refUnidade, cc.codigo, bases);
+    const funcs = (data.custos.funcionarios || []).filter(f => f.ccCodigo === cc.codigo && f.origem === 'novo');
+    const folhaNovo = computeFolhaPessoalAnual(funcs, pp).totalAnual * fator;
+    const contas = refUnidade.pacotes.flatMap(p => contasDoPacoteNoCc(refUnidade.planoContas, p.id, cc, unidadeId));
+    const contasHc = contas.filter(c => c.nome === 'Headcount Existente');
+    const anual = (c) => valorLinhaAnual(linhas[`${cc.codigo}|${c.codigo}`], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
+    const foraDoPessoal = MESES.reduce((acc, _, m) => acc + calculadasForaDoPessoalMes(calc, m), 0);
+    const bonusPjAnual = soma(calc.bonusPj);
+    const clt = folhaNovo + contasHc.reduce((acc, c) => acc + anual(c), 0) + calc.totalAnual - foraDoPessoal - bonusPjAnual;
+    contas.forEach(c => {
+      let v;
+      if (c.nome === 'Headcount Existente') v = c === contasHc[0] ? clt : 0;
+      else {
+        v = anual(c) + soma(calculadaDaConta(calc, c.codigo));
+        if (c.codigo === CONTA_CONSULTORIA_PJ) v += bonusPjAnual;
+      }
+      mapa[`${cc.codigo}|${c.codigo}`] = v;
+    });
+  });
+  return mapa;
+}
+
+function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct, usuario, ccs, onConclusoesChange }) {
+  const [linhas2026, setLinhas2026] = useState(null);
+  const [conclusoes, setConclusoes] = useState([]);
+  const [erro, setErro] = useState(null);
+  const [ocupado, setOcupado] = useState(null);
+  const [abertos, setAbertos] = useState({});
+  const ehGestorCc = usuario?.perfil === 'gerente_cc_corporativo';
+  const ehAdmin = usuario?.perfil === 'admin_fpa';
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const [l, c] = await Promise.all([getReferencia2026(unidadeId), getConclusoesCc(unidadeId)]);
+        if (!vivo) return;
+        setLinhas2026(l);
+        setConclusoes(c);
+        onConclusoesChange?.(c);
+      } catch (e) {
+        if (vivo) setErro(e instanceof ApiError ? e.message : 'Falha ao carregar o comparativo com 2026.');
+      }
+    })();
+    return () => { vivo = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unidadeId]);
+
+  const mapa2027 = useMemo(
+    () => totais2027PorCcConta(dados, refUnidade, ccs, dre, ipcaAnualPct, unidadeId),
+    [dados, refUnidade, ccs, dre, ipcaAnualPct, unidadeId]
+  );
+
+  if (erro) return <p style={{ fontSize: 12, color: COR.vermelho }}>{erro}</p>;
+  if (!linhas2026) return <p style={{ fontSize: 12, color: '#7A8088' }}>Carregando comparativo com 2026…</p>;
+  if (linhas2026.length === 0) return <p style={{ fontSize: 12, color: '#7A8088' }}>Ainda não há valores de 2026 carregados para esta unidade.</p>;
+
+  const v2026 = {};
+  linhas2026.forEach(l => { v2026[`${l.ccCodigo}|${l.contaCodigo}`] = l.valor; });
+  const concluidoDe = (codigo) => conclusoes.find(c => c.ccCodigo === codigo);
+  const variacao = (a, b) => ({ abs: b - a, pct: a > 0 ? ((b - a) / a) * 100 : null });
+
+  async function acao(fn, ccCodigo) {
+    setOcupado(ccCodigo);
+    setErro(null);
+    try {
+      const nova = await fn(unidadeId, ccCodigo);
+      setConclusoes(nova);
+      onConclusoesChange?.(nova);
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : 'Não foi possível concluir a ação.');
+    }
+    setOcupado(null);
+  }
+
+  const Celulas = ({ a, b, cor, semVar }) => {
+    const v = variacao(a, b);
+    const corVar = semVar ? '#8A8F96' : (v.abs > 0 ? COR.vermelho : v.abs < 0 ? COR.verde : cor);
+    return (
+      <>
+        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', color: cor }}>{formatValor(a)}</td>
+        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', color: cor }}>{semVar && b === 0 ? '—' : formatValor(b)}</td>
+        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', color: corVar }}>{semVar ? '—' : formatValor(v.abs)}</td>
+        <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', color: corVar }}>{semVar || v.pct === null ? '—' : formatPct(v.pct)}</td>
+      </>
+    );
+  };
+  const th = { background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 8px', textAlign: 'right' };
+
+  let totalA = 0; let totalB = 0;
+  const blocos = ccs.map(cc => {
+    const contas = refUnidade.pacotes.flatMap(p => contasDoPacoteNoCc(refUnidade.planoContas, p.id, cc, unidadeId));
+    const linhasConta = contas.map(c => ({ codigo: c.codigo, nome: c.nome, a: v2026[`${cc.codigo}|${c.codigo}`] || 0, b: mapa2027[`${cc.codigo}|${c.codigo}`] || 0 }));
+    const naoClass = v2026[`${cc.codigo}|${CONTA_NAO_CLASSIFICADO_2026}`] || 0;
+    const a = linhasConta.reduce((s, x) => s + x.a, 0) + naoClass;
+    const b = linhasConta.reduce((s, x) => s + x.b, 0);
+    totalA += a; totalB += b;
+    return { cc, linhasConta, naoClass, a, b };
+  });
+
+  return (
+    <div>
+      <p style={{ fontSize: 11, color: '#7A8088', margin: '2px 2px 8px' }}>
+        Anual, em R$. <b>2026</b> = realizado de janeiro a julho + orçado de agosto a dezembro; <b>2027</b> = o orçamento em preenchimento.
+        Variação em vermelho quando 2027 é maior que 2026 e em verde quando é menor. {ehGestorCc ? 'Você vê apenas o(s) seu(s) CC(s).' : 'Clique num CC para abrir as contas analíticas.'}
+      </p>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%' }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: 'left', minWidth: 260 }}>CC / Conta analítica (R$)</th>
+              <th style={th}>2026</th><th style={th}>2027</th><th style={th}>Δ R$</th><th style={th}>Δ %</th>
+              <th style={{ ...th, textAlign: 'left', minWidth: 210 }}>Status do CC</th>
+            </tr>
+          </thead>
+          <tbody>
+            {blocos.map(({ cc, linhasConta, naoClass, a, b }) => {
+              const aberto = !!abertos[cc.codigo];
+              const conc = concluidoDe(cc.codigo);
+              return (
+                <React.Fragment key={cc.codigo}>
+                  <tr style={{ background: COR.branco, cursor: 'pointer' }} onClick={() => setAbertos(prev => ({ ...prev, [cc.codigo]: !prev[cc.codigo] }))}>
+                    <td style={{ padding: '6px 10px', border: `1px solid ${COR.borda}`, fontSize: 11.5, fontWeight: 700, color: COR.azul }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        {aberto ? <ChevronDown size={12} /> : <ChevronRight size={12} />}{cc.nome}
+                      </span>
+                    </td>
+                    <Celulas a={a} b={b} cor={COR.azul} />
+                    <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11 }} onClick={e => e.stopPropagation()}>
+                      {conc ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ color: COR.verde, fontWeight: 700 }}>Concluído</span>
+                          <span style={{ color: '#7A8088', fontSize: 10 }}>{conc.concluidoPorNome || ''} · {formatData(conc.concluidoEm)}</span>
+                          {ehAdmin && (
+                            <button
+                              disabled={ocupado === cc.codigo}
+                              onClick={() => { if (window.confirm(`Liberar o CC ${cc.nome} para nova edição pelo Gestor de CC?`)) acao(liberarCc, cc.codigo); }}
+                              style={{ fontFamily: FONT, fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 5, border: `1px solid ${COR.laranja}`, background: COR.branco, color: COR.laranja, cursor: 'pointer' }}
+                            >Liberar para edição</button>
+                          )}
+                        </span>
+                      ) : (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ color: '#7A8088' }}>Em preenchimento</span>
+                          {ehGestorCc && (
+                            <button
+                              disabled={ocupado === cc.codigo}
+                              onClick={() => { if (window.confirm(`Concluir o CC ${cc.nome}? Depois disso você não poderá mais editá-lo — só o Admin FP&A pode liberar novamente.`)) acao(concluirCc, cc.codigo); }}
+                              style={{ fontFamily: FONT, fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 5, border: 'none', background: COR.azul, color: COR.branco, cursor: 'pointer' }}
+                            >Concluir CC</button>
+                          )}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                  {aberto && linhasConta.filter(x => x.a !== 0 || x.b !== 0).map(x => (
+                    <tr key={x.codigo} style={{ background: COR.claro }}>
+                      <td style={{ padding: '6px 10px 6px 34px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#7A8088' }}>{x.codigo} — {x.nome}</td>
+                      <Celulas a={x.a} b={x.b} cor="#7A8088" />
+                      <td style={{ border: `1px solid ${COR.borda}` }} />
+                    </tr>
+                  ))}
+                  {aberto && naoClass !== 0 && (
+                    <tr style={{ background: COR.claro }}>
+                      <td style={{ padding: '6px 10px 6px 34px', border: `1px solid ${COR.borda}`, fontSize: 11, color: '#7A8088', fontStyle: 'italic' }}>Realizado jan–jul sem classificação por conta (arquivo-fonte)</td>
+                      <Celulas a={naoClass} b={0} cor="#7A8088" semVar />
+                      <td style={{ border: `1px solid ${COR.borda}` }} />
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+            <tr style={{ background: COR.total }}>
+              <td style={{ padding: '6px 10px', border: `1px solid ${COR.borda}`, fontSize: 11.5, fontWeight: 700, color: COR.laranja }}>{ehGestorCc ? 'Total do(s) meu(s) CC(s)' : 'Total da unidade'}</td>
+              <Celulas a={totalA} b={totalB} cor={COR.laranja} />
+              <td style={{ border: `1px solid ${COR.borda}` }} />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Aba "Revisão, Análise e Envio" do Gestor de CC: só o comparativo do(s) CC(s)
+// dele e a conclusão — nada de DRE, fluxo de caixa nem envio da unidade.
+function RevisaoCC({ unidadeId, refUnidade, dados, dre, ipcaAnualPct, usuario, onConclusoesChange }) {
+  const ccs = refUnidade.ccs.filter(cc => (!cc.nivel || cc.nivel === 3) && (usuario.ccsPermitidos || []).some(p => p.unidadeId === unidadeId && p.codigo === cc.codigo));
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>Revisão do meu CC — 2027 × 2026</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 12 }}>
+        Compare o que você orçou para 2027 com 2026 e, quando terminar, clique em <b>Concluir CC</b>. O envio do orçamento da unidade é feito
+        pelo Gestor da Unidade; depois de concluído, o CC só volta a ser editável se o Admin FP&A liberar.
+      </p>
+      {UNIDADES_COM_REFERENCIA_2026.includes(unidadeId) ? (
+        <PainelComparativo2026 unidadeId={unidadeId} refUnidade={refUnidade} dados={dados} dre={dre} ipcaAnualPct={ipcaAnualPct} usuario={usuario} ccs={ccs} onConclusoesChange={onConclusoesChange} />
+      ) : (
+        <p style={{ fontSize: 12, color: '#7A8088' }}>O comparativo com 2026 ainda não está disponível para esta unidade.</p>
+      )}
+    </div>
+  );
+}
+
 function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, updateSublinha, addSublinha, removeSublinha, dre, ipcaAnualPct, detalhes, addDetalhe, updateDetalhe, removeDetalhe, funcionarios, addFuncionario, updateFuncionario, removeFuncionario, premissasPessoal, updatePremissaPessoal, viagens, atualizar, premissasMacro, cambios, receita }) {
   // Sincronização de dissídio com a Premissa Macro "Reajuste salarial/
   // dissídio" (2026-09-07) removida em 2026-09-08 — ver nota em QuadroPessoal
@@ -10962,6 +11212,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   // seletor de CC.
   const [mostrarConsolidado, setMostrarConsolidado] = useState(false);
   const [mostrarConsolidadoCC, setMostrarConsolidadoCC] = useState(false);
+  const [mostrarComparativo2026, setMostrarComparativo2026] = useState(false);
   const [ccsAbertosMacro, setCcsAbertosMacro] = useState({});
   // Grupos colapsáveis do pacote Pessoal — Corporativo (2026-09-19)
   const [hcExistenteAberto, setHcExistenteAberto] = useState(false);
@@ -11274,6 +11525,32 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
             </div>
           )}
         </div>
+        {UNIDADES_COM_REFERENCIA_2026.includes(unidadeId) && (
+          <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
+            <button
+              onClick={() => setMostrarComparativo2026(prev => !prev)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 7, justifyContent: 'space-between',
+                padding: '9px 12px', background: COR.claro, border: 'none', cursor: 'pointer', fontFamily: FONT,
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, color: COR.azul }}>
+                {mostrarComparativo2026 ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                Comparativo anual 2026 × 2027 — por CC e conta analítica
+              </span>
+              <span style={{ fontSize: 10.5, color: '#8A8F96', fontWeight: 400 }}>{ccsConsolidado.length} CC(s)</span>
+            </button>
+            {mostrarComparativo2026 && (
+              <div style={{ padding: 8 }}>
+                <PainelComparativo2026
+                  unidadeId={unidadeId} refUnidade={refUnidade} ccs={ccsConsolidado} usuario={usuario}
+                  dados={{ receita, custos: { linhas, funcionarios, premissasPessoal } }}
+                  dre={dre} ipcaAnualPct={ipcaAnualPct}
+                />
+              </div>
+            )}
+          </div>
+        )}
         </React.Fragment>
       )}
 

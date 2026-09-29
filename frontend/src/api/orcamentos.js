@@ -64,3 +64,23 @@ export async function buscarVersao(unidadeId, versaoId) {
   const { versao } = await apiFetch(`/api/orcamentos/${unidadeId}/versoes/${versaoId}`);
   return versao;
 }
+
+// Referência 2026 (somente leitura) e conclusão de CC — o servidor já devolve
+// só os CCs que o usuário pode ver (Gestor de CC: os dele).
+export async function getReferencia2026(unidadeId) {
+  const { linhas } = await apiFetch(`/api/orcamentos/${unidadeId}/referencia-2026`);
+  return linhas;
+}
+export async function getConclusoesCc(unidadeId) {
+  const { conclusoes } = await apiFetch(`/api/orcamentos/${unidadeId}/conclusao-cc`);
+  return conclusoes;
+}
+export async function concluirCc(unidadeId, ccCodigo) {
+  const { conclusoes } = await apiFetch(`/api/orcamentos/${unidadeId}/cc/${encodeURIComponent(ccCodigo)}/concluir`, { method: 'POST' });
+  return conclusoes;
+}
+// Só Admin FP&A.
+export async function liberarCc(unidadeId, ccCodigo) {
+  const { conclusoes } = await apiFetch(`/api/orcamentos/${unidadeId}/cc/${encodeURIComponent(ccCodigo)}/liberar`, { method: 'POST' });
+  return conclusoes;
+}

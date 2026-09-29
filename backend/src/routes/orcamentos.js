@@ -3,7 +3,8 @@
 // server.js) e por exigirUnidade, que rejeita (403) qualquer unidade_id fora
 // do vínculo real do usuário no banco — nunca confia no que vem da URL.
 import { Router } from 'express';
-import { exigirUnidade, exigirPerfil, exigirAcessoNaoExpirado } from '../middleware/authorize.js';
+import { exigirUnidade, exigirCc, exigirPerfil, exigirAcessoNaoExpirado } from '../middleware/authorize.js';
+import { listarReferencia2026, listarConclusoes, ccsConcluidos, concluirCc, liberarCc } from '../db/conclusaoCc.js';
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
 import { mesclarCustos, mesclarCapex } from '../db/mesclarCustos.js';
@@ -204,6 +205,35 @@ function validarSoCustosAlterado(usuario, dadosAntes, dadosNovos) {
   return null;
 }
 
+/** CC concluído pelo Gestor de CC (2026-09-29): enquanto não for liberado pelo
+ * Admin FP&A, o Gestor de CC não altera nada desse CC (linhas de custos,
+ * detalhamentos, funcionários e projetos de CapEx). Compara antes → novo, como
+ * validarEscritaCcCustos: dado alheio que só "passa" no payload não conta. */
+function validarCcConcluido(usuario, ccsConcluidos, dadosAntes, dadosNovos) {
+  if (usuario.perfil !== 'gerente_cc_corporativo' || !ccsConcluidos || ccsConcluidos.size === 0) return null;
+  const msg = (cc) => `O CC ${cc} foi concluído — só o Admin FP&A pode liberar para nova edição.`;
+  const linhasAntes = dadosAntes?.custos?.linhas || {};
+  const linhasNovas = dadosNovos?.custos?.linhas || {};
+  for (const chave of new Set([...Object.keys(linhasAntes), ...Object.keys(linhasNovas)])) {
+    if (iguais(linhasAntes[chave], linhasNovas[chave])) continue;
+    const cc = chave.split('|')[0];
+    if (ccsConcluidos.has(cc)) return msg(cc);
+  }
+  const lista = (antes, novo, campoCc) => {
+    const a = new Map((antes || []).map((x) => [x.id, x]));
+    const n = new Map((novo || []).map((x) => [x.id, x]));
+    for (const id of new Set([...a.keys(), ...n.keys()])) {
+      if (iguais(a.get(id), n.get(id))) continue;
+      const cc = (n.get(id) || a.get(id))?.[campoCc];
+      if (cc && ccsConcluidos.has(cc)) return msg(cc);
+    }
+    return null;
+  };
+  return lista(dadosAntes?.custos?.detalhes, dadosNovos?.custos?.detalhes, 'cc')
+    || lista(dadosAntes?.custos?.funcionarios, dadosNovos?.custos?.funcionarios, 'ccCodigo')
+    || lista(dadosAntes?.capex?.projetos, dadosNovos?.capex?.projetos, 'cc');
+}
+
 // Seção 4.5 — bloqueio pós-aprovação: só admin_fpa escreve depois de
 // aprovado, e precisa justificar (motivo vai para log_alteracoes.motivo).
 function verificarBloqueio(atual, usuario, motivo) {
@@ -288,9 +318,12 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoE
     // dadosBase: merge 3-way do documento inteiro (todas as seções, ver
     // db/mesclarDados.js). As validações de escopo comparam base → novo, que é
     // exatamente o conjunto de mudanças que o merge vai aplicar.
+    // CC concluído: Gestor de CC não altera até o Admin FP&A liberar.
+    const concluidos = req.usuario.perfil === 'gerente_cc_corporativo' ? await ccsConcluidos(req.params.unidadeId) : null;
     if (dadosBase) {
       const erroEscopo = validarEscritaCcCustos(req.usuario, req.params.unidadeId, dadosBase, dados)
-        || validarSoCustosAlterado(req.usuario, dadosBase, dados);
+        || validarSoCustosAlterado(req.usuario, dadosBase, dados)
+        || validarCcConcluido(req.usuario, concluidos, dadosBase, dados);
       if (erroEscopo) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroEscopo });
       const erroBloqueio = verificarBloqueio(atual, req.usuario, motivo);
       if (erroBloqueio) return res.status(erroBloqueio.status).json(erroBloqueio.corpo);
@@ -315,7 +348,8 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoE
     const dadosParaEscopo = custosBase ? { ...atual.dados, custos: custosBase } : atual.dados;
     const erroEscopoCc = validarEscritaCcCustos(req.usuario, req.params.unidadeId, dadosParaEscopo, dados);
     if (erroEscopoCc) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroEscopoCc });
-    const erroSecao = validarSoCustosAlterado(req.usuario, atual.dados, dados);
+    const erroSecao = validarSoCustosAlterado(req.usuario, atual.dados, dados)
+      || validarCcConcluido(req.usuario, concluidos, { ...atual.dados, custos: custosBase || atual.dados.custos, capex: capexBase || atual.dados.capex }, dados);
     if (erroSecao) return res.status(403).json({ erro: 'fora_de_escopo', mensagem: erroSecao });
 
     const erroBloqueio = verificarBloqueio(atual, req.usuario, motivo);
@@ -345,6 +379,42 @@ orcamentosRouter.put('/:unidadeId', exigirUnidade('unidadeId'), exigirAcessoNaoE
     // no .jsx).
     res.json({ orcamento: atualizado });
     verificarPerdasAposSalvar(req, atual.dados, atualizado.dados);
+  } catch (err) { next(err); }
+});
+
+// --- Referência 2026 e conclusão de CC (2026-09-29) ---
+// CCs que o usuário pode ver: null = todos (Admin FP&A e Gestor da Unidade);
+// Gestor de CC recebe só os dele — o filtro é aqui, no servidor.
+function ccsDoUsuario(usuario, unidadeId) {
+  if (usuario.perfil !== 'gerente_cc_corporativo') return null;
+  return (usuario.ccsPermitidos || []).filter((c) => c.unidadeId === unidadeId || c.unidadeId === null).map((c) => c.codigo);
+}
+
+orcamentosRouter.get('/:unidadeId/referencia-2026', exigirUnidade('unidadeId'), async (req, res, next) => {
+  try {
+    res.json({ linhas: await listarReferencia2026(req.params.unidadeId, ccsDoUsuario(req.usuario, req.params.unidadeId)) });
+  } catch (err) { next(err); }
+});
+
+orcamentosRouter.get('/:unidadeId/conclusao-cc', exigirUnidade('unidadeId'), async (req, res, next) => {
+  try {
+    res.json({ conclusoes: await listarConclusoes(req.params.unidadeId, ccsDoUsuario(req.usuario, req.params.unidadeId)) });
+  } catch (err) { next(err); }
+});
+
+// Só o Gestor de CC, e só do CC dele.
+orcamentosRouter.post('/:unidadeId/cc/:ccCodigo/concluir', exigirUnidade('unidadeId'), exigirPerfil('gerente_cc_corporativo'), exigirCc('unidadeId', 'ccCodigo'), exigirAcessoNaoExpirado, async (req, res, next) => {
+  try {
+    await concluirCc(req.params.unidadeId, req.params.ccCodigo, req.usuario.id);
+    res.json({ conclusoes: await listarConclusoes(req.params.unidadeId, ccsDoUsuario(req.usuario, req.params.unidadeId)) });
+  } catch (err) { next(err); }
+});
+
+// Só o Admin FP&A libera o CC para nova edição.
+orcamentosRouter.post('/:unidadeId/cc/:ccCodigo/liberar', exigirUnidade('unidadeId'), exigirPerfil('admin_fpa'), async (req, res, next) => {
+  try {
+    await liberarCc(req.params.unidadeId, req.params.ccCodigo);
+    res.json({ conclusoes: await listarConclusoes(req.params.unidadeId, null) });
   } catch (err) { next(err); }
 });
 
