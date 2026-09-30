@@ -591,34 +591,35 @@ export const CCS_CORPORATIVO = [
   { codigo: "0000199", nome: "Conselho", tipo: 'despesa' },
   { codigo: "0010103", nome: "Contabilidade/Fiscal", tipo: 'despesa' },
   { codigo: "0010104", nome: "Departamento Pessoal", tipo: 'despesa' },
-  { codigo: "0010105", nome: "TI GSP (SISTEMAS)", tipo: 'despesa' },
-  { codigo: "0010107", nome: "COMPRAS", tipo: 'despesa' },
-  { codigo: "0010109", nome: "NOVOS NEGÓCIOS", tipo: 'despesa' },
-  { codigo: "0010110", nome: "AUDITORIA INTERNA", tipo: 'despesa' },
+  { codigo: "0010105", nome: "TI GSP (Sistemas)", tipo: 'despesa' },
+  { codigo: "0010107", nome: "Compras", tipo: 'despesa' },
+  { codigo: "0010109", nome: "Novos Negócios", tipo: 'despesa' },
+  { codigo: "0010110", nome: "Auditoria Interna", tipo: 'despesa' },
   { codigo: "0010111", nome: "Gestão de Pessoas", tipo: 'despesa' },
   { codigo: "0010112", nome: "Estratégia e Projetos", tipo: 'despesa' },
   { codigo: "0010114", nome: "Jurídico", tipo: 'despesa' },
   { codigo: "0010115", nome: "Escritório", tipo: 'despesa' },
   { codigo: "0010116", nome: "Controladoria", tipo: 'despesa' },
-  { codigo: "0010117", nome: "TI GSI INFRA", tipo: 'despesa' },
+  { codigo: "0010117", nome: "TI GSI Infra", tipo: 'despesa' },
   { codigo: "0010118", nome: "FP&A", tipo: 'despesa' },
-  { codigo: "0010119", nome: "SECRETARIA DE GOVERNANÇA", tipo: 'despesa' },
-  { codigo: "0010120", nome: "INOVAÇÃO E TECNOLOGIA", tipo: 'despesa' },
+  { codigo: "0010119", nome: "Secretaria de Governança", tipo: 'despesa' },
+  { codigo: "0010120", nome: "Inovação e Tecnologia", tipo: 'despesa' },
   { codigo: "0010121", nome: "Governança de Dados", tipo: 'despesa' },
   { codigo: "102", nome: "CSC", tipo: 'despesa' },
-  { codigo: "0020102", nome: "MARKETING", tipo: 'despesa' },
+  { codigo: "0020102", nome: "Marketing", tipo: 'despesa' },
 ];
 
 export const PACOTES_CORPORATIVO = [
   { id: 'pessoal', nome: "Pessoal", ref: 'Base_Corporativo.xlsx (3 contas)' },
   { id: 'servicos', nome: "Serviços de Terceiros", ref: 'Base_Corporativo.xlsx (3 contas)' },
   // Nomenclatura padronizada em 2026-08-31 — espelho de frontend/src/OrcamentoARA.jsx.
-  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Base_Corporativo.xlsx (4 contas)' },
-  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Base_Corporativo.xlsx (6 contas)' },
+  { id: 'locacao', nome: "Locação e Ocupação", ref: 'Base_Corporativo.xlsx (2 contas)' },
+  { id: 'administrativo_utilidades', nome: "Administrativo e Utilidades", ref: 'Base_Corporativo.xlsx (5 contas)' },
   { id: 'manutencao', nome: "Manutenção", ref: 'Base_Corporativo.xlsx (1 conta)' },
   { id: 'comercial', nome: "Comercial e Marketing", ref: 'Base_Corporativo.xlsx (1 conta)' },
   { id: 'viagens', nome: "Viagens", ref: 'Base_Corporativo.xlsx (2 contas)' },
   { id: 'impostos', nome: "Impostos Indiretos e Diretos", ref: 'Base_Corporativo.xlsx (1 conta)' },
+  { id: 'tecnologia', nome: "Tecnologia e Inovação", ref: 'Base_Corporativo.xlsx (3 contas)' },
 ];
 
 export const PLANO_CONTAS_CORPORATIVO = {
@@ -638,13 +639,10 @@ export const PLANO_CONTAS_CORPORATIVO = {
   ],
   locacao: [
     { codigo: 'CORP05', nome: "Aluguel e Condomínio", origem: 'Despesa' },
-    { codigo: 'CORP09', nome: "Telefonia e Internet", origem: 'Despesa' },
-    { codigo: 'CORP10', nome: "Locação de Software", origem: 'Despesa' },
     { codigo: 'CORP20', nome: "Locação de equipamentos", origem: 'Despesa' },
   ],
   administrativo_utilidades: [
     { codigo: 'CORP06', nome: "Material de expediente", origem: 'Despesa' },
-    { codigo: 'CORP11', nome: "Material de Informática", origem: 'Despesa' },
     { codigo: 'CORP15', nome: "Eventos e Confraternizações", origem: 'Despesa' },
     { codigo: 'CORP16', nome: "Caixa Fundo fixo", origem: 'Despesa' },
     { codigo: 'CORP17', nome: "Despesas Diversas", origem: 'Despesa' },
@@ -662,6 +660,12 @@ export const PLANO_CONTAS_CORPORATIVO = {
   ],
   impostos: [
     { codigo: 'CORP21', nome: "Impostos e taxas", origem: 'Despesa' },
+  ],
+  // Tecnologia e Inovação — espelho de frontend/src/OrcamentoARA.jsx.
+  tecnologia: [
+    { codigo: 'CORP09', nome: "Telefonia e Internet", origem: 'Despesa' },
+    { codigo: 'CORP10', nome: "Locação de Software", origem: 'Despesa' },
+    { codigo: 'CORP11', nome: "Material de Informática", origem: 'Despesa' },
   ],
 };
 

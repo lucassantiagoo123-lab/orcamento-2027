@@ -8,7 +8,7 @@
 // depois que a Fase 6 aposentar o protótipo, aqui passa a ser a única fonte).
 import { MESES, mesesVazios, PRODUTOS_REF, DEDUCOES_REF } from './constantesTextil.js';
 import { PRODUTOS_REF_AGRICOLA, DEDUCOES_REF_AGRICOLA, LINHAS_RECEITA_RESORTS, DEDUCOES_REF_RESORTS, LINHA_RECEITA_INFORMATIVA_RESORTS, tipoLinhaReceitaResorts } from './receitaAgricolaResorts.js';
-import { premissasRecebimentoVazias, planoContasBalancoVazio, saldosIniciaisBalancoVazio, computeRecebimentosKgiroMensal, pagamentosManuaisVazios, computePagamentosManuaisMes, saldosAberturaFc } from './kgiroBalancoTextil.js';
+import { premissasRecebimentoVazias, planoContasBalancoVazio, saldosIniciaisBalancoVazio, computeRecebimentosKgiroMensal, pagamentosManuaisVazios, saldosAberturaFc } from './kgiroBalancoTextil.js';
 // Só pra dreDaUnidade resolver a referência de agricola_tds/agricola_fds no
 // ramo do Consolidado (ver nota lá embaixo) — sem ciclo: registroUnidades.js
 // não importa nada deste arquivo.
@@ -1088,21 +1088,28 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   // EBT positivo do método Indireto, em vez de dividir dre.ircsl por 12.
   const ircslMes = computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct).ircslMes;
 
-  // "Deixe a opção de incluir manualmente algum pagamento" (pedido de
-  // 2026-08-16) — plano de contas fixo (Rateio Administrativo, Matéria-Prima
-  // Fios/Químicos, Mão de obra, Gás, Energia Elétrica, Assessorias e
-  // Consultorias, Outros — confirmado pelo usuário por print, já que a aba
-  // Fluxo de Caixa Direto da planilha-fonte não trazia rótulo nenhum),
-  // lançamento manual por conta/mês. Soma às saídas do FC Direto, sem
-  // duplicar o que já vem de Custos e Despesas (esses continuam automáticos acima).
-  const pagamentosManuaisMes = computePagamentosManuaisMes(cg.pagamentosManuais);
+  // 5.2 Premissas de pagamento (2026-09-13) — espelho de
+  // frontend/src/OrcamentoARA.jsx: "pagamentos em carteira" e "Competência
+  // Nov/Dez" entram como saídas adicionais no FC Direto (substituíram o antigo
+  // plano de "pagamentos manuais", que o frontend deixou de usar; o campo antigo
+  // continua no documento, só não entra mais na conta).
+  const premPag2 = cg.premissasPagamento2 || {};
+  const pagamentosCarteiraMes = MESES.map((_, m) =>
+    parseNum((premPag2.carteira || mesesVazios())[m]) +
+    (premPag2.carteiraLinhas || []).reduce((a, l) => a + parseNum((l.valores || [])[m]), 0)
+  );
+  const pagamentosNovDezMes = MESES.map((_, m) =>
+    parseNum((premPag2.competenciaNovDez || mesesVazios())[m]) +
+    (premPag2.competenciaNovDezLinhas || []).reduce((a, l) => a + parseNum((l.valores || [])[m]), 0)
+  );
 
   const fcOperacionalDiretoMes = MESES.map((_, m) =>
-    recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m] - pagamentosManuaisMes[m]
+    recebimentosClientesMes[m] - pagamentosFornecedoresMes[m] - pessoalEmCaixaMes[m] - pagamentosDespesasMes[m] - ircslMes[m] - pagamentosCarteiraMes[m] - pagamentosNovDezMes[m]
   );
 
   return {
-    recebimentosClientesMes, pagamentosFornecedoresMes, pessoalEmCaixaMes, pagamentosDespesasMes, ircslMes, pagamentosManuaisMes,
+    recebimentosClientesMes, pagamentosFornecedoresMes, pessoalEmCaixaMes, pagamentosDespesasMes, ircslMes,
+    pagamentosCarteiraMes, pagamentosNovDezMes,
     fcOperacionalDiretoMes,
   };
 }

@@ -61,10 +61,11 @@ export const PACOTES_TEXTIL = [
   { id: 'comercial', nome: 'Comercial e Marketing', ref: 'Matriz_Governanca_OBZ_2027_4 (2 contas)' },
   { id: 'viagens', nome: 'Viagens', ref: 'Matriz_Governanca_OBZ_2027_4 (3 contas)' },
   // Nomenclatura padronizada em 2026-08-31 — espelho de frontend/src/OrcamentoARA.jsx.
-  { id: 'locacao', nome: 'Locação e Ocupação', ref: 'Matriz_Governanca_OBZ_2027_4 (17 contas)' },
+  { id: 'locacao', nome: 'Locação e Ocupação', ref: 'Matriz_Governanca_OBZ_2027_4 (14 contas)' },
   { id: 'depreciacao', nome: 'Depreciação e Amortização', ref: 'Matriz_Governanca_OBZ_2027_4 (10 contas)' },
   { id: 'administrativo_utilidades', nome: 'Administrativo e Utilidades', ref: 'Matriz_Governanca_OBZ_2027_4 (43 contas)' },
   { id: 'impostos', nome: 'Impostos Indiretos e Diretos', ref: 'Matriz_Governanca_OBZ_2027_4 (5 contas)' },
+  { id: 'tecnologia', nome: 'Tecnologia e Inovação', ref: 'Matriz_Governanca_OBZ_2027_4 (3 contas)' },
 ];
 
 // De-para oficial conta contábil -> Pacote (Matriz_Governanca_OBZ_2027_4). Ver
@@ -190,14 +191,11 @@ export const PLANO_CONTAS = {
     { codigo: '34202019', nome: 'ALUGUEL A PESSOA FISICA', origem: 'Despesa' },
     { codigo: '34202025', nome: 'LOCACAO DE MAQ E EQUIPAMENTOS', origem: 'Despesa' },
     { codigo: '71102001', nome: 'ENERGIA ELETRICA', origem: 'Custo' },
-    { codigo: '71102002', nome: 'TELEFONE', origem: 'Custo' },
     { codigo: '71102034', nome: 'DESPESAS COM GAS', origem: 'Custo' },
     { codigo: '34104005', nome: 'ENERGIA ELETRICA', origem: 'Despesa' },
     { codigo: '34104006', nome: 'AGUA E ESGOTO', origem: 'Despesa' },
-    { codigo: '34104007', nome: 'TELEFONE E INTERNET', origem: 'Despesa' },
     { codigo: '34202001', nome: 'ENERGIA ELETRICA', origem: 'Despesa' },
     { codigo: '34202002', nome: 'AGUA E ESGOTO', origem: 'Despesa' },
-    { codigo: '34202003', nome: 'TELEFONE E INTERNET', origem: 'Despesa' },
   ],
   depreciacao: [
     { codigo: '71102008', nome: 'ENCARGOS COM DEPRECIACAO', origem: 'Custo' },
@@ -262,6 +260,13 @@ export const PLANO_CONTAS = {
     { codigo: '34104018', nome: 'CONTRIBUICAO SINDICAL', origem: 'Despesa' },
     { codigo: '34202014', nome: 'IMPOSTOS E TAXAS', origem: 'Despesa' },
     { codigo: '34202016', nome: 'CONTRIBUICAO SINDICAL', origem: 'Despesa' },
+  ],
+  // Tecnologia e Inovação — espelho de frontend/src/OrcamentoARA.jsx (contas de
+  // telefone/internet que estavam em Locação e Ocupação).
+  tecnologia: [
+    { codigo: '71102002', nome: 'TELEFONE', origem: 'Custo' },
+    { codigo: '34104007', nome: 'TELEFONE E INTERNET', origem: 'Despesa' },
+    { codigo: '34202003', nome: 'TELEFONE E INTERNET', origem: 'Despesa' },
   ],
 };
 
