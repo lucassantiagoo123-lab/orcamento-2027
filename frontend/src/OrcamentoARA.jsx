@@ -10,7 +10,7 @@ import {
   Building2, ChevronDown, ChevronRight, Plus, Trash2, Clock, ShieldCheck,
   Users, Loader2, Info, Upload, FileText,
 } from 'lucide-react';
-import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi, getReferencia2026, getConclusoesCc, getNotasGerenciais, concluirCc, liberarCc } from './api/orcamentos.js';
+import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi, getReferencia2026, getConclusoesCc, getNotasGerenciais, getCadastroServidor, concluirCc, liberarCc } from './api/orcamentos.js';
 import { mesclarDados, iguais } from './mesclarDados.js';
 import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, definirFontePremissaMacro as definirFontePremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
 import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
@@ -15320,6 +15320,166 @@ const CAMPO_LOG_LABEL = {
   sensibilidades: 'Sensibilidades',
 };
 
+// ---------------------------------------------------------------------------
+// Conferência front × servidor (2026-09-30) — SOMENTE LEITURA, só Admin FP&A.
+// O cálculo existe em dois lugares (esta tela e o backend) e os cadastros
+// (CCs, contas, pacotes) também. Esta conferência pega os dados REAIS de cada
+// unidade, recalcula aqui no navegador e compara com o que o servidor calculou
+// e com o cadastro que o servidor usa — divergência aparece antes de virar
+// número diferente entre tela, versão enviada e servidor. Nada é gravado.
+// ---------------------------------------------------------------------------
+const UNIDADES_CONFERENCIA = ['textil', 'textil_bg', 'agricola_tds', 'agricola_fds', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei_holding', 'ei_lafleur', 'ei_southbay'];
+
+// Compara dois objetos/arrays numéricos e acumula as diferenças em `saida`.
+// Tolerância em R$; NaN/null/undefined tratados como zero.
+function diffNumerico(a, b, caminho, saida, tol = 0.5) {
+  if (saida.length >= 40) return saida;
+  const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : (x == null || (typeof x === 'number' && Number.isNaN(x)) ? 0 : x));
+  if (typeof a === 'number' || typeof b === 'number' || a == null || b == null) {
+    const x = num(a); const y = num(b);
+    if (typeof x === 'number' && typeof y === 'number') {
+      if (Math.abs(x - y) > tol) saida.push(`${caminho}: tela ${Math.round(x).toLocaleString('pt-BR')} × servidor ${Math.round(y).toLocaleString('pt-BR')}`);
+    } else if (x !== y) saida.push(`${caminho}: tipos diferentes`);
+    return saida;
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    const chaves = new Set([...Object.keys(a), ...Object.keys(b)]);
+    chaves.forEach((k) => {
+      if (!(k in a)) saida.push(`${caminho}.${k}: só no servidor`);
+      else if (!(k in b)) saida.push(`${caminho}.${k}: só na tela`);
+      else diffNumerico(a[k], b[k], `${caminho}.${k}`, saida, tol);
+    });
+    return saida;
+  }
+  if (a !== b) saida.push(`${caminho}: ${JSON.stringify(a)} × ${JSON.stringify(b)}`);
+  return saida;
+}
+
+function diferencasCadastro(unidadeId, cad) {
+  const ref = referenciaDaUnidade(unidadeId);
+  const dif = [];
+  const ccsF = new Map((ref.ccs || []).map((c) => [c.codigo, c]));
+  const ccsB = new Map((cad.ccs || []).map((c) => [c.codigo, c]));
+  const soF = [...ccsF.keys()].filter((k) => !ccsB.has(k));
+  const soB = [...ccsB.keys()].filter((k) => !ccsF.has(k));
+  if (soF.length) dif.push(`CCs só na tela (o servidor ignora o custo deles): ${soF.join(', ')}`);
+  if (soB.length) dif.push(`CCs só no servidor: ${soB.join(', ')}`);
+  const attr = [...ccsF.keys()].filter((k) => ccsB.has(k) && (ccsF.get(k).tipo !== ccsB.get(k).tipo || (ccsF.get(k).nivel ?? null) !== (ccsB.get(k).nivel ?? null) || (ccsF.get(k).areaCodigo ?? null) !== (ccsB.get(k).areaCodigo ?? null)));
+  if (attr.length) dif.push(`CCs com tipo/nível/área diferente: ${attr.join(', ')}`);
+  const contasB = new Map((cad.contas || []).map((c) => [c.codigo, c]));
+  const contasF = ref.todasContas || {};
+  const cF = Object.keys(contasF).filter((k) => !contasB.has(k));
+  const cB = [...contasB.keys()].filter((k) => !(k in contasF));
+  if (cF.length) dif.push(`contas só na tela: ${cF.slice(0, 12).join(', ')}${cF.length > 12 ? '…' : ''}`);
+  if (cB.length) dif.push(`contas só no servidor: ${cB.slice(0, 12).join(', ')}${cB.length > 12 ? '…' : ''}`);
+  const cd = Object.keys(contasF).filter((k) => contasB.has(k) && (contasB.get(k).origem !== contasF[k].origem || contasB.get(k).pacoteId !== contasF[k].pacoteId));
+  if (cd.length) dif.push(`contas com origem/pacote diferente: ${cd.slice(0, 12).join(', ')}${cd.length > 12 ? '…' : ''}`);
+  const pF = (ref.pacotes || []).map((p) => p.id);
+  const pB = cad.pacotes || [];
+  const pdif = pF.filter((p) => !pB.includes(p)).concat(pB.filter((p) => !pF.includes(p)));
+  if (pdif.length) dif.push(`pacotes diferentes: ${pdif.join(', ')}`);
+  const regras = ['hcExistenteComDissidio', 'bonusSomenteElegiveis', 'dreSegueOrigemConta'].filter((k) => !!ref[k] !== !!cad.regras?.[k]);
+  if (regras.length) dif.push(`regras diferentes: ${regras.join(', ')}`);
+  return dif;
+}
+
+function ConferenciaFrontServidor({ ipcaAnualPct, cambios }) {
+  const [rodando, setRodando] = useState(false);
+  const [linhas, setLinhas] = useState(null);
+  const [rodadoEm, setRodadoEm] = useState(null);
+
+  async function rodar() {
+    setRodando(true);
+    const saida = [];
+    for (const id of UNIDADES_CONFERENCIA) {
+      const nome = UNIDADES.find((u) => u.id === id)?.nome || id;
+      try {
+        const [r, cad] = await Promise.all([getOrcamento(id), getCadastroServidor(id)]);
+        const dados = r.orcamento.dados;
+        const ref = referenciaDaUnidade(id);
+        const cadastro = diferencasCadastro(id, cad);
+        const dre = computeDRE(dados, ref, ipcaAnualPct, cambios);
+        const calculo = [];
+        diffNumerico(dre, r.dre, 'DRE', calculo);
+        if (r.dfc) diffNumerico(computeDFC(dados, dre, ref, ipcaAnualPct), r.dfc, 'DFC', calculo);
+        if (r.fluxoIndiretoMensal) diffNumerico(computeFluxoIndiretoMensal(dados, dre, ref, ipcaAnualPct), r.fluxoIndiretoMensal, 'FC indireto', calculo);
+        if (r.fluxoDiretoMensal) diffNumerico(computeFluxoCaixaDiretoMensal(dados, dre, ref, ipcaAnualPct), r.fluxoDiretoMensal, 'FC direto', calculo);
+        const auditoria = [];
+        if (Array.isArray(r.auditoria)) {
+          const local = runAuditoria(dados, dre, ref, id, ipcaAnualPct) || [];
+          const chave = (x) => `${x.id || x.nome || x.label}:${x.ok === undefined ? x.status : x.ok}`;
+          const a = local.map(chave).sort().join('|'); const b = r.auditoria.map(chave).sort().join('|');
+          if (a !== b) auditoria.push(`checks da auditoria diferentes (tela ${local.length} × servidor ${r.auditoria.length})`);
+        }
+        saida.push({ id, nome, cadastro, calculo, auditoria });
+      } catch (e) {
+        saida.push({ id, nome, erro: e instanceof ApiError ? e.message : `Falha ao conferir: ${e.message}` });
+      }
+    }
+    setLinhas(saida);
+    setRodadoEm(new Date().toISOString());
+    setRodando(false);
+  }
+
+  const pill = (ok) => (
+    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 10, color: COR.branco, background: ok ? COR.verde : COR.vermelho }}>{ok ? 'OK' : 'DIFERE'}</span>
+  );
+  const todasOk = linhas && linhas.every((l) => !l.erro && l.cadastro.length === 0 && l.calculo.length === 0 && l.auditoria.length === 0);
+
+  return (
+    <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 14, marginTop: 24 }}>
+      <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Conferência tela × servidor (somente leitura)</h3>
+      <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+        Recalcula aqui, com os dados reais de cada unidade, a DRE, o DFC, os fluxos de caixa e a auditoria, e compara com o que o servidor calculou; também compara o cadastro
+        de CCs, contas e pacotes. Divergência = os dois lados usam regras ou cadastros diferentes. Nada é gravado nem alterado.
+      </p>
+      <button
+        onClick={rodar} disabled={rodando}
+        style={{ fontFamily: FONT, fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 6, border: 'none', background: COR.azul, color: COR.branco, cursor: rodando ? 'default' : 'pointer', opacity: rodando ? 0.6 : 1 }}
+      >{rodando ? 'Conferindo…' : 'Rodar conferência'}</button>
+      {rodadoEm && <span style={{ fontSize: 11, color: '#8A8F96', marginLeft: 10 }}>última execução: {formatData(rodadoEm)}</span>}
+      {linhas && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: todasOk ? COR.verde : COR.vermelho, marginBottom: 8 }}>
+            {todasOk ? 'Tudo igual: tela e servidor calculam o mesmo em todas as unidades.' : 'Há divergências — detalhes abaixo.'}
+          </div>
+          <table style={{ width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '6px 8px', textAlign: 'left' }}>Unidade</th>
+                <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '6px 8px' }}>Cadastro</th>
+                <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '6px 8px' }}>Cálculo</th>
+                <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '6px 8px' }}>Auditoria</th>
+                <th style={{ background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '6px 8px', textAlign: 'left' }}>Detalhes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {linhas.map((l) => (
+                <tr key={l.id}>
+                  <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11.5, fontWeight: 700, color: COR.azul }}>{l.nome}</td>
+                  {l.erro ? (
+                    <td colSpan={4} style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 11, color: COR.vermelho }}>{l.erro}</td>
+                  ) : (
+                    <>
+                      <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, textAlign: 'center' }}>{pill(l.cadastro.length === 0)}</td>
+                      <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, textAlign: 'center' }}>{pill(l.calculo.length === 0)}</td>
+                      <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, textAlign: 'center' }}>{pill(l.auditoria.length === 0)}</td>
+                      <td style={{ padding: '6px 8px', border: `1px solid ${COR.borda}`, fontSize: 10.5, color: COR.texto }}>
+                        {[...l.cadastro, ...l.calculo.slice(0, 6), ...l.auditoria].map((t, i) => <div key={i}>{t}</div>)}
+                        {l.calculo.length > 6 && <div style={{ color: '#8A8F96' }}>… e mais {l.calculo.length - 6} diferença(s) de cálculo</div>}
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvioUnidade, backlog, unidadeDrill, abrirDrill, versoesDrill, exportarExcel, exportarExcelCalculo, solicitarResumoExecutivo, etapasProcesso, atualizarEtapa, premissasMacro, updatePremissaMacroGlobal, updateFontePremissaMacroGlobal, updatePremissasPessoalCorporativo, updatePremissasPessoalUnidade, abrirVersao }) {
   const [subVisao, setSubVisao] = useState('gestao');
   const [filtroStatus, setFiltroStatus] = useState('todos');
@@ -15816,6 +15976,10 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
               );
             })}
           </div>
+
+          {/* Conferência tela × servidor (somente leitura) — pontos críticos de
+              divergência de cálculo e de cadastro. */}
+          <ConferenciaFrontServidor ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
         </>
       )}
 

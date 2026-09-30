@@ -403,6 +403,24 @@ orcamentosRouter.get('/:unidadeId/conclusao-cc', exigirUnidade('unidadeId'), asy
   } catch (err) { next(err); }
 });
 
+// Cadastro (CCs, contas, pacotes e regras) que o SERVIDOR usa para calcular esta
+// unidade — só Admin FP&A, somente leitura. A tela "Conferência front × servidor"
+// compara com o cadastro do frontend para achar divergência antes de virar número errado.
+orcamentosRouter.get('/:unidadeId/cadastro', exigirUnidade('unidadeId'), exigirPerfil('admin_fpa'), (req, res) => {
+  const ref = buscarReferencia(req.params.unidadeId);
+  if (!ref) return res.status(404).json({ erro: 'sem_cadastro' });
+  res.json({
+    ccs: (ref.ccs || []).map((c) => ({ codigo: c.codigo, nome: c.nome, tipo: c.tipo, nivel: c.nivel ?? null, areaCodigo: c.areaCodigo ?? null })),
+    contas: Object.entries(ref.todasContas || {}).map(([codigo, c]) => ({ codigo, nome: c.nome, origem: c.origem, pacoteId: c.pacoteId })),
+    pacotes: Object.keys(ref.planoContas || {}),
+    regras: {
+      hcExistenteComDissidio: !!ref.hcExistenteComDissidio,
+      bonusSomenteElegiveis: !!ref.bonusSomenteElegiveis,
+      dreSegueOrigemConta: !!ref.dreSegueOrigemConta,
+    },
+  });
+});
+
 // Notas de ajustes gerenciais — só Admin FP&A.
 orcamentosRouter.get('/:unidadeId/notas-gerenciais', exigirUnidade('unidadeId'), exigirPerfil('admin_fpa'), async (req, res, next) => {
   try {

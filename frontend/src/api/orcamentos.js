@@ -90,3 +90,8 @@ export async function getNotasGerenciais(unidadeId) {
   const { notas } = await apiFetch(`/api/orcamentos/${unidadeId}/notas-gerenciais`);
   return notas;
 }
+
+// Cadastro que o servidor usa na unidade (só Admin FP&A) — para a conferência front × servidor.
+export function getCadastroServidor(unidadeId) {
+  return apiFetch(`/api/orcamentos/${unidadeId}/cadastro`);
+}
