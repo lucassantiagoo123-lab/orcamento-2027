@@ -13370,6 +13370,106 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
     return folha + hc;
   });
 
+  // Contas de pessoal que NÃO são o Headcount Existente (o Novo HC e a folha calculada já
+  // estão no total de Pessoal): só na ARA Resorts. Entram as contas editáveis na aba Custos
+  // e qualquer conta de pessoal com valor lançado (para nada ficar de fora do ajuste).
+  const contasPessoalSeparadas = FAMILIA_RESORTS.includes(unidadeId)
+    ? (refUnidade.planoContas['pessoal'] || []).filter(c => c.nome !== 'Headcount Existente'
+      && (contaLancavelNaAba(c, 'pessoal', unidadeId) || MESES.some((_, m) => competenciaMesContas(c.codigo, m) !== 0)))
+    : [];
+
+  // Tabela de contas com o critério de timing de pagamento (competência × caixa).
+  function tabelaContasPagamento(chave, titulo, contasPacote) {
+    const TH = { background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', textAlign: 'right', fontWeight: 700 };
+    return (
+      <div key={chave} style={{ marginTop: 14 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{titulo}</div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT, fontSize: 10.5 }}>
+            <thead>
+              <tr>
+                <th style={{ ...TH, textAlign: 'left', minWidth: 130, padding: '5px 8px', position: 'sticky', left: 0 }}>Conta (R$)</th>
+                <th style={{ ...TH, textAlign: 'left', minWidth: 195, padding: '5px 6px' }}>Critério</th>
+                {MESES.map(m => <th key={m} style={{ ...TH, minWidth: 55 }}>{m}</th>)}
+                <th style={{ ...TH, background: COR.laranja, minWidth: 72, padding: '5px 8px' }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {contasPacote.map((c, ci) => {
+                const config = getContaConfig(c.codigo);
+                const compMes = MESES.map((_, m) => competenciaMesContas(c.codigo, m));
+                // Mostra o caixa do mês: igual à competência, exceto M+1/defasada.
+                const pagMes = pagamentoDefasadoMes(compMes, pctPagoNoMes(config));
+                const vals = config.valores || mesesVazios();
+                const valsTotal = vals.reduce((a, v) => a + parseNum(v), 0);
+                const bg = ci % 2 === 0 ? COR.branco : COR.claro;
+                const TD = { padding: '3px 4px', borderBottom: `1px solid ${COR.borda}`, textAlign: 'right', background: bg };
+                return (
+                  <tr key={c.codigo}>
+                    <td style={{ ...TD, textAlign: 'left', padding: '4px 8px', fontWeight: 500, color: COR.texto, position: 'sticky', left: 0 }}>{c.nome}</td>
+                    <td style={{ ...TD, textAlign: 'left', padding: '3px 6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ minWidth: 168 }}>
+                          <Selecao value={config.tipo} onChange={v => updatePremissaConta(c.codigo, 'tipo', v)} opcoes={OPCOES_TIMING_PAGAMENTO} />
+                        </div>
+                        {config.tipo === 'percentual_mes' && (
+                          <>
+                            <div style={{ width: 48 }}>
+                              <InputNumerico
+                                value={config.pct || ''}
+                                onChange={v => updatePremissaConta(c.codigo, 'pct', v)}
+                                placeholder="100"
+                                style={{ width: '100%', fontFamily: FONT, fontSize: 10.5, padding: '3px 4px', border: `1px solid ${COR.borda}`, borderRadius: 4, textAlign: 'right' }}
+                              />
+                            </div>
+                            <span style={{ fontSize: 10, color: '#8A8F96' }}>%</span>
+                          </>
+                        )}
+                        {config.tipo === 'defasada' && (
+                          <>
+                            <div style={{ width: 48 }}>
+                              <InputNumerico
+                                value={config.pctMes || ''}
+                                onChange={v => updatePremissaConta(c.codigo, 'pctMes', v)}
+                                placeholder="50"
+                                style={{ width: '100%', fontFamily: FONT, fontSize: 10.5, padding: '3px 4px', border: `1px solid ${COR.borda}`, borderRadius: 4, textAlign: 'right' }}
+                              />
+                            </div>
+                            <span style={{ fontSize: 10, color: '#8A8F96' }} title="% da competência pago no próprio mês; o restante é pago no mês seguinte">% no mês</span>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                    {MESES.map((_, m) => (
+                      <td key={m} style={TD}>
+                        {config.tipo === 'valor_direto' ? (
+                          <InputNumerico
+                            value={vals[m] ?? ''}
+                            onChange={v => updatePremissaConta(c.codigo, 'valores', atualizarArray(vals, m, v))}
+                            placeholder="0"
+                            style={{ width: 52, fontFamily: FONT, fontSize: 10, padding: '2px 3px', border: `1px solid ${COR.borda}`, borderRadius: 3, textAlign: 'right' }}
+                          />
+                        ) : (
+                          <span style={{ color: pagMes[m] !== 0 ? COR.texto : '#C8CBD0' }}>
+                            {pagMes[m] !== 0 ? formatValor(pagMes[m]) : '—'}
+                          </span>
+                        )}
+                      </td>
+                    ))}
+                    <td style={{ ...TD, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>
+                      {formatValor(config.tipo === 'valor_direto' ? valsTotal : pagMes.reduce((a, v) => a + v, 0))}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>5. Kgiro e FC Operacional</h3>
@@ -13392,7 +13492,7 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 6 }}>5.2 Premissas de pagamento</h4>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
         Pagamentos em carteira e de Competência Nov/Dez digitados mês a mês. Para as contas analíticas de
-        Custos e Despesas, defina o critério de timing por conta. Pessoal: competência = caixa (fixo).
+        Custos e Despesas, defina o critério de timing por conta. Pessoal: folha (CLT + Novo HC) e Headcount Existente com competência = caixa (fixo); nos Resorts, as demais contas de pessoal ganham critério próprio.
       </p>
 
       <BlocoLinhasGiro
@@ -13423,107 +13523,27 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
 
         if (pacote.id === 'pessoal') {
           return (
-            <div key="pessoal" style={{ marginTop: 14 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{pacote.nome}</div>
-              <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={[{
-                key: 'pessoal', label: 'Total Pessoal (CLT + HC Existente) — Competência = Caixa',
-                valoresMensal: pessoalMes, totalValor: pessoalMes.reduce((a, v) => a + v, 0), cor: COR.texto,
-              }]} />
+            <div key="pessoal">
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{pacote.nome}</div>
+                <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={[{
+                  key: 'pessoal', label: 'Total Pessoal (CLT + HC Existente) — Competência = Caixa',
+                  valoresMensal: pessoalMes, totalValor: pessoalMes.reduce((a, v) => a + v, 0), cor: COR.texto,
+                }]} />
+              </div>
+              {/* ARA Resorts (2026-09-30): contas de pessoal fora do Headcount Existente e do
+                  Novo HC entram no descasamento competência × caixa, com critério por conta
+                  (alimenta o ajuste de pagamento do FC Operacional direto e indireto). */}
+              {contasPessoalSeparadas.length > 0 && tabelaContasPagamento(
+                'pessoal_demais', 'Pessoal — demais contas (fora do Headcount Existente e do Novo HC)', contasPessoalSeparadas,
+              )}
             </div>
           );
         }
 
         const contasPacote = contas.filter(c => c.nome !== 'Headcount Existente');
         if (contasPacote.length === 0) return null;
-
-        const TH = { background: COR.azul, color: COR.branco, fontSize: 9.5, padding: '5px 4px', textAlign: 'right', fontWeight: 700 };
-        return (
-          <div key={pacote.id} style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{pacote.nome}</div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT, fontSize: 10.5 }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...TH, textAlign: 'left', minWidth: 130, padding: '5px 8px', position: 'sticky', left: 0 }}>Conta (R$)</th>
-                    <th style={{ ...TH, textAlign: 'left', minWidth: 195, padding: '5px 6px' }}>Critério</th>
-                    {MESES.map(m => <th key={m} style={{ ...TH, minWidth: 55 }}>{m}</th>)}
-                    <th style={{ ...TH, background: COR.laranja, minWidth: 72, padding: '5px 8px' }}>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {contasPacote.map((c, ci) => {
-                    const config = getContaConfig(c.codigo);
-                    const compMes = MESES.map((_, m) => competenciaMesContas(c.codigo, m));
-                    // Mostra o caixa do mês: igual à competência, exceto M+1/defasada.
-                    const pagMes = pagamentoDefasadoMes(compMes, pctPagoNoMes(config));
-                    const compTotal = compMes.reduce((a, v) => a + v, 0);
-                    const vals = config.valores || mesesVazios();
-                    const valsTotal = vals.reduce((a, v) => a + parseNum(v), 0);
-                    const bg = ci % 2 === 0 ? COR.branco : COR.claro;
-                    const TD = { padding: '3px 4px', borderBottom: `1px solid ${COR.borda}`, textAlign: 'right', background: bg };
-                    return (
-                      <tr key={c.codigo}>
-                        <td style={{ ...TD, textAlign: 'left', padding: '4px 8px', fontWeight: 500, color: COR.texto, position: 'sticky', left: 0 }}>{c.nome}</td>
-                        <td style={{ ...TD, textAlign: 'left', padding: '3px 6px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <div style={{ minWidth: 168 }}>
-                              <Selecao value={config.tipo} onChange={v => updatePremissaConta(c.codigo, 'tipo', v)} opcoes={OPCOES_TIMING_PAGAMENTO} />
-                            </div>
-                            {config.tipo === 'percentual_mes' && (
-                              <>
-                                <div style={{ width: 48 }}>
-                                  <InputNumerico
-                                    value={config.pct || ''}
-                                    onChange={v => updatePremissaConta(c.codigo, 'pct', v)}
-                                    placeholder="100"
-                                    style={{ width: '100%', fontFamily: FONT, fontSize: 10.5, padding: '3px 4px', border: `1px solid ${COR.borda}`, borderRadius: 4, textAlign: 'right' }}
-                                  />
-                                </div>
-                                <span style={{ fontSize: 10, color: '#8A8F96' }}>%</span>
-                              </>
-                            )}
-                            {config.tipo === 'defasada' && (
-                              <>
-                                <div style={{ width: 48 }}>
-                                  <InputNumerico
-                                    value={config.pctMes || ''}
-                                    onChange={v => updatePremissaConta(c.codigo, 'pctMes', v)}
-                                    placeholder="50"
-                                    style={{ width: '100%', fontFamily: FONT, fontSize: 10.5, padding: '3px 4px', border: `1px solid ${COR.borda}`, borderRadius: 4, textAlign: 'right' }}
-                                  />
-                                </div>
-                                <span style={{ fontSize: 10, color: '#8A8F96' }} title="% da competência pago no próprio mês; o restante é pago no mês seguinte">% no mês</span>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                        {MESES.map((_, m) => (
-                          <td key={m} style={TD}>
-                            {config.tipo === 'valor_direto' ? (
-                              <InputNumerico
-                                value={vals[m] ?? ''}
-                                onChange={v => updatePremissaConta(c.codigo, 'valores', atualizarArray(vals, m, v))}
-                                placeholder="0"
-                                style={{ width: 52, fontFamily: FONT, fontSize: 10, padding: '2px 3px', border: `1px solid ${COR.borda}`, borderRadius: 3, textAlign: 'right' }}
-                              />
-                            ) : (
-                              <span style={{ color: pagMes[m] !== 0 ? COR.texto : '#C8CBD0' }}>
-                                {pagMes[m] !== 0 ? formatValor(pagMes[m]) : '—'}
-                              </span>
-                            )}
-                          </td>
-                        ))}
-                        <td style={{ ...TD, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>
-                          {formatValor(config.tipo === 'valor_direto' ? valsTotal : pagMes.reduce((a, v) => a + v, 0))}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
+        return tabelaContasPagamento(pacote.id, pacote.nome, contasPacote);
       })}
 
       {/* FC Direto */}
