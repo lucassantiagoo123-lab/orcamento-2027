@@ -959,8 +959,12 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
 
   // Ajuste competência × caixa (2026-08-23) — espelho de
   // frontend/src/OrcamentoARA.jsx.
+  // + ajuste das contas em M+1/defasada (5.2), CPV e despesas — mesmo número
+  // que o FC Direto aplica.
+  const ajustePrazoConta = ajustePrazoPorContaMes(data, ref, dre, ipcaAnualPct);
   const despesasCaixaMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m)
-    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0));
+    + ref.ccs.filter(cc => cc.tipo === 'despesa').reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0)
+    + ajustePrazoConta.despesaMes[m] + ajustePrazoConta.producaoMes[m]);
   const ajustePagamentoMes = MESES.map((_, m) => despesasSemDAmes[m] - despesasCaixaMes[m]);
 
   const cg = data.capitalGiro;
@@ -1009,6 +1013,140 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     fcInvestimentoMes, fcFinanciamentoMes, variacaoCaixaMes, caixaInicial, caixaAcumuladoMes,
   };
 }
+
+// Espelho de frontend/src/OrcamentoARA.jsx (2026-09-30): recebimentos dos Resorts (modelo
+// Projecao_Recebimentos) e pagamento em M+1/defasado por conta (5.2). Antes só a tela
+// aplicava essas regras e o FC calculado pelo servidor divergia dela.
+const ENCARTEIRADO_RESORTS = [
+  { id: 'getnet', nome: 'Contas a Receber Getnet' },
+  { id: 'operadoraCR', nome: 'Operadora CR' },
+  { id: 'operadoraVHF', nome: 'Operadora VHF' },
+  { id: 'alugueis', nome: 'Aluguéis' },
+];
+// Responsável padrão por linha (coluna "Setor" da planilha) — editável na tela.
+const RESPONSAVEL_PADRAO_RESORTS = {
+  getnet: 'CR', operadoraCR: 'Relatório CM', operadoraVHF: 'Comercial', alugueis: '',
+  vendasNovDez: '', antecipados: 'CR', baseReservas: 'Comercial', crescimentoReservasPct: 'Comercial',
+};
+const MESES_RELATIVOS = Array.from({ length: 13 }, (_, k) => `M+${k}`);
+
+// Percentuais padrão da planilha do FP&A (% por mês de venda × M+0..M+12).
+// Valem enquanto o site não gravar os seus; a primeira edição grava a matriz.
+const PCT_CARTAO_PADRAO_RESORTS = [
+  [0.34649951, 56.44208745, 6.90750267, 5.81454833, 5.09807636, 4.57370532, 3.89771055, 3.33013401, 3.27681468, 3.15731766, 3.0955987, 2.03632743, 2.02367735],
+  [0.21559047, 53.6949845, 7.48075324, 5.95063914, 5.4358247, 4.84772276, 4.37732317, 3.7226761, 3.59527938, 3.33088103, 3.27402889, 2.05152755, 2.02276909],
+  [0.23190383, 32.05823344, 10.28705138, 8.88156886, 8.07710295, 7.20326301, 6.51817324, 5.60908446, 5.26172495, 4.8502364, 4.6171692, 3.23201668, 3.17247159],
+  [0.44831068, 55.03164024, 7.33953502, 6.14551057, 5.03861799, 4.44151713, 4.16309637, 3.49370691, 3.33367866, 3.19476393, 3.19030036, 2.09421916, 2.08510299],
+  [0.37454686, 39.73422108, 9.72881387, 8.42247404, 7.36435104, 6.58278926, 5.88377839, 4.7510894, 4.37896265, 4.01462052, 3.99606646, 2.40896824, 2.35931818],
+  [0.1762029, 41.1440815, 11.24810061, 8.26535785, 7.04691634, 6.02714981, 5.14749172, 4.26058599, 4.09186158, 3.89851233, 3.89851233, 2.44299066, 2.35223638],
+  [0.2814648, 53.26576266, 8.27988346, 6.89590321, 5.87879093, 4.91485705, 4.03226126, 3.29696509, 3.27091593, 3.17376421, 3.15331555, 1.77805793, 1.77805793],
+  [0.30182199, 42.35155242, 9.88604525, 8.39358811, 7.42872464, 6.09345507, 5.33382862, 4.03944157, 3.86678185, 3.72261301, 3.71848883, 2.43182931, 2.43182931],
+  [0.2778056, 40.08818469, 9.48584961, 8.39707886, 7.11028586, 6.66353853, 5.75674495, 4.47404894, 4.35831865, 4.08174921, 4.08174921, 2.62146684, 2.60317905],
+  [0.36105898, 45.44697982, 9.48680354, 7.71365133, 6.50722029, 5.45780117, 4.80764036, 3.97589001, 3.87807746, 3.61518259, 3.61518259, 2.56725593, 2.56725593],
+  [0.07750027, 22.85646025, 10.62184144, 9.61036397, 8.77951971, 8.05002545, 7.50629596, 6.5745997, 6.36391785, 5.92906235, 5.78470114, 3.96386661, 3.8818453],
+  [0.36105898, 45.44697982, 9.48680354, 7.71365133, 6.50722029, 5.45780117, 4.80764036, 3.97589001, 3.87807746, 3.61518259, 3.61518259, 2.56725593, 2.56725593],
+];
+const CANCEL_CARTAO_PADRAO_RESORTS = Array(12).fill(5);
+const PCT_OPERADORA_PADRAO_RESORTS = [
+  ...Array.from({ length: 6 }, () => Array(13).fill(0)),
+  [3.8277512, 6.22009569, 10.52631579, 33.01435407, 10.52631579, 16.26794258, 11.00478469, 5.26315789, 1.9138756, 0.4784689, 0.4784689, 0.4784689, 0],
+  [4.32692308, 11.05769231, 21.15384615, 15.38461538, 12.01923077, 12.5, 16.34615385, 3.84615385, 1.44230769, 0.48076923, 1.44230769, 0, 0],
+  [3.15186246, 9.16905444, 10.0286533, 13.75358166, 22.63610315, 23.78223496, 8.30945559, 2.86532951, 4.29799427, 0.5730659, 1.14613181, 0.28653295, 0],
+  [7.46753247, 17.53246753, 16.55844156, 20.77922078, 13.31168831, 11.68831169, 5.84415584, 2.27272727, 1.94805195, 1.2987013, 0.64935065, 0.64935065, 0],
+  [6.0483871, 12.09677419, 12.5, 16.12903226, 12.90322581, 12.09677419, 13.70967742, 6.4516129, 0.80645161, 0.40322581, 2.41935484, 4.42580645, 0],
+  [7.5, 30, 35, 7.5, 3.75, 3.75, 2.5, 6.25, 2.5, 1.25, 0, 0, 0],
+];
+const CANCEL_OPERADORA_PADRAO_RESORTS = Array(12).fill(0);
+const paraTextoPct = (n) => (n ? String(n).replace('.', ',') : '');
+function matrizPctEfetiva(salva, padrao) {
+  return salva || padrao.map(linha => linha.map(paraTextoPct));
+}
+function cancelPctEfetivo(salvo, padrao) {
+  return salvo || padrao.map(paraTextoPct);
+}
+
+function recebimentosResortsPreenchido(rr) {
+  if (!rr) return false;
+  const temValor = (arr) => (arr || []).some(v => parseNum(v) !== 0);
+  return ENCARTEIRADO_RESORTS.some(l => temValor(rr.encarteirado?.[l.id])) || temValor(rr.vendasNovDez) || temValor(rr.baseReservas) || temValor(rr.antecipados);
+}
+
+function computeRecebimentosResorts(data) {
+  const rr = data.capitalGiro?.recebimentosResorts || {};
+  const pct = (v) => parseNum(v) / 100;
+  const linhaAeb = data.receita?.linhas?.aeb;
+  const aebMes = MESES.map((_, m) => (linhaAeb ? valorLinhaMes({ ...linhaAeb, premissaTipo: tipoLinhaReceitaResorts('aeb') }, m, null, null) : 0));
+  const reservasMes = MESES.map((_, m) => parseNum(rr.baseReservas?.[m]) * (1 + pct(rr.crescimentoReservasPct?.[m])));
+  const totalFaturadoMes = MESES.map((_, m) => reservasMes[m] + aebMes[m]);
+  const aVistaMes = MESES.map((_, m) => totalFaturadoMes[m] * pct(rr.mixAVistaPct?.[m]));
+  const vendasCartaoMes = MESES.map((_, m) => totalFaturadoMes[m] * pct(rr.mixCartaoPct?.[m]));
+  const vendasOperadoraMes = MESES.map((_, m) => totalFaturadoMes[m] * pct(rr.mixOperadoraPct?.[m]));
+
+  // Linha = mês da venda (r); coluna M+k cai no mês r+k (o que passa de Dez fica fora do ano).
+  function distribuir(vendasMes, matriz, cancelPct) {
+    const porVenda = MESES.map((_, r) => MESES.map((_, c) => {
+      const k = c - r;
+      if (k < 0 || k > 12) return 0;
+      return vendasMes[r] * pct(matriz?.[r]?.[k]) * (1 - pct(cancelPct?.[r]));
+    }));
+    const totalMes = MESES.map((_, c) => porVenda.reduce((acc, linha) => acc + linha[c], 0));
+    return { porVenda, totalMes };
+  }
+  const cartao = distribuir(vendasCartaoMes,
+    matrizPctEfetiva(rr.cartaoPct, PCT_CARTAO_PADRAO_RESORTS), cancelPctEfetivo(rr.cartaoCancelPct, CANCEL_CARTAO_PADRAO_RESORTS));
+  const checkout = distribuir(vendasOperadoraMes,
+    matrizPctEfetiva(rr.operadoraPct, PCT_OPERADORA_PADRAO_RESORTS), cancelPctEfetivo(rr.operadoraCancelPct, CANCEL_OPERADORA_PADRAO_RESORTS));
+  const operadoraMes = MESES.map((_, m) => (m === 0 ? 0 : checkout.totalMes[m - 1]));
+
+  const encarteiradoPorLinha = Object.fromEntries(ENCARTEIRADO_RESORTS.map(l => [l.id, MESES.map((_, m) => parseNum(rr.encarteirado?.[l.id]?.[m]))]));
+  const encarteiradoMes = MESES.map((_, m) => ENCARTEIRADO_RESORTS.reduce((acc, l) => acc + encarteiradoPorLinha[l.id][m], 0));
+  const vendasNovDezMes = MESES.map((_, m) => parseNum(rr.vendasNovDez?.[m]));
+  const novosMes = MESES.map((_, m) => aVistaMes[m] + cartao.totalMes[m] + operadoraMes[m]);
+  const antecipadosMes = MESES.map((_, m) => parseNum(rr.antecipados?.[m]));
+  const totalMes = MESES.map((_, m) => encarteiradoMes[m] + vendasNovDezMes[m] + novosMes[m] + antecipadosMes[m]);
+  return {
+    aebMes, reservasMes, totalFaturadoMes, aVistaMes, vendasCartaoMes, vendasOperadoraMes,
+    cartao, checkout, operadoraMes, encarteiradoPorLinha, encarteiradoMes, vendasNovDezMes, novosMes, antecipadosMes, totalMes,
+  };
+}
+
+// 5.2 — "M+1" (100% no mês seguinte) e "Competência defasada" (% no mês e o
+// restante no mês seguinte; vazio = 50%). Ex.: A&B dos Resorts 50/50 =
+// metade da competência do mês anterior + metade da do mês vigente. A parte
+// "mês seguinte" de Dez/2027 fica para 2028; a de Dez/2026 não existe no modelo.
+function pctPagoNoMes(config) {
+  if (config?.tipo === 'm1') return 0;
+  if (config?.tipo !== 'defasada') return 1;
+  const v = config.pctMes;
+  return v === undefined || v === null || String(v).trim() === '' ? 0.5 : parseNum(v) / 100;
+}
+function pagamentoDefasadoMes(compMes, pctMes) {
+  return MESES.map((_, m) => compMes[m] * pctMes + (m > 0 ? compMes[m - 1] * (1 - pctMes) : 0));
+}
+// Diferença pagamento − competência das contas em M+1/defasada, separada por
+// CC de produção (CPV) e de despesa. Zero quando nenhuma conta usa essas opções.
+function ajustePrazoPorContaMes(data, ref, dre, ipcaAnualPct) {
+  const producaoMes = MESES.map(() => 0);
+  const despesaMes = MESES.map(() => 0);
+  const porConta = data.capitalGiro?.premissasPagamento2?.porConta || {};
+  const pctPorConta = {};
+  Object.entries(porConta).forEach(([codigo, config]) => {
+    if (config && (config.tipo === 'm1' || config.tipo === 'defasada')) pctPorConta[codigo] = pctPagoNoMes(config);
+  });
+  if (Object.keys(pctPorConta).length === 0) return { producaoMes, despesaMes };
+  Object.entries(data.custos.linhas || {}).forEach(([chave, linha]) => {
+    const [ccCodigo, contaCodigo] = chave.split('|');
+    if (!(contaCodigo in pctPorConta)) return;
+    const cc = ref.ccs.find(c => c.codigo === ccCodigo);
+    if (!cc || ref.todasContas[contaCodigo]?.pacoteId === 'depreciacao') return;
+    const comp = MESES.map((_, m) => valorLinhaMes(linha, m, dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes));
+    const pag = pagamentoDefasadoMes(comp, pctPorConta[contaCodigo]);
+    const alvo = tipoDaLinha(ref, cc, contaCodigo) === 'producao' ? producaoMes : despesaMes;
+    MESES.forEach((_, m) => { alvo[m] += pag[m] - comp[m]; });
+  });
+  return { producaoMes, despesaMes };
+}
+
 
 // ---------------------------------------------------------------------------
 // Fluxo de Caixa Direto mensal — recebimentos e pagamentos por categoria
@@ -1077,12 +1215,19 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
     recebimentosClientesMes = computeRecebimentosKgiroMensal(data, dre).totalMes;
   }
 
+  // ARA Resorts: premissa de recebimentos própria, só depois de preenchida
+  // (antes disso o FC segue na aproximação por prazo) — espelho da tela.
+  if (recebimentosResortsPreenchido(cg.recebimentosResorts)) {
+    recebimentosClientesMes = computeRecebimentosResorts(data).totalMes;
+  }
+
+  const ajustePrazoConta = ajustePrazoPorContaMes(data, ref, dre, ipcaAnualPct);
   const pagamentosFornecedoresMes = MESES.map((_, m) => {
     const apAnt = m === 0 ? apInicial : apMes[m - 1];
     const estAnt = m === 0 ? estoqueInicial : estoqueMes[m - 1];
-    return cpvSemPessoalMes[m] + (estoqueMes[m] - estAnt) - (apMes[m] - apAnt);
+    return cpvSemPessoalMes[m] + (estoqueMes[m] - estAnt) - (apMes[m] - apAnt) + ajustePrazoConta.producaoMes[m];
   });
-  const pagamentosDespesasMes = despesasCaixaSemPessoalMes;
+  const pagamentosDespesasMes = MESES.map((_, m) => despesasCaixaSemPessoalMes[m] + ajustePrazoConta.despesaMes[m]);
   // Bug de 2026-08-30 ("IRCSL calculado mesmo sem receita") — espelho de
   // frontend/src/OrcamentoARA.jsx: reaproveita o ircslMes já ponderado por
   // EBT positivo do método Indireto, em vez de dividir dre.ircsl por 12.
@@ -1243,7 +1388,8 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
       // Volume Mercado Externo (2026-09-11) é o novo input que decide a
       // cascata (ver computeReceitaAgricola) — checar ele já cobre os dois
       // lados (Interno vira sempre o residual, nunca é digitado direto).
-      const vendaOk = somaMes(data.receita.agricola.vendaExterna?.volumeKg) > 0;
+      const veAud = data.receita.agricola.vendaExterna || {};
+      const vendaOk = (somaMes(veAud.gbp?.volumeKg) + somaMes(veAud.eur?.volumeKg) + somaMes(veAud.usd?.volumeKg)) > 0;
       checks.push({
         label: 'Receita: Produção (Embalada) e Vendas (Interno/Externo) com valor lançado',
         ok: embaladaOk && vendaOk,
@@ -1351,7 +1497,7 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     return algumNegativo(ag.embaladaKg) || parseNum(ag.refugoPct) < 0
       || algumNegativo(ag.vendaInterna?.pctTon) || algumNegativo(ag.vendaInterna?.precoKg)
       || algumNegativo(ve.pctTon) || algumNegativo(ve.volumeKg)
-      || ['gbp', 'eur', 'usd'].some(m => algumNegativo(ve[m]?.pct) || algumNegativo(ve[m]?.precoMoeda));
+      || ['gbp', 'eur', 'usd'].some(m => algumNegativo(ve[m]?.pct) || algumNegativo(ve[m]?.precoMoeda) || algumNegativo(ve[m]?.volumeKg));
   })();
   const valoresNegativos = agricolaTemNegativo
     || (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
