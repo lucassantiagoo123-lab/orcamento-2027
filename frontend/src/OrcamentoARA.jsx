@@ -172,9 +172,15 @@ function contasDoPacoteNoCc(planoContas, pacoteId, cc, unidadeId) {
 function ehUnidadeAgricola(unidadeId) {
   return unidadeId === 'agricola_tds' || unidadeId === 'agricola_fds' || unidadeId === 'agricola';
 }
+// ARA EI (2026-09-30): mesma regra da Agrícola — todo o pacote Pessoal continua
+// editável, porque a EI já tinha valores lançados direto nas contas de pessoal
+// (34101xxx/34201xxx) antes de ganhar o Headcount Existente e o Novo HC.
+function pessoalTotalmenteEditavel(unidadeId) {
+  return ehUnidadeAgricola(unidadeId) || FAMILIA_EI.includes(unidadeId);
+}
 function contaLancavelNaAba(conta, pacoteId, unidadeId) {
   if (pacoteId !== 'pessoal') return true;
-  if (ehUnidadeAgricola(unidadeId)) return true;
+  if (pessoalTotalmenteEditavel(unidadeId)) return true;
   return conta.nome === 'Headcount Existente' || conta.codigo.startsWith('HC_EXISTENTE') || !!conta.individual
     || (unidadeId === 'corporativo' && conta.codigo === CONTA_CONSULTORIA_PJ);
 }
@@ -1632,62 +1638,67 @@ export const CCS_EI = [
   { codigo: '1080305', nome: 'BLOCO VILLA-AREA INTERNA E EXTERNA', tipo: 'despesa', nivel: 3, areaCodigo: '10803', grupo: '108' },
 ];
 
-// Plano de contas: "Plano de Contas.xlsx" (3.1 DRE e DFC) — só despesas
-// (SG&A). Pacotes = contas sintéticas do próprio plano. grupoDre diz em que
-// balde das Despesas Operacionais o pacote entra no Consolidado (Pessoal,
-// Vendas ou Gerais). 34202011 ENCARGOS COM DEPRECIACAO vai para
-// 'depreciacao' (abaixo do EBITDA) — decisão do usuário de 2026-09-27; no
-// plano ela está dentro de 34202 DESPESAS GERAIS.
+// Plano de contas: "Plano de Contas.xlsx" (3.1 DRE e DFC) — só despesas (SG&A).
+// Desde 2026-09-30 a ARA EI usa a MESMA abertura de pacotes das demais empresas
+// (Pessoal, Manutenção, Fretes e Logística, Serviços de Terceiros, Comercial e
+// Marketing, Viagens, Locação e Ocupação, Depreciação e Amortização,
+// Administrativo e Utilidades, Impostos e Tecnologia e Inovação): cada conta
+// continua com o MESMO código — só muda o pacote em que aparece —, então nenhum
+// valor já lançado (custos.linhas['CC|conta']) é alterado. Critério: mesmo
+// pacote da Têxtil quando código e nome coincidem; nos demais, pela natureza da
+// conta. 34202011 e 34202020 (PIS-COFINS sobre a depreciação, como na Têxtil)
+// ficam em Depreciação e Amortização (abaixo do EBITDA). 'HC_EXISTENTE' é a
+// conta nova de Headcount Existente do pacote Pessoal, como nas demais empresas.
 const PACOTES_EI = [
-  { id: 'pessoal_vendas', nome: 'Despesa com Pessoal — Vendas (34101)', grupoDre: 'pessoal', ref: 'Plano de Contas.xlsx (14 contas)' },
-  { id: 'comissoes', nome: 'Comissões sobre Vendas (34102)', grupoDre: 'vendas', ref: 'Plano de Contas.xlsx (1 conta)' },
-  { id: 'propaganda', nome: 'Propaganda e Publicidade (34103)', grupoDre: 'vendas', ref: 'Plano de Contas.xlsx (1 conta)' },
-  { id: 'entrega', nome: 'Despesas com Entrega (34104)', grupoDre: 'vendas', ref: 'Plano de Contas.xlsx (12 contas)' },
-  { id: 'pessoal_adm', nome: 'Despesa com Pessoal — Administrativas (34201)', grupoDre: 'pessoal', ref: 'Plano de Contas.xlsx (16 contas)' },
-  { id: 'despesas_gerais', nome: 'Despesas Gerais (34202)', grupoDre: 'gerais', ref: 'Plano de Contas.xlsx (32 contas)' },
-  { id: 'depreciacao', nome: 'Depreciação (34202011)', ref: 'Plano de Contas.xlsx (1 conta, movida de 34202 por decisão do usuário)' },
+  { id: 'pessoal', nome: 'Pessoal', ref: 'Plano de Contas.xlsx' },
+  { id: 'manutencao', nome: 'Manutenção', ref: 'Plano de Contas.xlsx' },
+  { id: 'fretes', nome: 'Fretes e Logística', ref: 'Plano de Contas.xlsx' },
+  { id: 'servicos', nome: 'Serviços de Terceiros', ref: 'Plano de Contas.xlsx' },
+  { id: 'comercial', nome: 'Comercial e Marketing', ref: 'Plano de Contas.xlsx' },
+  { id: 'viagens', nome: 'Viagens', ref: 'Plano de Contas.xlsx' },
+  { id: 'locacao', nome: 'Locação e Ocupação', ref: 'Plano de Contas.xlsx' },
+  { id: 'depreciacao', nome: 'Depreciação e Amortização', ref: 'Plano de Contas.xlsx' },
+  { id: 'administrativo_utilidades', nome: 'Administrativo e Utilidades', ref: 'Plano de Contas.xlsx' },
+  { id: 'impostos', nome: 'Impostos Indiretos e Diretos', ref: 'Plano de Contas.xlsx' },
+  { id: 'tecnologia', nome: 'Tecnologia e Inovação', ref: 'Plano de Contas.xlsx' },
 ];
 
-const contaEI = (codigo, nome) => ({ codigo, nome, origem: 'Despesa' });
-const PLANO_CONTAS_EI = {
-  pessoal_vendas: [
-    contaEI('34101001', 'SALARIOS'), contaEI('34101002', 'PREMIOS E GRATIFICACOES'), contaEI('34101003', '13º SALARIO'),
-    contaEI('34101004', 'FERIAS'), contaEI('34101005', 'INSS (GPS)'), contaEI('34101006', 'FGTS (GFIP)'),
-    contaEI('34101007', 'INDENIZACOES E AVISO PREVIO'), contaEI('34101008', 'VALE ELETRONICO (VEM)'), contaEI('34101009', 'CESTAS BASICAS'),
-    contaEI('34101010', 'FARDAMENTOS'), contaEI('34101011', 'ASSISTENCIA MEDICA E SOCIAL'), contaEI('34101012', 'TREINAMENTO DE PESSOAL'),
-    contaEI('34101014', 'HORAS EXTRAS'), contaEI('34101015', 'ALIMENTACAO'),
-  ],
-  comissoes: [contaEI('34102001', 'COMISSOES')],
-  propaganda: [contaEI('34103001', 'PROPAGANDA E PUBLICIDADE')],
-  entrega: [
-    contaEI('34104001', 'FRETES E CARRETOS'), contaEI('34104002', 'MANUTENCAO DE VEICULOS'), contaEI('34104003', 'SERVICOS ADUANEIROS'),
-    contaEI('34104004', 'DESPACHANTE'), contaEI('34104017', 'TAXAS DE CONTRATACAO - CEF'), contaEI('34104020', 'DESPESAS COM VIAGENS'),
-    contaEI('34104023', 'REFEICOES'), contaEI('34104027', 'EQUIPAMENTOS E SISTEMAS'), contaEI('34104031', 'DESPESAS COM COMBUSTIVEIS'),
-    contaEI('34104036', 'CUSTO DE TRANSMISSAO - CLIENTES'), contaEI('34104037', 'STAND / LOJA DE VENDAS'), contaEI('34104398', 'OUTRAS DESPESAS COMERCIAIS'),
-  ],
-  pessoal_adm: [
-    contaEI('34201001', 'SALARIOS'), contaEI('34201002', 'PREMIOS E GRATIFICACOES'), contaEI('34201003', '13º SALARIO'),
-    contaEI('34201004', 'FERIAS'), contaEI('34201005', 'INSS (GPS)'), contaEI('34201006', 'FGTS (GFIP)'),
-    contaEI('34201007', 'INDENIZACOES E AVISO PREVIO'), contaEI('34201008', 'VALE ELETRONICO (VEM)'), contaEI('34201009', 'CESTAS BASICAS'),
-    contaEI('34201010', 'FARDAMENTOS'), contaEI('34201011', 'ASSISTENCIA MEDICA E SOCIAL'), contaEI('34201012', 'DESPESA COM TREINAMENTO DE PESSOAL'),
-    contaEI('34201013', 'PENSAO ALIMENTICIA'), contaEI('34201014', 'HORAS EXTRAS'), contaEI('34201015', 'ALIMENTACAO'),
-    contaEI('34201022', 'CAIXA FUNDO FIXO'),
-  ],
-  despesas_gerais: [
-    contaEI('34202001', 'ENERGIA ELETRICA'), contaEI('34202002', 'AGUA E ESGOTO'), contaEI('34202003', 'TELEFONE E INTERNET'),
-    contaEI('34202004', 'MANUTENCAO DE VEICULOS'), contaEI('34202005', 'CORREIOS E MALOTES'), contaEI('34202006', 'MATERIAL DE EXPEDIENTE'),
-    contaEI('34202007', 'MANUTENCAO, CONSERVACAO E LIMPEZA'), contaEI('34202008', 'LIVROS, JORNAIS E REVISTAS'), contaEI('34202009', 'DESPESA  ALIMENTACAO'),
-    contaEI('34202010', 'SERVICOS DE TERCEIROS - PESSSOA JURIDICA'), contaEI('34202012', 'BENS DE PEQUENO VALOR'),
-    contaEI('34202013', 'DESPESAS COM FESTAS E COMEMORACOES'), contaEI('34202014', 'IMPOSTOS E TAXAS'), contaEI('34202015', 'FRETES E CARRETOS'),
-    contaEI('34202016', 'CONTRIBUICAO SINDICAL'), contaEI('34202017', 'SERVICOS DE TERCEIRO PESSOA FISICA'), contaEI('34202018', 'DESPESAS COM VIAGENS'),
-    contaEI('34202019', 'ALUGUEL A PESSOA FISICA'), contaEI('34202020', 'PIS - COFINS SOBRE A DEPRECIACAO'), contaEI('34202021', 'REFEICOES'),
-    contaEI('34202022', 'CAIXA FUNDO FIXO'), contaEI('34202023', 'SEGURANCA E VIGILANCIA'), contaEI('34202025', 'LOCACAO DE MAQ E EQUIPAMENTOS'),
-    contaEI('34202026', 'MANUTENCAO DE MAQ E EQUIPAMENTOS'), contaEI('34202027', 'ASSESSORIAS E CONSULTORIAS'), contaEI('34202028', 'DESPESAS COM SEGUROS'),
-    contaEI('34202029', 'DESPESAS COM COMBUSTIVEL'), contaEI('34202033', 'CONDOMINIOS DE IMOVEIS PROPRIOS'), contaEI('34202034', 'DESPESAS ADMINISTRATIVAS RATEADAS'),
-    contaEI('34202039', 'DISTRATOS'), contaEI('34202042', 'PERDA COM FORNECEDOR'), contaEI('34202090', 'DIVERSOS'),
-  ],
-  depreciacao: [contaEI('34202011', 'ENCARGOS COM DEPRECIACAO')],
-};
+// [código, nome, pacote]
+const CONTAS_EI = [
+  ['HC_EXISTENTE', 'Headcount Existente', 'pessoal'],
+  ['34101001', 'SALARIOS', 'pessoal'], ['34101002', 'PREMIOS E GRATIFICACOES', 'pessoal'], ['34101003', '13º SALARIO', 'pessoal'],
+  ['34101004', 'FERIAS', 'pessoal'], ['34101005', 'INSS (GPS)', 'pessoal'], ['34101006', 'FGTS (GFIP)', 'pessoal'],
+  ['34101007', 'INDENIZACOES E AVISO PREVIO', 'pessoal'], ['34101008', 'VALE ELETRONICO (VEM)', 'pessoal'], ['34101009', 'CESTAS BASICAS', 'pessoal'],
+  ['34101010', 'FARDAMENTOS', 'pessoal'], ['34101011', 'ASSISTENCIA MEDICA E SOCIAL', 'pessoal'], ['34101012', 'TREINAMENTO DE PESSOAL', 'pessoal'],
+  ['34101014', 'HORAS EXTRAS', 'pessoal'], ['34101015', 'ALIMENTACAO', 'pessoal'],
+  ['34102001', 'COMISSOES', 'comercial'],
+  ['34103001', 'PROPAGANDA E PUBLICIDADE', 'comercial'],
+  ['34104001', 'FRETES E CARRETOS', 'fretes'], ['34104002', 'MANUTENCAO DE VEICULOS', 'manutencao'], ['34104003', 'SERVICOS ADUANEIROS', 'fretes'],
+  ['34104004', 'DESPACHANTE', 'fretes'], ['34104017', 'TAXAS DE CONTRATACAO - CEF', 'servicos'], ['34104020', 'DESPESAS COM VIAGENS', 'viagens'],
+  ['34104023', 'REFEICOES', 'administrativo_utilidades'], ['34104027', 'EQUIPAMENTOS E SISTEMAS', 'tecnologia'], ['34104031', 'DESPESAS COM COMBUSTIVEIS', 'fretes'],
+  ['34104036', 'CUSTO DE TRANSMISSAO - CLIENTES', 'servicos'], ['34104037', 'STAND / LOJA DE VENDAS', 'comercial'], ['34104398', 'OUTRAS DESPESAS COMERCIAIS', 'comercial'],
+  ['34201001', 'SALARIOS', 'pessoal'], ['34201002', 'PREMIOS E GRATIFICACOES', 'pessoal'], ['34201003', '13º SALARIO', 'pessoal'],
+  ['34201004', 'FERIAS', 'pessoal'], ['34201005', 'INSS (GPS)', 'pessoal'], ['34201006', 'FGTS (GFIP)', 'pessoal'],
+  ['34201007', 'INDENIZACOES E AVISO PREVIO', 'pessoal'], ['34201008', 'VALE ELETRONICO (VEM)', 'pessoal'], ['34201009', 'CESTAS BASICAS', 'pessoal'],
+  ['34201010', 'FARDAMENTOS', 'pessoal'], ['34201011', 'ASSISTENCIA MEDICA E SOCIAL', 'pessoal'], ['34201012', 'DESPESA COM TREINAMENTO DE PESSOAL', 'pessoal'],
+  ['34201013', 'PENSAO ALIMENTICIA', 'pessoal'], ['34201014', 'HORAS EXTRAS', 'pessoal'], ['34201015', 'ALIMENTACAO', 'pessoal'],
+  ['34201022', 'CAIXA FUNDO FIXO', 'administrativo_utilidades'],
+  ['34202001', 'ENERGIA ELETRICA', 'locacao'], ['34202002', 'AGUA E ESGOTO', 'locacao'], ['34202003', 'TELEFONE E INTERNET', 'tecnologia'],
+  ['34202004', 'MANUTENCAO DE VEICULOS', 'manutencao'], ['34202005', 'CORREIOS E MALOTES', 'administrativo_utilidades'], ['34202006', 'MATERIAL DE EXPEDIENTE', 'administrativo_utilidades'],
+  ['34202007', 'MANUTENCAO, CONSERVACAO E LIMPEZA', 'manutencao'], ['34202008', 'LIVROS, JORNAIS E REVISTAS', 'administrativo_utilidades'], ['34202009', 'DESPESA  ALIMENTACAO', 'administrativo_utilidades'],
+  ['34202010', 'SERVICOS DE TERCEIROS - PESSSOA JURIDICA', 'servicos'], ['34202012', 'BENS DE PEQUENO VALOR', 'administrativo_utilidades'],
+  ['34202013', 'DESPESAS COM FESTAS E COMEMORACOES', 'administrativo_utilidades'], ['34202014', 'IMPOSTOS E TAXAS', 'impostos'], ['34202015', 'FRETES E CARRETOS', 'fretes'],
+  ['34202016', 'CONTRIBUICAO SINDICAL', 'impostos'], ['34202017', 'SERVICOS DE TERCEIRO PESSOA FISICA', 'servicos'], ['34202018', 'DESPESAS COM VIAGENS', 'viagens'],
+  ['34202019', 'ALUGUEL A PESSOA FISICA', 'locacao'], ['34202020', 'PIS - COFINS SOBRE A DEPRECIACAO', 'depreciacao'], ['34202021', 'REFEICOES', 'administrativo_utilidades'],
+  ['34202022', 'CAIXA FUNDO FIXO', 'administrativo_utilidades'], ['34202023', 'SEGURANCA E VIGILANCIA', 'servicos'], ['34202025', 'LOCACAO DE MAQ E EQUIPAMENTOS', 'locacao'],
+  ['34202026', 'MANUTENCAO DE MAQ E EQUIPAMENTOS', 'manutencao'], ['34202027', 'ASSESSORIAS E CONSULTORIAS', 'servicos'], ['34202028', 'DESPESAS COM SEGUROS', 'administrativo_utilidades'],
+  ['34202029', 'DESPESAS COM COMBUSTIVEL', 'manutencao'], ['34202033', 'CONDOMINIOS DE IMOVEIS PROPRIOS', 'locacao'], ['34202034', 'DESPESAS ADMINISTRATIVAS RATEADAS', 'administrativo_utilidades'],
+  ['34202039', 'DISTRATOS', 'administrativo_utilidades'], ['34202042', 'PERDA COM FORNECEDOR', 'administrativo_utilidades'], ['34202090', 'DIVERSOS', 'administrativo_utilidades'],
+  ['34202011', 'ENCARGOS COM DEPRECIACAO', 'depreciacao'],
+];
+const PLANO_CONTAS_EI = {};
+PACOTES_EI.forEach(p => { PLANO_CONTAS_EI[p.id] = []; });
+CONTAS_EI.forEach(([codigo, nome, pacote]) => { PLANO_CONTAS_EI[pacote].push({ codigo, nome, origem: 'Despesa' }); });
 
 const TODAS_CONTAS_EI = {};
 Object.entries(PLANO_CONTAS_EI).forEach(([pacoteId, contas]) => {
@@ -12233,7 +12244,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                             50101) em que o pessoal foi carregado direto nessas contas — o
                             valor existia e somava na DRE, mas não aparecia em nenhum campo.
                             Nas demais unidades essas contas continuam vindo só da folha. */}
-                        {ehUnidadeAgricola(unidadeId) && (() => {
+                        {pessoalTotalmenteEditavel(unidadeId) && (() => {
                           const contasFolha = g.contas.filter(c => !c.individual && c.nome !== 'Headcount Existente');
                           if (contasFolha.length === 0) return null;
                           return (
@@ -15535,6 +15546,60 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
           {(() => {
             const _pp = statusUnidades['samoa_beach']?.custos?.premissasPessoal || {};
             const upd = (c, v) => updatePremissasPessoalUnidade(['samoa_beach', 'samoa_villa'], c, v);
+            return (
+              <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 14, marginBottom: 24 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 1 — mês</label>
+                    <Selecao value={_pp.dissidioMes || ''} onChange={v => upd('dissidioMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 1 — %</label>
+                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="1,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — mês</label>
+                    <Selecao value={_pp.dissidioMes2 || ''} onChange={v => upd('dissidioMes2', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — %</label>
+                    <CampoNumero value={_pp.dissidioPct2} onChange={v => upd('dissidioPct2', v)} sufixo="%" placeholder="5,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — mês</label>
+                    <Selecao value={_pp.meritocraciaMes || ''} onChange={v => upd('meritocraciaMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — %</label>
+                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — mês</label>
+                    <Selecao value={_pp.bonusMes || ''} onChange={v => upd('bonusMes', v)} opcoes={[{ id: '', nome: 'N/A' }, ...MESES.map(m => ({ id: m, nome: m }))]} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
+                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }} title="Bônus = HC Existente do mês × multiplicador × %">Bônus CLT — multiplicador (×)</label>
+                    <CampoNumero value={_pp.bonusMultiplicador} onChange={v => upd('bonusMultiplicador', v)} sufixo="×" placeholder="1,0" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
+                    <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
+                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Premissas de Pessoal — ARA EI */}
+          <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Premissas de Pessoal — ARA EI</h3>
+          <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Aplica às três empresas (Holding + La Fleur II + South Bay).</p>
+          {(() => {
+            const _pp = statusUnidades['ei_lafleur']?.custos?.premissasPessoal || {};
+            const upd = (c, v) => updatePremissasPessoalUnidade(['ei_holding', 'ei_lafleur', 'ei_southbay'], c, v);
             return (
               <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 14, marginBottom: 24 }}>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
