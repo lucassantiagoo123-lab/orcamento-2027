@@ -1829,8 +1829,8 @@ const REFERENCIA_POR_UNIDADE = {
   // 'agricola' (sem sufixo) é o Consolidado: não é editado diretamente (ver
   // ConsolidadoAgricola), mas usa a mesma referência pra ler/exibir.
   agricola: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA, ...REGRAS_AGRICOLA },
-  agricola_tds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA, ...REGRAS_AGRICOLA },
-  agricola_fds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA, ...REGRAS_AGRICOLA },
+  agricola_tds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA, ...REGRAS_AGRICOLA, hcAberturaFazenda: 'tds' },
+  agricola_fds: { ccs: CCS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, pacotes: PACOTES_AGRICOLA, ...REGRAS_AGRICOLA, hcAberturaFazenda: 'fds' },
   // Resorts ganhou CC real em 2026-08-20 (Centros de Custos - ARA Resorts
   // 1.xlsx) — mesmo padrão da Agrícola: Samoa Beach e Samoa Villa são as
   // unidades editáveis (cada uma só com os CCs que existem naquele resort —
@@ -2651,6 +2651,122 @@ function multiplicadorBonus(v) {
   return v === undefined || v === null || String(v).trim() === '' ? 1 : parseNum(v);
 }
 
+// ---------------------------------------------------------------------------
+// ARA Agrícola — Headcount Existente aberto por conta analítica (2026-09-30).
+// Fonte: "Premissa - sugestão v2 1.xlsx" (aba Premissas, 189 funções), somada
+// por fazenda × CC. Por CC: [fazenda, cc, S, S reajustado, HE, HE reajustado, HC]
+//   S  = Σ salário × HC (salário sem reajuste, coluna U da planilha)
+//   S reajustado = Σ salário × HC × (1 + reajuste da categoria da função — 4,28% ou 7%)
+//   HE = Σ salário × HC × % horas extras da função (3% ou 0%); idem reajustado
+// Regras (decisões do usuário): dissídio a partir do mês da premissa (Janeiro);
+// meritocracia = % da premissa (5%) × (salário + dissídio), a partir do mês da
+// premissa; bônus = % × multiplicador × Salários do mês do bônus (S + D + M);
+// encargos sobre E = S + D + M: FGTS 8%, INSS 2,7%, HE (% da função), férias
+// 1/12 + 1/3 (1/12 × 33,33%), 13º 1/12 (caixa: metade em Nov, metade em Dez).
+// Salários da conta = S + D + M + B. Só soma no orçamento quando o Admin FP&A
+// ativa a abertura (premissasPessoal.hcAberturaPorConta === 'sim'); até lá o
+// valor consolidado (HC_EXISTENTE) segue valendo e a abertura é só prévia.
+// ---------------------------------------------------------------------------
+const HC_AGRICOLA_PLANILHA = [
+  ['tds', '50303', 364707.00, 389151.7540, 10756.5900, 11482.0309, 210],
+  ['tds', '50102', 23831.00, 24896.2276, 530.3100, 554.3651, 8],
+  ['tds', '50605', 12226.00, 12749.2728, 182.1600, 189.9564, 4],
+  ['tds', '50710', 7070.00, 7372.5960, 89.3100, 93.1325, 2],
+  ['tds', '50601', 6524.00, 6803.2272, 0.000, 0.0000, 1],
+  ['fds', '50102', 16884.00, 17606.6352, 506.5200, 528.1991, 6],
+  ['fds', '50207', 7491.00, 7902.1364, 224.7300, 237.0641, 4],
+  ['fds', '50203', 8575.00, 9032.5316, 257.2500, 270.9759, 4],
+  ['fds', '50301', 289178.00, 308442.0760, 8490.7200, 9060.7405, 164],
+  ['fds', '50302', 306211.00, 326652.1540, 9001.7100, 9607.0429, 176],
+  ['fds', '50402', 11953.00, 12518.0636, 358.5900, 375.5419, 5],
+  ['fds', '50502', 7682.00, 8010.7896, 230.4600, 240.3237, 3],
+  ['fds', '50101', 26239.00, 27362.0292, 224.1000, 233.6915, 4],
+  ['fds', '50712', 6524.00, 6803.2272, 0.000, 0.0000, 1],
+  ['tds', '50203', 21265.00, 22401.4460, 637.9500, 672.0434, 11],
+  ['tds', '50205', 8590.00, 9048.1736, 257.7000, 271.4452, 5],
+  ['tds', '50301', 303159.00, 323373.2948, 8899.0500, 9497.1020, 173],
+  ['tds', '50302', 358011.00, 381852.1492, 10555.7100, 11263.0427, 205],
+  ['tds', '50503', 269543.00, 288049.6036, 8086.2900, 8641.4881, 161],
+  ['tds', '50606', 17262.00, 18362.9000, 517.8600, 550.8870, 10],
+  ['tds', '50202', 3926.00, 4139.2936, 117.7800, 124.1788, 2],
+  ['tds', '50402', 15612.00, 16376.7536, 468.3600, 491.3026, 7],
+  ['tds', '50207', 8559.00, 8925.3252, 256.7700, 267.7598, 4],
+  ['tds', '50403', 17605.00, 18760.9452, 528.1500, 562.8284, 9],
+  ['tds', '50201', 3701.00, 3859.4028, 111.0300, 115.7821, 2],
+  ['tds', '50712', 10915.00, 11382.1620, 142.8300, 148.9431, 3],
+  ['tds', '50502', 13654.00, 14238.3912, 245.2800, 255.7780, 4],
+  ['tds', '50105', 2499.00, 2605.9572, 74.9700, 78.1787, 1],
+  ['tds', '50206', 9797.00, 10216.3116, 109.2900, 113.9676, 2],
+  ['fds', '50503', 149301.00, 159492.9900, 4479.0300, 4784.7897, 89],
+  ['fds', '50606', 14125.00, 15001.1148, 423.7500, 450.0334, 8],
+  ['fds', '50201', 5063.00, 5324.9572, 151.8900, 159.7487, 3],
+  ['fds', '50405', 1664.00, 1780.4800, 49.9200, 53.4144, 1],
+  ['fds', '50202', 6059.00, 6318.3252, 181.7700, 189.5498, 2],
+  ['fds', '50403', 12669.00, 13555.8300, 380.0700, 406.6749, 7],
+  ['fds', '50501', 1934.00, 2016.7752, 58.0200, 60.5033, 1],
+  ['fds', '50205', 3793.00, 3955.3404, 113.7900, 118.6602, 2],
+];
+const HC_AGRICOLA_POR_CC = {};
+HC_AGRICOLA_PLANILHA.forEach(([fazenda, cc, s, sReaj, he, heReaj, hc]) => {
+  HC_AGRICOLA_POR_CC[`${fazenda}|${cc}`] = { s, sReaj, he, heReaj, hc };
+});
+// Classe de custeio do CC (PLANO_C_CUSTO_2026, coluna "Tipo de custeio"):
+// Custo → contas 71101, Adm → 34201, Comercial → 34101.
+const CCS_COMERCIAIS_AGRICOLA = ['50601', '50602', '50605', '50505'];
+function custeioCcAgricola(cc) {
+  if (cc?.tipo === 'producao') return 'custo';
+  return CCS_COMERCIAIS_AGRICOLA.includes(cc?.codigo) ? 'comercial' : 'adm';
+}
+const CONTAS_ABERTURA_AGRICOLA = {
+  custo: { aberturaSalarios: '71101001', aberturaFgts: '71101007', aberturaHe: '71101003', aberturaInss: '71101006', aberturaFerias: '71101004', aberturaDecimo: '71101005' },
+  adm: { aberturaSalarios: '34201001', aberturaFgts: '34201006', aberturaHe: '34201014', aberturaInss: '34201005', aberturaFerias: '34201004', aberturaDecimo: '34201003' },
+  comercial: { aberturaSalarios: '34101001', aberturaFgts: '34101006', aberturaHe: '34101014', aberturaInss: '34101005', aberturaFerias: '34101004', aberturaDecimo: '34101003' },
+};
+// Conta da classe do CC? (só os da sua origem — contas com valor lançado
+// continuam aparecendo na tela mesmo fora da classe, para nada sumir).
+function contaDaClasseAgricola(conta, classe) {
+  const c = conta.codigo;
+  if (classe === 'custo') return conta.origem === 'Custo';
+  if (classe === 'comercial') return c.startsWith('34101') || c.startsWith('34202');
+  return c.startsWith('34201') || c.startsWith('34202') || c.startsWith('34203');
+}
+function aberturaAtivaAgricola(pp) {
+  return pp?.hcAberturaPorConta === 'sim';
+}
+// Abertura calculada de um CC (null se a planilha não tem esse CC).
+function aberturaHcAgricolaCC(ref, ccCodigo, pp) {
+  const dadosCc = ref?.hcAberturaFazenda ? HC_AGRICOLA_POR_CC[`${ref.hcAberturaFazenda}|${ccCodigo}`] : null;
+  if (!dadosCc) return null;
+  const cc = (ref.ccs || []).find(c => c.codigo === ccCodigo);
+  const contas = CONTAS_ABERTURA_AGRICOLA[custeioCcAgricola(cc)];
+  const idxMes = (mes, padrao) => { const i = MESES.indexOf(mes || padrao); return i; };
+  const iDiss = idxMes(pp?.dissidioMes, 'Jan');
+  const iMerit = pp?.meritocraciaMes ? MESES.indexOf(pp.meritocraciaMes) : -1;
+  const iBonus = pp?.bonusMes ? MESES.indexOf(pp.bonusMes) : -1;
+  const pctMerit = parseNum(pp?.meritocraciaPct) / 100;
+  const S = MESES.map(() => dadosCc.s);
+  const D = MESES.map((_, m) => (iDiss >= 0 && m >= iDiss ? dadosCc.sReaj - dadosCc.s : 0));
+  const M = MESES.map((_, m) => (iMerit >= 0 && m >= iMerit ? (S[m] + D[m]) * pctMerit : 0));
+  const E = MESES.map((_, m) => S[m] + D[m] + M[m]);
+  const B = MESES.map((_, m) => (iBonus >= 0 && m === iBonus ? E[m] * multiplicadorBonus(pp?.bonusMultiplicador) * parseNum(pp?.bonusPct) / 100 : 0));
+  // HE por função (3% ou 0%): taxa efetiva do CC sobre o salário, antes/depois do dissídio.
+  const taxaHe = MESES.map((_, m) => (D[m] ? (dadosCc.sReaj ? dadosCc.heReaj / dadosCc.sReaj : 0) : (dadosCc.s ? dadosCc.he / dadosCc.s : 0)));
+  const linhas = {
+    aberturaSalarios: MESES.map((_, m) => E[m] + B[m]),
+    aberturaFgts: E.map(v => v * 0.08),
+    aberturaHe: E.map((v, m) => v * taxaHe[m]),
+    aberturaInss: E.map(v => v * 0.027),
+    aberturaFerias: E.map(v => v * (1 / 12 + (1 / 12) * 0.3333)),
+    aberturaDecimo: E.map(v => v / 12),
+  };
+  const totalMes = MESES.map((_, m) => Object.values(linhas).reduce((acc, arr) => acc + arr[m], 0));
+  return { S, D, M, B, E, linhas, contaDaChave: contas, totalMes, totalAnual: totalMes.reduce((a, v) => a + v, 0), hc: dadosCc.hc };
+}
+// Soma, no mês, das linhas da abertura (moram em contas do pacote Pessoal).
+function calculadasAberturaMes(calc, m) {
+  return Object.keys(calc?.contaDaChave || {}).reduce((acc, k) => acc + (calc[k]?.[m] || 0), 0);
+}
+
 // Linhas de pessoal calculadas a partir das premissas (além da folha do Novo
 // HC): meritocracia, dissídio e bônus do Headcount Existente; Bônus PJs e
 // licença de software do Novo HC (esses dois só no Corporativo). Fonte única
@@ -2708,9 +2824,19 @@ function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
     ? pocDoDocumento(data).comissaoMes
     : null;
 
-  const calculadas = { meritocracia, dissidio1, dissidio2, bonus, bonusPj, licencaSoftware, comissaoPoc };
+  // ARA Agrícola (2026-09-30): com a abertura por conta ativa, o HC Existente do
+  // CC sai do valor consolidado e passa a ser a abertura da planilha de pessoal
+  // (salários, FGTS, HE, INSS, férias, 13º — ver aberturaHcAgricolaCC). O valor
+  // consolidado continua gravado (nada é apagado): entra um estorno do mesmo
+  // valor, e meritocracia/bônus passam a ser calculados dentro da abertura.
+  // CC sem linha na planilha segue o racional antigo.
+  const abertura = aberturaAtivaAgricola(pp) ? aberturaHcAgricolaCC(ref, ccCodigo, pp) : null;
+  const calculadas = abertura
+    ? { meritocracia: null, dissidio1, dissidio2, bonus: null, bonusPj, licencaSoftware, comissaoPoc,
+      ...abertura.linhas, estornoHcConsolidado: hcMes ? hcMes.map(v => -v) : null }
+    : { meritocracia, dissidio1, dissidio2, bonus, bonusPj, licencaSoftware, comissaoPoc };
   const totalMes = MESES.map((_, m) => Object.values(calculadas).reduce((acc, row) => acc + (row?.[m] || 0), 0));
-  return { ...calculadas, hcExistenteMes: hcMes, totalMes, totalAnual: totalMes.reduce((a, v) => a + v, 0) };
+  return { ...calculadas, hcExistenteMes: hcMes, contaDaChave: abertura ? abertura.contaDaChave : null, aberturaBonusMes: abertura ? abertura.B : null, totalMes, totalAnual: totalMes.reduce((a, v) => a + v, 0) };
 }
 
 // Custo de pessoal de um CC que não está nas contas lançadas: folha do Novo
@@ -2728,6 +2854,11 @@ const ROTULOS_PESSOAL_CALCULADO = [
   ['meritocracia', 'Meritocracia (HC Existente)'], ['dissidio1', 'Dissídio (HC Existente)'], ['dissidio2', 'Dissídio 2 (HC Existente)'],
   ['bonus', 'Bônus (HC Existente)'], ['bonusPj', 'Bônus PJs'], ['licencaSoftware', 'Licença de Software — Novo HC'],
   ['comissaoPoc', 'Comissão apropriada (POC)'],
+  // ARA Agrícola — abertura do HC Existente por conta (quando ativa).
+  ['aberturaSalarios', 'Salários — abertura HC Existente'], ['aberturaFgts', 'FGTS — abertura HC Existente'],
+  ['aberturaHe', 'Horas extras — abertura HC Existente'], ['aberturaInss', 'INSS — abertura HC Existente'],
+  ['aberturaFerias', 'Férias + 1/3 — abertura HC Existente'], ['aberturaDecimo', '13º salário — abertura HC Existente'],
+  ['estornoHcConsolidado', 'Estorno do HC Existente consolidado (substituído pela abertura)'],
 ];
 // Linhas calculadas que moram numa conta analítica própria (não no pacote
 // Pessoal): licença → CORP10 (Corporativo), comissão do POC → 34102001 (EI).
@@ -2738,6 +2869,9 @@ function calculadasForaDoPessoalMes(calc, m) {
 }
 // Linha calculada que pertence a uma conta (ou null).
 function calculadaDaConta(calc, contaCodigo) {
+  // Abertura do HC Existente da ARA Agrícola: cada linha mora na conta de pessoal da classe do CC.
+  const chaveAbertura = Object.keys(calc?.contaDaChave || {}).find(k => calc.contaDaChave[k] === contaCodigo);
+  if (chaveAbertura) return calc[chaveAbertura];
   const chave = Object.keys(CONTA_DA_LINHA_CALCULADA).find(k => CONTA_DA_LINHA_CALCULADA[k] === contaCodigo);
   return chave ? calc[chave] : null;
 }
@@ -2748,7 +2882,7 @@ function linhasExportPessoalCalculado(data, ref, ccs, dre, ipcaAnualPct) {
   ccs.forEach(cc => {
     const calc = pessoalCalculadoPorCC(data, ref, cc.codigo, bases);
     ROTULOS_PESSOAL_CALCULADO.forEach(([chave, rotulo]) => {
-      const conta = chave === 'bonusPj' ? CONTA_CONSULTORIA_PJ : CONTA_DA_LINHA_CALCULADA[chave] || 'Pessoal (calculado)';
+      const conta = chave === 'bonusPj' ? CONTA_CONSULTORIA_PJ : calc.contaDaChave?.[chave] || CONTA_DA_LINHA_CALCULADA[chave] || 'Pessoal (calculado)';
       const pacote = chave === 'licencaSoftware' ? (nomePacoteDaConta('CORP10') || 'Tecnologia')
         : chave === 'comissaoPoc' ? (nomePacoteDaConta(CONTA_COMISSAO_POC) || 'Comissões') : 'Pessoal';
       (calc[chave] || []).forEach((valor, mi) => { if (valor) saida.push([cc, pacote, conta, rotulo, mi, valor]); });
@@ -3608,7 +3742,9 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   const somaEbtPositivoMes = ebtMes.reduce((acc, v) => acc + Math.max(v, 0), 0);
   const ircslMes = MESES.map((_, m) => somaEbtPositivoMes > 0 ? dre.ircsl * (Math.max(ebtMes[m], 0) / somaEbtPositivoMes) : 0);
 
-  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
+  // + 13º da abertura do HC Existente da ARA Agrícola (pago metade em Nov, metade em Dez).
+  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro
+    + (pessoalCC[cc.codigo]?.calc.aberturaDecimo?.[m] || 0), 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
   const ajuste13Mes = MESES.map((_, m) => decimoTerceiroMes[m] - pagamento13Mes[m]);
@@ -3863,7 +3999,9 @@ function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   // UNIDADES_COM_COMPETENCIA_CAIXA/valorLinhaMesCaixa).
   const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m) + comissaoPocMes[m]);
   const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0) - comissaoPocMes[m]);
-  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
+  // + 13º da abertura do HC Existente da ARA Agrícola (pago metade em Nov, metade em Dez).
+  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro
+    + (pessoalCC[cc.codigo]?.calc.aberturaDecimo?.[m] || 0), 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
   const pessoalEmCaixaMes = MESES.map((_, m) => folhaTotalMes[m] - decimoTerceiroMes[m] + pagamento13Mes[m]);
@@ -10687,7 +10825,7 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
   function calculadasCltCCMes(ccCodigo, m) {
     if (!calcPessoalCC) return 0;
     const calc = calcPessoalCC(ccCodigo);
-    return calc.totalMes[m] - calculadasForaDoPessoalMes(calc, m) - (calc.bonusPj?.[m] || 0);
+    return calc.totalMes[m] - calculadasForaDoPessoalMes(calc, m) - (calc.bonusPj?.[m] || 0) - calculadasAberturaMes(calc, m);
   }
 
   // Soma a conta em TODOS os CCs, não só nos do tipo "esperado" pela origem
@@ -10881,7 +11019,7 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
     const folhaNovo = (folhaCC(ccCodigo).mensal[m]?.total || 0) * _fatorEncNovoHc;
     const hcExistente = contasHCPessoal.reduce((acc, c) => acc + totalContaMesCC(ccCodigo, c.codigo, m), 0);
     const calc = calcPessoalCC(ccCodigo);
-    return folhaNovo + hcExistente + calc.totalMes[m] - calculadasForaDoPessoalMes(calc, m) - (calc.bonusPj?.[m] || 0);
+    return folhaNovo + hcExistente + calc.totalMes[m] - calculadasForaDoPessoalMes(calc, m) - (calc.bonusPj?.[m] || 0) - calculadasAberturaMes(calc, m);
   }
   function totalPacoteCCMes(ccCodigo, pacoteId, m) {
     const contas = (refUnidade.planoContas[pacoteId] || []).filter(c => c.nome !== 'Headcount Existente');
@@ -11031,7 +11169,7 @@ function totais2027PorCcConta(data, refUnidade, ccs, dre, ipcaAnualPct, unidadeI
     const contas = refUnidade.pacotes.flatMap(p => contasDoPacoteNoCc(refUnidade.planoContas, p.id, cc, unidadeId));
     const contasHc = contas.filter(c => c.nome === 'Headcount Existente');
     const anual = (c) => valorLinhaAnual(linhas[`${cc.codigo}|${c.codigo}`], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
-    const foraDoPessoal = MESES.reduce((acc, _, m) => acc + calculadasForaDoPessoalMes(calc, m), 0);
+    const foraDoPessoal = MESES.reduce((acc, _, m) => acc + calculadasForaDoPessoalMes(calc, m) + calculadasAberturaMes(calc, m), 0);
     const bonusPjAnual = soma(calc.bonusPj);
     const clt = folhaNovo + contasHc.reduce((acc, c) => acc + anual(c), 0) + calc.totalAnual - foraDoPessoal - bonusPjAnual;
     contas.forEach(c => {
@@ -11047,6 +11185,8 @@ function totais2027PorCcConta(data, refUnidade, ccs, dre, ipcaAnualPct, unidadeI
       let b = 0;
       if (c.nome === 'Headcount Existente' && c === contasHc[0]) b += soma(calc.bonus);
       if (c.codigo === CONTA_CONSULTORIA_PJ) b += bonusPjAnual;
+      // ARA Agrícola com abertura ativa: o bônus está dentro da conta de Salários.
+      if (calc.contaDaChave && c.codigo === calc.contaDaChave.aberturaSalarios) b += soma(calc.aberturaBonusMes);
       mapaBonus[`${cc.codigo}|${c.codigo}`] = b;
     });
   });
@@ -11486,6 +11626,15 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
   const _dissidioMesIdxC = _ppC.dissidioMes ? MESES.indexOf(_ppC.dissidioMes) : -1;
   const _dissidioMesIdx2T = _ppC.dissidioMes2 ? MESES.indexOf(_ppC.dissidioMes2) : -1;
   const _somaRow = (row) => row ? row.reduce((a, v) => a + v, 0) : 0;
+
+  // ARA Agrícola (2026-09-30) — HC Existente aberto por conta analítica (ver
+  // aberturaHcAgricolaCC). Contas de pessoal exibidas só as da classe de
+  // custeio do CC (Custo/Adm/Comercial), mais qualquer uma com valor lançado.
+  const _ehAgricolaHc = ehUnidadeAgricola(unidadeId) && !!refUnidade.hcAberturaFazenda;
+  const _classeCcAgr = _ehAgricolaHc ? custeioCcAgricola(ccAtual) : null;
+  const _aberturaCC = _ehAgricolaHc ? aberturaHcAgricolaCC(refUnidade, ccSel, _ppC) : null;
+  const _aberturaEmUso = !!_aberturaCC && aberturaAtivaAgricola(_ppC);
+  const _contaNaClasseAgr = (c) => !_ehAgricolaHc || contaDaClasseAgricola(c, _classeCcAgr) || totalConta(c.codigo) !== 0;
 
   const hcExistenteMesCorp = _ehCorp ? _calcCC.hcExistenteMes : null;
   const meritocraciaRowCorp = _ehCorp ? _calcCC.meritocracia : null;
@@ -12022,7 +12171,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                           </div>
                         ))}
                         {/* Cursos (CORP13, individual: true) e demais contas individual */}
-                        {g.contas.filter(c => c.individual).map(c => (
+                        {g.contas.filter(c => c.individual && _contaNaClasseAgr(c)).map(c => (
                           <div key={c.codigo} style={{ marginTop: 10 }}>
                             <LinhaConta
                               conta={c}
@@ -12110,7 +12259,10 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               1.1 Headcount Existente
                             </span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>
-                              {formatBRL(_somaRow(hcExistenteMesTextil) + _somaRow(dissidioRow1Textil) + _somaRow(dissidioRow2Textil) + _somaRow(meritocraciaRowTextil) + _somaRow(bonusRowTextil))}
+                              {formatBRL(_somaRow(hcExistenteMesTextil) + _somaRow(dissidioRow1Textil) + _somaRow(dissidioRow2Textil) + _somaRow(meritocraciaRowTextil) + _somaRow(bonusRowTextil)
+                                // ARA Agrícola: abertura em uso (substitui o consolidado) + contas de pessoal do grupo.
+                                + (_aberturaEmUso ? _aberturaCC.totalAnual - _somaRow(hcExistenteMesTextil) : 0)
+                                + (_ehAgricolaHc ? g.contas.filter(c => !c.individual && c.nome !== 'Headcount Existente' && _contaNaClasseAgr(c)).reduce((acc, c) => acc + totalConta(c.codigo), 0) : 0))}
                             </span>
                           </button>
                           {hcExistenteAberto && (
@@ -12173,6 +12325,85 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                   />
                                 </div>
                               )}
+
+                              {/* ARA Agrícola (2026-09-30): abertura do HC Existente por conta
+                                  analítica, calculada da planilha de pessoal por função. */}
+                              {_ehAgricolaHc && (() => {
+                                const nomeConta = (codigo) => `${codigo} — ${refUnidade.todasContas?.[codigo]?.nome || ''}`;
+                                const fmtR = (v) => formatValor(v);
+                                const a = _aberturaCC;
+                                const consolidado = hcExistenteMesTextil || MESES.map(() => 0);
+                                return (
+                                  <div style={{ marginTop: 16 }}>
+                                    <h5 style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '4px 0 8px' }}>
+                                      Abertura por conta analítica — planilha de pessoal{a ? ` (${a.hc} HC)` : ''}
+                                    </h5>
+                                    {!a ? (
+                                      <div style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>
+                                        Este CC não tem funções na planilha de pessoal ("Premissa - sugestão v2"): segue o valor consolidado acima e as contas de pessoal abaixo.
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div style={{ background: _aberturaEmUso ? '#EAF6EC' : COR.total, border: `1px solid ${_aberturaEmUso ? COR.verde : COR.laranja}`, borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 11, color: COR.texto, lineHeight: 1.5 }}>
+                                          {_aberturaEmUso
+                                            ? <><b style={{ color: COR.verde }}>Em uso no orçamento.</b> Substitui o valor consolidado acima, que continua gravado e entra estornado. Meritocracia e bônus estão dentro da conta de Salários.</>
+                                            : <><b style={{ color: COR.laranja }}>Prévia — ainda não soma no orçamento.</b> O valor consolidado acima continua valendo. Depois de conferir, o Admin FP&A ativa em Gestão do Orçamento → Premissas de Pessoal — ARA Agrícola.</>}
+                                          <div style={{ marginTop: 4, color: '#7A8088' }}>
+                                            Salários = salário + dissídio (a partir de {_ppC.dissidioMes || 'Jan'}, % por função da planilha) + meritocracia ({_ppC.meritocraciaPct || '0'}% a partir de {_ppC.meritocraciaMes || '—'}) + bônus ({_ppC.bonusPct || '0'}% × {_ppC.bonusMultiplicador || '1'} em {_ppC.bonusMes || '—'}).
+                                            Encargos sobre salário + dissídio + meritocracia: FGTS 8%, INSS 2,7%, horas extras (% da função), férias 1/12 + 1/3, 13º 1/12 (caixa: metade em Nov, metade em Dez).
+                                          </div>
+                                        </div>
+                                        <TabelaMensal
+                                          linhas={[]} onChangeCelula={() => {}}
+                                          linhasCalculadas={[
+                                            { key: 'abS', label: 'Salário base (planilha)', valoresMensal: a.S, totalValor: _somaRow(a.S), cor: '#8A8F96', formatarCelula: fmtR },
+                                            { key: 'abD', label: 'Dissídio', valoresMensal: a.D, totalValor: _somaRow(a.D), cor: '#8A8F96', formatarCelula: fmtR },
+                                            { key: 'abM', label: 'Meritocracia', valoresMensal: a.M, totalValor: _somaRow(a.M), cor: '#8A8F96', formatarCelula: fmtR },
+                                            { key: 'abB', label: 'Bônus', valoresMensal: a.B, totalValor: _somaRow(a.B), cor: '#8A8F96', formatarCelula: fmtR },
+                                            ...Object.entries(a.linhas).map(([chave, valores]) => ({
+                                              key: chave, label: nomeConta(a.contaDaChave[chave]), valoresMensal: valores, totalValor: _somaRow(valores), cor: COR.texto,
+                                            })),
+                                            { key: 'abTot', label: 'Total — abertura', valoresMensal: a.totalMes, totalValor: a.totalAnual, cor: COR.laranja },
+                                            { key: 'abCons', label: 'Valor consolidado atual (HC Existente)', valoresMensal: consolidado, totalValor: _somaRow(consolidado), cor: '#8A8F96' },
+                                            { key: 'abDif', label: 'Diferença (abertura − consolidado)', valoresMensal: a.totalMes.map((v, m) => v - consolidado[m]), totalValor: a.totalAnual - _somaRow(consolidado), cor: COR.azul },
+                                          ]}
+                                        />
+                                      </>
+                                    )}
+
+                                    {(() => {
+                                      const contasFolha = g.contas.filter(c => !c.individual && c.nome !== 'Headcount Existente' && _contaNaClasseAgr(c));
+                                      if (contasFolha.length === 0) return null;
+                                      return (
+                                        <div style={{ marginTop: 14 }}>
+                                          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>Contas de pessoal — lançamento direto</div>
+                                          <div style={{ fontSize: 11, color: '#7A8088', marginBottom: 8 }}>
+                                            Para CCs sem planilha de pessoal por função e para ajustes. Com a abertura em uso, não repita aqui o que já vem da planilha — o valor seria contado duas vezes.
+                                          </div>
+                                          {contasFolha.map(c => (
+                                            <div key={c.codigo} style={{ marginTop: 10 }}>
+                                              <LinhaConta
+                                                conta={c}
+                                                linha={linhas[chaveLinha(c.codigo)] || novaContaVazia()}
+                                                aberta={contaAberta === chaveLinha(c.codigo)}
+                                                onToggle={() => toggleConta(c.codigo)}
+                                                onUpdateClassificacao={valor => updateConta(chaveLinha(c.codigo), 'classificacao', valor)}
+                                                onUpdateSublinha={(sublinhaId, campo, valor) => updateSublinha(chaveLinha(c.codigo), sublinhaId, campo, valor)}
+                                                onAddSublinha={() => addSublinha(chaveLinha(c.codigo))}
+                                                onRemoveSublinha={sublinhaId => removeSublinha(chaveLinha(c.codigo), sublinhaId)}
+                                                total={totalConta(c.codigo)}
+                                                receitaBrutaMes={dre.receitaBrutaMes} receitaLiquidaMes={dre.receitaLiquidaMes}
+                                                unidadeId={unidadeId} ipcaAnualPct={ipcaAnualPct} volumeTotalKgMes={dre.volumeTotalKgMes} cambios={cambios}
+                                                receitaHospedagemMes={dre.receitaHospedagemMes} receitaAebMes={dre.receitaAebMes}
+                                              />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
@@ -12219,7 +12450,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                         </div>
 
                         {/* Demais contas analíticas do pacote Pessoal (individual: true) */}
-                        {g.contas.filter(c => c.individual).map(c => (
+                        {g.contas.filter(c => c.individual && _contaNaClasseAgr(c)).map(c => (
                           <div key={c.codigo} style={{ marginTop: 10 }}>
                             <LinhaConta
                               conta={c}
@@ -12244,7 +12475,8 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                             50101) em que o pessoal foi carregado direto nessas contas — o
                             valor existia e somava na DRE, mas não aparecia em nenhum campo.
                             Nas demais unidades essas contas continuam vindo só da folha. */}
-                        {pessoalTotalmenteEditavel(unidadeId) && (() => {
+                        {/* Na ARA Agrícola essas contas ficam dentro do 1.1 (ver acima). */}
+                        {pessoalTotalmenteEditavel(unidadeId) && !_ehAgricolaHc && (() => {
                           const contasFolha = g.contas.filter(c => !c.individual && c.nome !== 'Headcount Existente');
                           if (contasFolha.length === 0) return null;
                           return (
@@ -15870,6 +16102,63 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                     <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
                   </div>
                 </div>
+
+                {/* HC Existente aberto por conta (2026-09-30) — ativação pelo Admin FP&A. */}
+                {(() => {
+                  const resumo = ['agricola_tds', 'agricola_fds'].map(uid => {
+                    const doc = statusUnidades[uid] || emptyFormData(uid);
+                    const ref = referenciaDaUnidade(uid);
+                    const dre = computeDRE(doc, ref, ipcaAnualPct, cambios);
+                    const pp = doc.custos?.premissasPessoal || {};
+                    let abertura = 0; let consolidado = 0; let ccs = 0;
+                    ref.ccs.forEach(cc => {
+                      const a = aberturaHcAgricolaCC(ref, cc.codigo, pp);
+                      if (!a) return;
+                      ccs += 1;
+                      abertura += a.totalAnual;
+                      ['HC_EXISTENTE_C', 'HC_EXISTENTE_D'].forEach(k => {
+                        consolidado += valorLinhaAnual(doc.custos?.linhas?.[`${cc.codigo}|${k}`], dre.receitaBrutaMes, dre.receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
+                      });
+                    });
+                    return { uid, nome: UNIDADES.find(u => u.id === uid)?.nome || uid, ccs, abertura, consolidado, ativa: aberturaAtivaAgricola(pp) };
+                  });
+                  return (
+                    <div style={{ marginTop: 14, borderTop: `1px solid ${COR.borda}`, paddingTop: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>Headcount Existente aberto por conta analítica (planilha de pessoal)</div>
+                      <div style={{ fontSize: 11, color: '#7A8088', marginBottom: 8, lineHeight: 1.5 }}>
+                        Com "Sim", nos CCs que têm funções na planilha o HC Existente passa a ser a abertura por conta (salários, FGTS, HE, INSS, férias, 13º) no lugar do valor
+                        consolidado, que continua gravado. O dissídio da abertura usa o % de cada função da planilha (4,28% ou 7%) a partir do mês acima; a meritocracia usa o % e o mês acima.
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <span style={{ fontSize: 11.5, color: COR.texto }}>Usar a abertura no orçamento:</span>
+                        <div style={{ width: 170 }}>
+                          <Selecao value={_pp.hcAberturaPorConta === 'sim' ? 'sim' : ''} onChange={v => upd('hcAberturaPorConta', v)} opcoes={[{ id: '', nome: 'Não (só prévia)' }, { id: 'sim', nome: 'Sim' }]} />
+                        </div>
+                      </div>
+                      <table style={{ borderCollapse: 'collapse', fontSize: 11 }}>
+                        <thead>
+                          <tr>
+                            {['Fazenda', 'CCs na planilha', 'Consolidado atual (R$)', 'Abertura (R$)', 'Diferença (R$)', 'Status'].map(h => (
+                              <th key={h} style={{ background: COR.azul, color: COR.branco, padding: '5px 10px', textAlign: h === 'Fazenda' ? 'left' : 'right' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {resumo.map(r => (
+                            <tr key={r.uid}>
+                              <td style={{ padding: '5px 10px', border: `1px solid ${COR.borda}` }}>{r.nome}</td>
+                              <td style={{ padding: '5px 10px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{r.ccs}</td>
+                              <td style={{ padding: '5px 10px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{formatValor(r.consolidado)}</td>
+                              <td style={{ padding: '5px 10px', border: `1px solid ${COR.borda}`, textAlign: 'right' }}>{formatValor(r.abertura)}</td>
+                              <td style={{ padding: '5px 10px', border: `1px solid ${COR.borda}`, textAlign: 'right', color: COR.azul, fontWeight: 700 }}>{formatValor(r.abertura - r.consolidado)}</td>
+                              <td style={{ padding: '5px 10px', border: `1px solid ${COR.borda}`, textAlign: 'right', color: r.ativa ? COR.verde : COR.laranja, fontWeight: 700 }}>{r.ativa ? 'Em uso' : 'Prévia'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}

@@ -491,6 +491,122 @@ const CONTA_CONSULTORIA_PJ = 'CORP03';
 function multiplicadorBonus(v) {
   return v === undefined || v === null || String(v).trim() === '' ? 1 : parseNum(v);
 }
+
+// ---------------------------------------------------------------------------
+// ARA Agrícola — Headcount Existente aberto por conta analítica (2026-09-30).
+// Fonte: "Premissa - sugestão v2 1.xlsx" (aba Premissas, 189 funções), somada
+// por fazenda × CC. Por CC: [fazenda, cc, S, S reajustado, HE, HE reajustado, HC]
+//   S  = Σ salário × HC (salário sem reajuste, coluna U da planilha)
+//   S reajustado = Σ salário × HC × (1 + reajuste da categoria da função — 4,28% ou 7%)
+//   HE = Σ salário × HC × % horas extras da função (3% ou 0%); idem reajustado
+// Regras (decisões do usuário): dissídio a partir do mês da premissa (Janeiro);
+// meritocracia = % da premissa (5%) × (salário + dissídio), a partir do mês da
+// premissa; bônus = % × multiplicador × Salários do mês do bônus (S + D + M);
+// encargos sobre E = S + D + M: FGTS 8%, INSS 2,7%, HE (% da função), férias
+// 1/12 + 1/3 (1/12 × 33,33%), 13º 1/12 (caixa: metade em Nov, metade em Dez).
+// Salários da conta = S + D + M + B. Só soma no orçamento quando o Admin FP&A
+// ativa a abertura (premissasPessoal.hcAberturaPorConta === 'sim'); até lá o
+// valor consolidado (HC_EXISTENTE) segue valendo e a abertura é só prévia.
+// ---------------------------------------------------------------------------
+const HC_AGRICOLA_PLANILHA = [
+  ['tds', '50303', 364707.00, 389151.7540, 10756.5900, 11482.0309, 210],
+  ['tds', '50102', 23831.00, 24896.2276, 530.3100, 554.3651, 8],
+  ['tds', '50605', 12226.00, 12749.2728, 182.1600, 189.9564, 4],
+  ['tds', '50710', 7070.00, 7372.5960, 89.3100, 93.1325, 2],
+  ['tds', '50601', 6524.00, 6803.2272, 0.000, 0.0000, 1],
+  ['fds', '50102', 16884.00, 17606.6352, 506.5200, 528.1991, 6],
+  ['fds', '50207', 7491.00, 7902.1364, 224.7300, 237.0641, 4],
+  ['fds', '50203', 8575.00, 9032.5316, 257.2500, 270.9759, 4],
+  ['fds', '50301', 289178.00, 308442.0760, 8490.7200, 9060.7405, 164],
+  ['fds', '50302', 306211.00, 326652.1540, 9001.7100, 9607.0429, 176],
+  ['fds', '50402', 11953.00, 12518.0636, 358.5900, 375.5419, 5],
+  ['fds', '50502', 7682.00, 8010.7896, 230.4600, 240.3237, 3],
+  ['fds', '50101', 26239.00, 27362.0292, 224.1000, 233.6915, 4],
+  ['fds', '50712', 6524.00, 6803.2272, 0.000, 0.0000, 1],
+  ['tds', '50203', 21265.00, 22401.4460, 637.9500, 672.0434, 11],
+  ['tds', '50205', 8590.00, 9048.1736, 257.7000, 271.4452, 5],
+  ['tds', '50301', 303159.00, 323373.2948, 8899.0500, 9497.1020, 173],
+  ['tds', '50302', 358011.00, 381852.1492, 10555.7100, 11263.0427, 205],
+  ['tds', '50503', 269543.00, 288049.6036, 8086.2900, 8641.4881, 161],
+  ['tds', '50606', 17262.00, 18362.9000, 517.8600, 550.8870, 10],
+  ['tds', '50202', 3926.00, 4139.2936, 117.7800, 124.1788, 2],
+  ['tds', '50402', 15612.00, 16376.7536, 468.3600, 491.3026, 7],
+  ['tds', '50207', 8559.00, 8925.3252, 256.7700, 267.7598, 4],
+  ['tds', '50403', 17605.00, 18760.9452, 528.1500, 562.8284, 9],
+  ['tds', '50201', 3701.00, 3859.4028, 111.0300, 115.7821, 2],
+  ['tds', '50712', 10915.00, 11382.1620, 142.8300, 148.9431, 3],
+  ['tds', '50502', 13654.00, 14238.3912, 245.2800, 255.7780, 4],
+  ['tds', '50105', 2499.00, 2605.9572, 74.9700, 78.1787, 1],
+  ['tds', '50206', 9797.00, 10216.3116, 109.2900, 113.9676, 2],
+  ['fds', '50503', 149301.00, 159492.9900, 4479.0300, 4784.7897, 89],
+  ['fds', '50606', 14125.00, 15001.1148, 423.7500, 450.0334, 8],
+  ['fds', '50201', 5063.00, 5324.9572, 151.8900, 159.7487, 3],
+  ['fds', '50405', 1664.00, 1780.4800, 49.9200, 53.4144, 1],
+  ['fds', '50202', 6059.00, 6318.3252, 181.7700, 189.5498, 2],
+  ['fds', '50403', 12669.00, 13555.8300, 380.0700, 406.6749, 7],
+  ['fds', '50501', 1934.00, 2016.7752, 58.0200, 60.5033, 1],
+  ['fds', '50205', 3793.00, 3955.3404, 113.7900, 118.6602, 2],
+];
+const HC_AGRICOLA_POR_CC = {};
+HC_AGRICOLA_PLANILHA.forEach(([fazenda, cc, s, sReaj, he, heReaj, hc]) => {
+  HC_AGRICOLA_POR_CC[`${fazenda}|${cc}`] = { s, sReaj, he, heReaj, hc };
+});
+// Classe de custeio do CC (PLANO_C_CUSTO_2026, coluna "Tipo de custeio"):
+// Custo → contas 71101, Adm → 34201, Comercial → 34101.
+const CCS_COMERCIAIS_AGRICOLA = ['50601', '50602', '50605', '50505'];
+function custeioCcAgricola(cc) {
+  if (cc?.tipo === 'producao') return 'custo';
+  return CCS_COMERCIAIS_AGRICOLA.includes(cc?.codigo) ? 'comercial' : 'adm';
+}
+const CONTAS_ABERTURA_AGRICOLA = {
+  custo: { aberturaSalarios: '71101001', aberturaFgts: '71101007', aberturaHe: '71101003', aberturaInss: '71101006', aberturaFerias: '71101004', aberturaDecimo: '71101005' },
+  adm: { aberturaSalarios: '34201001', aberturaFgts: '34201006', aberturaHe: '34201014', aberturaInss: '34201005', aberturaFerias: '34201004', aberturaDecimo: '34201003' },
+  comercial: { aberturaSalarios: '34101001', aberturaFgts: '34101006', aberturaHe: '34101014', aberturaInss: '34101005', aberturaFerias: '34101004', aberturaDecimo: '34101003' },
+};
+// Conta da classe do CC? (só os da sua origem — contas com valor lançado
+// continuam aparecendo na tela mesmo fora da classe, para nada sumir).
+function contaDaClasseAgricola(conta, classe) {
+  const c = conta.codigo;
+  if (classe === 'custo') return conta.origem === 'Custo';
+  if (classe === 'comercial') return c.startsWith('34101') || c.startsWith('34202');
+  return c.startsWith('34201') || c.startsWith('34202') || c.startsWith('34203');
+}
+function aberturaAtivaAgricola(pp) {
+  return pp?.hcAberturaPorConta === 'sim';
+}
+// Abertura calculada de um CC (null se a planilha não tem esse CC).
+function aberturaHcAgricolaCC(ref, ccCodigo, pp) {
+  const dadosCc = ref?.hcAberturaFazenda ? HC_AGRICOLA_POR_CC[`${ref.hcAberturaFazenda}|${ccCodigo}`] : null;
+  if (!dadosCc) return null;
+  const cc = (ref.ccs || []).find(c => c.codigo === ccCodigo);
+  const contas = CONTAS_ABERTURA_AGRICOLA[custeioCcAgricola(cc)];
+  const idxMes = (mes, padrao) => { const i = MESES.indexOf(mes || padrao); return i; };
+  const iDiss = idxMes(pp?.dissidioMes, 'Jan');
+  const iMerit = pp?.meritocraciaMes ? MESES.indexOf(pp.meritocraciaMes) : -1;
+  const iBonus = pp?.bonusMes ? MESES.indexOf(pp.bonusMes) : -1;
+  const pctMerit = parseNum(pp?.meritocraciaPct) / 100;
+  const S = MESES.map(() => dadosCc.s);
+  const D = MESES.map((_, m) => (iDiss >= 0 && m >= iDiss ? dadosCc.sReaj - dadosCc.s : 0));
+  const M = MESES.map((_, m) => (iMerit >= 0 && m >= iMerit ? (S[m] + D[m]) * pctMerit : 0));
+  const E = MESES.map((_, m) => S[m] + D[m] + M[m]);
+  const B = MESES.map((_, m) => (iBonus >= 0 && m === iBonus ? E[m] * multiplicadorBonus(pp?.bonusMultiplicador) * parseNum(pp?.bonusPct) / 100 : 0));
+  // HE por função (3% ou 0%): taxa efetiva do CC sobre o salário, antes/depois do dissídio.
+  const taxaHe = MESES.map((_, m) => (D[m] ? (dadosCc.sReaj ? dadosCc.heReaj / dadosCc.sReaj : 0) : (dadosCc.s ? dadosCc.he / dadosCc.s : 0)));
+  const linhas = {
+    aberturaSalarios: MESES.map((_, m) => E[m] + B[m]),
+    aberturaFgts: E.map(v => v * 0.08),
+    aberturaHe: E.map((v, m) => v * taxaHe[m]),
+    aberturaInss: E.map(v => v * 0.027),
+    aberturaFerias: E.map(v => v * (1 / 12 + (1 / 12) * 0.3333)),
+    aberturaDecimo: E.map(v => v / 12),
+  };
+  const totalMes = MESES.map((_, m) => Object.values(linhas).reduce((acc, arr) => acc + arr[m], 0));
+  return { S, D, M, B, E, linhas, contaDaChave: contas, totalMes, totalAnual: totalMes.reduce((a, v) => a + v, 0), hc: dadosCc.hc };
+}
+// Soma, no mês, das linhas da abertura (moram em contas do pacote Pessoal).
+function calculadasAberturaMes(calc, m) {
+  return Object.keys(calc?.contaDaChave || {}).reduce((acc, k) => acc + (calc[k]?.[m] || 0), 0);
+}
 export function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
   const pp = data.custos.premissasPessoal || {};
   const linhas = data.custos.linhas || {};
@@ -539,9 +655,19 @@ export function pessoalCalculadoPorCC(data, ref, ccCodigo, bases) {
     ? pocDoDocumento(data).comissaoMes
     : null;
 
-  const calculadas = { meritocracia, dissidio1, dissidio2, bonus, bonusPj, licencaSoftware, comissaoPoc };
+  // ARA Agrícola (2026-09-30): com a abertura por conta ativa, o HC Existente do
+  // CC sai do valor consolidado e passa a ser a abertura da planilha de pessoal
+  // (salários, FGTS, HE, INSS, férias, 13º — ver aberturaHcAgricolaCC). O valor
+  // consolidado continua gravado (nada é apagado): entra um estorno do mesmo
+  // valor, e meritocracia/bônus passam a ser calculados dentro da abertura.
+  // CC sem linha na planilha segue o racional antigo.
+  const abertura = aberturaAtivaAgricola(pp) ? aberturaHcAgricolaCC(ref, ccCodigo, pp) : null;
+  const calculadas = abertura
+    ? { meritocracia: null, dissidio1, dissidio2, bonus: null, bonusPj, licencaSoftware, comissaoPoc,
+      ...abertura.linhas, estornoHcConsolidado: hcMes ? hcMes.map(v => -v) : null }
+    : { meritocracia, dissidio1, dissidio2, bonus, bonusPj, licencaSoftware, comissaoPoc };
   const totalMes = MESES.map((_, m) => Object.values(calculadas).reduce((acc, row) => acc + (row?.[m] || 0), 0));
-  return { ...calculadas, hcExistenteMes: hcMes, totalMes, totalAnual: totalMes.reduce((a, v) => a + v, 0) };
+  return { ...calculadas, hcExistenteMes: hcMes, contaDaChave: abertura ? abertura.contaDaChave : null, aberturaBonusMes: abertura ? abertura.B : null, totalMes, totalAnual: totalMes.reduce((a, v) => a + v, 0) };
 }
 export function pessoalExtraPorCC(data, ref, ccCodigo, bases) {
   const fator = 1 + parseNum(data.custos.premissasPessoal?.encargosNovoHcPct) / 100;
@@ -952,7 +1078,9 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   const somaEbtPositivoMes = ebtMes.reduce((acc, v) => acc + Math.max(v, 0), 0);
   const ircslMes = MESES.map((_, m) => somaEbtPositivoMes > 0 ? dre.ircsl * (Math.max(ebtMes[m], 0) / somaEbtPositivoMes) : 0);
 
-  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
+  // + 13º da abertura do HC Existente da ARA Agrícola (pago metade em Nov, metade em Dez).
+  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro
+    + (pessoalCC[cc.codigo]?.calc.aberturaDecimo?.[m] || 0), 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
   const ajuste13Mes = MESES.map((_, m) => decimoTerceiroMes[m] - pagamento13Mes[m]);
@@ -1189,7 +1317,9 @@ export function computeFluxoCaixaDiretoMensal(data, dre, ref, ipcaAnualPct) {
   // frontend/src/OrcamentoARA.jsx.
   const despesasCaixaSemPessoalMes = MESES.map((_, m) => totalLinhasMesCaixa('despesa', ['depreciacao'], m) + comissaoPocMes[m]);
   const folhaTotalMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + pessoalCC[cc.codigo].mes[m], 0) - comissaoPocMes[m]);
-  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro, 0));
+  // + 13º da abertura do HC Existente da ARA Agrícola (pago metade em Nov, metade em Dez).
+  const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro
+    + (pessoalCC[cc.codigo]?.calc.aberturaDecimo?.[m] || 0), 0));
   const decimoTerceiroAnualTotal = decimoTerceiroMes.reduce((a, v) => a + v, 0);
   const pagamento13Mes = MESES.map((_, m) => (m === 10 || m === 11) ? decimoTerceiroAnualTotal / 2 : 0);
   const pessoalEmCaixaMes = MESES.map((_, m) => folhaTotalMes[m] - decimoTerceiroMes[m] + pagamento13Mes[m]);

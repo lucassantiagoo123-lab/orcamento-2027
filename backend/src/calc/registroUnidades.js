@@ -31,8 +31,8 @@ export const UNIDADES_ORCAMENTO = {
   // direto, mas aparece aqui pra dreDaUnidade ter uma referência de
   // fallback e pra GET /agricola não quebrar antes do primeiro envio.
   agricola: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, ...REGRAS_AGRICOLA },
-  agricola_tds: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, ...REGRAS_AGRICOLA },
-  agricola_fds: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, ...REGRAS_AGRICOLA },
+  agricola_tds: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, ...REGRAS_AGRICOLA, hcAberturaFazenda: 'tds' },
+  agricola_fds: { ccs: CCS_AGRICOLA, todasContas: TODAS_CONTAS_AGRICOLA, planoContas: PLANO_CONTAS_AGRICOLA, ...REGRAS_AGRICOLA, hcAberturaFazenda: 'fds' },
   // Resorts ganhou CC real em 2026-08-20 (Centros de Custos - ARA Resorts
   // 1.xlsx) — mesmo padrão: samoa_beach/samoa_villa são os sites editáveis
   // (cada um só com os CCs que existem naquele resort, ver `resorts` em
