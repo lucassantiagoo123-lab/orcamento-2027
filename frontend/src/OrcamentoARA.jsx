@@ -3126,6 +3126,10 @@ function receitaBrutaPorMes(data, cambios) {
   return { receitaBrutaMes: totalMes, linhasReceitaMes: null };
 }
 
+// ARA Agrícola: deduções calculadas só sobre a Receita Mercado Interno — INSS
+// (2026-09-11) e Devoluções (2026-10-01, pedido do usuário). As demais usam a
+// receita bruta total (que inclui o Mercado Externo e o refugo).
+const DEDUCOES_SOBRE_MI_AGRICOLA = ['inss', 'devolucoes'];
 function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data, cambios);
@@ -3158,7 +3162,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
       let base = receitaBrutaMes[m];
       if (d.baseLinhaIds && linhasReceitaMes) {
         base = d.baseLinhaIds.reduce((s, id) => s + (linhasReceitaMes[id]?.[m] || 0), 0);
-      } else if (d.id === 'inss' && receitaAgricolaCalc) {
+      } else if (DEDUCOES_SOBRE_MI_AGRICOLA.includes(d.id) && receitaAgricolaCalc) {
         base = receitaAgricolaCalc.receitaInternaMes[m];
       }
       return a + base * (parseNum(d.pcts?.[m]) / 100);
@@ -9586,7 +9590,7 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Deduções sobre a receita</h4>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
-        Percentual sobre a receita bruta, mês a mês — exceto INSS, calculado só sobre a Receita Mercado Interno (pedido de 2026-09-11).
+        Percentual sobre a receita bruta, mês a mês — exceto INSS e Devoluções, calculados só sobre a Receita Mercado Interno.
       </p>
       {/* Base da dedução (2026-09-11): INSS usa só a Receita Mercado
           Interno (r.receitaInternaMes), as demais usam a receita bruta
@@ -9594,7 +9598,7 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
           aqui só pra exibir o valor (R$) de cada linha corretamente. */}
       <TabelaMensal
         linhas={deducoes.map(d => {
-          const baseMes = d.id === 'inss' ? r.receitaInternaMes : (dre.receitaBrutaMes || mesesVazios());
+          const baseMes = DEDUCOES_SOBRE_MI_AGRICOLA.includes(d.id) ? r.receitaInternaMes : (dre.receitaBrutaMes || mesesVazios());
           const valoresMensal = MESES.map((_, m) => (baseMes[m] || 0) * (parseNum(d.pcts?.[m]) / 100));
           const totalAbs = valoresMensal.reduce((a, v) => a + v, 0);
           const baseTotal = baseMes.reduce((a, v) => a + v, 0);
@@ -9609,14 +9613,14 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
         sufixo="%"
         linhasCalculadas={[
           ...deducoes.map(d => {
-            const baseMes = d.id === 'inss' ? r.receitaInternaMes : (dre.receitaBrutaMes || mesesVazios());
+            const baseMes = DEDUCOES_SOBRE_MI_AGRICOLA.includes(d.id) ? r.receitaInternaMes : (dre.receitaBrutaMes || mesesVazios());
             const valoresMensal = MESES.map((_, m) => (baseMes[m] || 0) * (parseNum(d.pcts?.[m]) / 100));
             return { key: `${d.id}_abs`, label: `${d.nome} (R$)`, valoresMensal, totalValor: valoresMensal.reduce((a, v) => a + v, 0), cor: COR.vermelho };
           }),
           {
             key: 'total_deducoes', label: 'Total de deduções (R$)',
             valoresMensal: MESES.map((_, m) => deducoes.reduce((acc, d) => {
-              const base = d.id === 'inss' ? r.receitaInternaMes[m] : (dre.receitaBrutaMes?.[m] || 0);
+              const base = DEDUCOES_SOBRE_MI_AGRICOLA.includes(d.id) ? r.receitaInternaMes[m] : (dre.receitaBrutaMes?.[m] || 0);
               return acc + base * (parseNum(d.pcts?.[m]) / 100);
             }, 0)),
             totalValor: dre.deducoes, cor: COR.azul,

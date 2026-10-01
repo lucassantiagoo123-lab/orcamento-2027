@@ -784,6 +784,10 @@ function receitaBrutaPorMes(data, cambios) {
   return { receitaBrutaMes: totalMes, linhasReceitaMes: null };
 }
 
+// ARA Agrícola: deduções calculadas só sobre a Receita Mercado Interno — INSS
+// (2026-09-11) e Devoluções (2026-10-01, pedido do usuário). As demais usam a
+// receita bruta total (que inclui o Mercado Externo e o refugo).
+const DEDUCOES_SOBRE_MI_AGRICOLA = ['inss', 'devolucoes'];
 export function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data, cambios);
@@ -814,7 +818,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
       let base = receitaBrutaMes[m];
       if (d.baseLinhaIds && linhasReceitaMes) {
         base = d.baseLinhaIds.reduce((s, id) => s + (linhasReceitaMes[id]?.[m] || 0), 0);
-      } else if (d.id === 'inss' && receitaAgricolaCalc) {
+      } else if (DEDUCOES_SOBRE_MI_AGRICOLA.includes(d.id) && receitaAgricolaCalc) {
         base = receitaAgricolaCalc.receitaInternaMes[m];
       }
       return a + base * (parseNum(d.pcts?.[m]) / 100);
