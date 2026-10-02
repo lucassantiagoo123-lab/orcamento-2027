@@ -19,7 +19,7 @@ import { CC_COMISSAO_POC_PADRAO } from './constantesEI.js';
 // ARA EI (2026-09-27): só a La Fleur II tem Receita (POC); Holding e South
 // Bay não têm seção de Receita. Escritório de Investimentos ('energia') só
 // tem aportes/dividendos (FC de Investimentos). Espelho do frontend.
-export const UNIDADES_SEM_RECEITA = ['corporativo', 'ei_holding', 'ei_southbay', 'energia'];
+export const UNIDADES_SEM_RECEITA = ['corporativo', 'ei_southbay', 'energia'];
 
 // FC de Investimentos por mês a partir de capex.projetos: desembolso de
 // CapEx sai; no Escritório de Investimentos cada lançamento tem aporte de
@@ -320,6 +320,8 @@ function receitaVazia(unidadeId) {
   }
   // La Fleur II (2026-09-27): receita, RET e custo pelo POC — ver pocLaFleur.js.
   if (unidadeId === 'ei_lafleur') return { poc: pocVazio(), deducoes: [] };
+  // Holding (2026-10-02): receita simples por linha, com projeção mensal em R$ — `linhasLivres`.
+  if (unidadeId === 'ei_holding') return { linhasLivres: [], deducoes: [] };
   return { produtos: [], deducoes: [] };
 }
 
@@ -755,6 +757,13 @@ function receitaBrutaPorMes(data, cambios) {
   if (data.receita.agricola) {
     const r = computeReceitaAgricola(data.receita.agricola, cambios);
     return { receitaBrutaMes: r.receitaBrutaMes, linhasReceitaMes: null };
+  }
+  // ARA EI Holding (2026-10-02): linhas de receita livres, valor mensal em R$.
+  if (Array.isArray(data.receita.linhasLivres)) {
+    return {
+      receitaBrutaMes: MESES.map((_, m) => data.receita.linhasLivres.reduce((acc, l) => acc + parseNum(l.valores?.[m]), 0)),
+      linhasReceitaMes: null,
+    };
   }
   if (data.receita.linhas) {
     const linhasMes = {};
@@ -1515,6 +1524,21 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
         ok: avancoOk && vgvOk,
         detalhe: avancoOk && vgvOk ? 'Preenchida' : 'Pendente de preenchimento',
       });
+      // Comentário obrigatório sobre as premissas mensais (2.3), 2026-10-02.
+      const comentarioPocOk = !!(p.comentarioPremissasMensais || '').trim();
+      checks.push({
+        label: 'Receita POC: comentário das premissas mensais (2.3) preenchido (campo obrigatório)',
+        ok: comentarioPocOk,
+        detalhe: comentarioPocOk ? 'Preenchido' : 'Pendente de preenchimento',
+      });
+    } else if (unidadeId === 'ei_holding') {
+      // ARA EI Holding (2026-10-02): linhas de receita livres, projeção mensal em R$.
+      const linhasHolding = (data.receita.linhasLivres || []).filter(l => somaMes(l.valores) > 0);
+      checks.push({
+        label: 'Receita: ao menos uma linha de receita com valor lançado',
+        ok: linhasHolding.length > 0,
+        detalhe: `${linhasHolding.length} de ${(data.receita.linhasLivres || []).length} linha(s) preenchida(s)`,
+      });
     } else if (data.receita.agricola) {
       // ARA Agrícola (2026-09-07) — espelho de OrcamentoARA.jsx, ver
       // computeReceitaAgricola.
@@ -1569,11 +1593,14 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     });
 
     const justDeducoesOk = !!(data.receita.deducoesJustificativa || '').trim();
-    checks.push({
-      label: 'Justificativa das deduções preenchida (campo obrigatório)',
-      ok: justDeducoesOk,
-      detalhe: justDeducoesOk ? 'Preenchida' : 'Pendente de preenchimento',
-    });
+    // Holding (2026-10-02): receita simples por linha, sem deduções — sem esta justificativa.
+    if (unidadeId !== 'ei_holding') {
+      checks.push({
+        label: 'Justificativa das deduções preenchida (campo obrigatório)',
+        ok: justDeducoesOk,
+        detalhe: justDeducoesOk ? 'Preenchida' : 'Pendente de preenchimento',
+      });
+    }
   }
 
   const linhasCustos = Object.entries(data.custos.linhas || {});

@@ -126,9 +126,9 @@ const SUBUNIDADES_EI = [
   { id: 'ei_southbay', nome: 'South Bay' },
   { id: 'ei', nome: 'Consolidado' },
 ];
-// Só a La Fleur II tem Receita (POC); Holding, South Bay, Corporativo e
+// Receita: La Fleur II (POC) e Holding (linhas livres, desde 2026-10-02); South Bay, Corporativo e
 // Escritório de Investimentos não têm seção de Receita. Espelho do backend.
-const UNIDADES_SEM_RECEITA = ['corporativo', 'ei_holding', 'ei_southbay', 'energia'];
+const UNIDADES_SEM_RECEITA = ['corporativo', 'ei_southbay', 'energia'];
 // Quais contas do plano um CC enxerga na tela de lançamento.
 //
 // Regra original (Têxtil/Agrícola/Corporativo, das matrizes de governança
@@ -2262,7 +2262,7 @@ function todosCcsConcluidos(usuario, unidadeId, conclusoes) {
 function abasDaUnidade(unidadeId, usuario) {
   if (unidadeId === 'energia') return ABAS_ESCRITORIO;
   if (usuario?.perfil === 'gerente_cc_corporativo') return ABAS.filter(a => a.id === 'custos' || a.id === 'capex' || a.id === 'revisao');
-  if (unidadeId === 'ei_holding' || unidadeId === 'ei_southbay') return ABAS.filter(a => a.id !== 'receita');
+  if (unidadeId === 'ei_southbay') return ABAS.filter(a => a.id !== 'receita');
   return ABAS;
 }
 
@@ -2408,6 +2408,8 @@ function receitaVazia(unidadeId) {
   }
   // La Fleur II (2026-09-27): receita, RET e custo pelo POC — ver computePOC.
   if (unidadeId === 'ei_lafleur') return { poc: pocVazio(), deducoes: [] };
+  // Holding (2026-10-02): receita simples por linha, com projeção mensal em R$ — `linhasLivres`.
+  if (unidadeId === 'ei_holding') return { linhasLivres: [], deducoes: [] };
   return { produtos: [], deducoes: [] };
 }
 
@@ -3097,6 +3099,13 @@ function receitaBrutaPorMes(data, cambios) {
   if (data.receita.agricola) {
     const r = computeReceitaAgricola(data.receita.agricola, cambios);
     return { receitaBrutaMes: r.receitaBrutaMes, linhasReceitaMes: null };
+  }
+  // ARA EI Holding (2026-10-02): linhas de receita livres, valor mensal em R$.
+  if (Array.isArray(data.receita.linhasLivres)) {
+    return {
+      receitaBrutaMes: MESES.map((_, m) => data.receita.linhasLivres.reduce((acc, l) => acc + parseNum(l.valores?.[m]), 0)),
+      linhasReceitaMes: null,
+    };
   }
   if (data.receita.linhas) {
     const linhasMes = {};
@@ -4209,6 +4218,21 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
         ok: avancoOk && vgvOk,
         detalhe: avancoOk && vgvOk ? 'Preenchida' : 'Pendente de preenchimento',
       });
+      // Comentário obrigatório sobre as premissas mensais (2.3), 2026-10-02.
+      const comentarioPocOk = !!(p.comentarioPremissasMensais || '').trim();
+      checks.push({
+        label: 'Receita POC: comentário das premissas mensais (2.3) preenchido (campo obrigatório)',
+        ok: comentarioPocOk,
+        detalhe: comentarioPocOk ? 'Preenchido' : 'Pendente de preenchimento',
+      });
+    } else if (unidadeId === 'ei_holding') {
+      // ARA EI Holding (2026-10-02): linhas de receita livres, projeção mensal em R$.
+      const linhasHolding = (data.receita.linhasLivres || []).filter(l => somaMes(l.valores) > 0);
+      checks.push({
+        label: 'Receita: ao menos uma linha de receita com valor lançado',
+        ok: linhasHolding.length > 0,
+        detalhe: `${linhasHolding.length} de ${(data.receita.linhasLivres || []).length} linha(s) preenchida(s)`,
+      });
     } else if (data.receita.agricola) {
       // ARA Agrícola (2026-09-07) — ver computeReceitaAgricola. "Preenchida"
       // = tem Embalada (Kg) OU alguma venda (Interna/Externa) lançada em
@@ -4265,11 +4289,14 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     });
 
     const justDeducoesOk = !!(data.receita.deducoesJustificativa || '').trim();
-    checks.push({
-      label: 'Justificativa das deduções preenchida (campo obrigatório)',
-      ok: justDeducoesOk,
-      detalhe: justDeducoesOk ? 'Preenchida' : 'Pendente de preenchimento',
-    });
+    // Holding (2026-10-02): receita simples por linha, sem deduções — sem esta justificativa.
+    if (unidadeId !== 'ei_holding') {
+      checks.push({
+        label: 'Justificativa das deduções preenchida (campo obrigatório)',
+        ok: justDeducoesOk,
+        detalhe: justDeducoesOk ? 'Preenchida' : 'Pendente de preenchimento',
+      });
+    }
   }
 
   const linhasCustos = Object.entries(data.custos.linhas || {});
@@ -5696,6 +5723,16 @@ export default function OrcamentoARA({ usuario }) {
         const r = computePOC(d.receita.poc);
         MESES.forEach((m, mi) => {
           if (r.robMes[mi] !== 0) linhasReceita.push([u.nome, 'Receita apropriada — POC (VGV + Espólio)', 'POC', m, '', '', r.robMes[mi], d.receita.justificativaGeral || '']);
+        });
+        return;
+      }
+      // ARA EI Holding (2026-10-02): linhas de receita livres (valor mensal em R$).
+      if (Array.isArray(d.receita.linhasLivres)) {
+        d.receita.linhasLivres.forEach(l => {
+          MESES.forEach((m, mi) => {
+            const v = parseNum(l.valores?.[mi]);
+            if (v !== 0) linhasReceita.push([u.nome, l.nome || 'Linha de receita', 'Holding', m, '', '', v, d.receita.justificativaGeral || '']);
+          });
         });
         return;
       }
@@ -7152,6 +7189,12 @@ function VisaoGerente(props) {
               deducoesJustificativa={dados.receita.deducoesJustificativa}
               atualizar={atualizar} dre={dre} ccs={referenciaDaUnidade(unidadeAtual).ccs}
             />
+          ) : unidadeAtual === 'ei_holding' ? (
+            // ARA EI Holding (2026-10-02): receita simples por linha, projeção mensal.
+            <AbaReceitaHolding
+              linhasLivres={dados.receita.linhasLivres} justificativaGeral={dados.receita.justificativaGeral}
+              atualizar={atualizar}
+            />
           ) : dados.receita.linhas ? (
             <AbaReceitaResorts
               linhas={dados.receita.linhas} deducoes={dados.receita.deducoes}
@@ -7562,6 +7605,24 @@ function CustosLeituraVersao({ refUnidade, unidadeId, dados, dre, ipcaAnualPct }
 // pra leitura não valeria o risco de divergir do cálculo real.
 function ReceitaLeituraVersao({ dados, cambios }) {
   const receita = dados.receita || {};
+  // ARA EI Holding (2026-10-02) — linhas de receita livres.
+  if (Array.isArray(receita.linhasLivres)) {
+    return (
+      <div>
+        <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Receita — Holding</h4>
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <CabecalhoMensalLeitura />
+            <tbody>
+              {receita.linhasLivres.map(l => (
+                <LinhaCalculadaMensal key={l.id} label={l.nome || 'Linha de receita'} valoresMensal={MESES.map((_, m) => parseNum(l.valores?.[m]))} formatarCelula={formatValor} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
   // La Fleur II (2026-09-27) — POC, ver computePOC.
   if (receita.poc) {
     const r = computePOC(receita.poc);
@@ -12939,6 +13000,69 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
 const formatPctPOC = (v) => formatPct(v * 100, 2);
 const formatM2 = (v) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// ARA EI Holding (2026-10-02): receita simples por linha, com projeção mensal em
+// R$. O gestor inclui as linhas que precisar (nome + valor por mês); a soma é a
+// Receita Operacional Bruta da Holding na DRE (ver receitaBrutaPorMes).
+function AbaReceitaHolding({ linhasLivres, justificativaGeral, atualizar }) {
+  const linhas = Array.isArray(linhasLivres) ? linhasLivres : [];
+  const salvar = (novas) => atualizar(['receita', 'linhasLivres'], novas);
+  const add = () => salvar([...linhas, { id: uid(), nome: '', valores: mesesVazios() }]);
+  const remover = (id) => salvar(linhas.filter(l => l.id !== id));
+  const setNome = (id, nome) => salvar(linhas.map(l => (l.id === id ? { ...l, nome } : l)));
+  const setValor = (id, mi, v) => salvar(linhas.map(l => (l.id === id ? { ...l, valores: atualizarArray(l.valores, mi, v) } : l)));
+  const totalMes = MESES.map((_, m) => linhas.reduce((acc, l) => acc + parseNum(l.valores?.[m]), 0));
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>2. Receita — Holding</h3>
+      <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
+        Inclua uma linha para cada receita da Holding e preencha a projeção mensal em R$. A soma das linhas é a Receita Operacional Bruta que entra na DRE.
+      </p>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.1 Linhas de receita — projeção mensal (R$)</h4>
+      {linhas.length === 0 ? (
+        <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Nenhuma linha de receita incluída ainda.</p>
+      ) : (
+        <div style={{ marginBottom: 10 }}>
+          <TabelaMensal
+            linhas={linhas.map((l, i) => ({
+              key: l.id, label: `Linha ${i + 1}`, valores: l.valores || mesesVazios(), nome: l.nome || '',
+              formatarTotal: formatValor,
+            }))}
+            onChangeCelula={(id, mi, v) => setValor(id, mi, v)}
+            colunaTexto={{ titulo: 'Nome da linha de receita', chave: 'nome', onChange: (id, nome) => setNome(id, nome) }}
+            linhasCalculadas={[
+              { key: 'totalReceita', label: 'Receita Operacional Bruta (R$)', valoresMensal: totalMes, totalValor: totalMes.reduce((a, v) => a + v, 0), cor: COR.verde },
+            ]}
+          />
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
+        <button
+          onClick={add}
+          style={{ fontFamily: FONT, fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 6, border: `1.5px solid ${COR.azul}`, background: COR.branco, color: COR.azul, cursor: 'pointer' }}
+        >+ Incluir linha de receita</button>
+        {linhas.map((l, i) => (
+          <button
+            key={l.id}
+            onClick={() => remover(l.id)}
+            title="Remove a linha e os valores digitados nela"
+            style={{ fontFamily: FONT, fontSize: 11, padding: '5px 10px', borderRadius: 6, border: `1px solid ${COR.borda}`, background: COR.claro, color: COR.vermelho, cursor: 'pointer' }}
+          >Remover {l.nome ? `“${l.nome}”` : `linha ${i + 1}`}</button>
+        ))}
+      </div>
+
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.2 Justificativa da projeção de receita</h4>
+      <CampoJustificativa
+        value={justificativaGeral}
+        onChange={v => atualizar(['receita', 'justificativaGeral'], v)}
+        placeholder="Justificativa geral da receita da Holding (origem das receitas, contratos, sazonalidade)"
+        obrigatorio
+      />
+    </div>
+  );
+}
+
 function AbaReceitaPOC({ poc, justificativaGeral, deducoesJustificativa, atualizar, dre, ccs }) {
   const calc = computePOC(poc);
   const si = poc.saldosIniciais || {};
@@ -13005,6 +13129,16 @@ function AbaReceitaPOC({ poc, justificativaGeral, deducoesJustificativa, atualiz
             { key: 'desembolsoObra', label: 'Desembolso de obra no mês (R$)', valores: poc.desembolsoObra || mesesVazios(), formatarTotal: formatValor },
           ]}
           onChangeCelula={(campo, mi, v) => setMensal(campo, mi, v)}
+        />
+      </div>
+      {/* Comentário obrigatório sobre as premissas mensais (2026-10-02). */}
+      <div style={{ marginBottom: 18 }}>
+        <Rotulo>Comentário sobre as premissas mensais (obrigatório)</Rotulo>
+        <CampoJustificativa
+          value={poc.comentarioPremissasMensais || ''}
+          onChange={v => atualizar(['receita', 'poc', 'comentarioPremissasMensais'], v)}
+          placeholder="Explique as premissas mensais: avanço de obra, novas vendas, distratos e desembolso de obra (o que mudou vs. o realizado)"
+          obrigatorio
         />
       </div>
 
