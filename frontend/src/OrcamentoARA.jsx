@@ -14906,22 +14906,13 @@ function Celulas2026({ v2026, v2027, margem, forte }) {
   );
 }
 
-// Origem do dado 2026 e onde a planilha não bate com a soma das linhas.
+// Origem do dado 2026. O quadro de divergências planilha × fórmula saiu em
+// 2026-10-02 (planilha corrigida pelo FP&A); calcularDre2026 ainda as calcula.
 function NotaReferencia2026({ dre2026 }) {
   if (!dre2026) return null;
   return (
     <div style={{ fontSize: 10.5, color: '#7A8088', marginTop: 6, lineHeight: 1.5 }}>
       2026 = realizado jan–ago/26 + previsto set–dez/26. Fonte: {dre2026.fonte}. Subtotais e margens de 2026 recalculados por fórmula; o dado 2026 é só referência e não entra em nenhum cálculo do orçamento 2027.
-      {dre2026.divergencias.length > 0 && (
-        <div style={{ marginTop: 6, background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, borderRadius: 6, padding: '6px 8px', color: COR.texto }}>
-          <b style={{ color: COR.vermelho }}>Onde a planilha não bate (a tela usa a fórmula):</b>
-          {dre2026.divergencias.map(d => (
-            <div key={d.linha}>
-              {d.linha}: fórmula {formatValor(d.formula)} × planilha {formatValor(d.planilha)} (diferença {formatValor(d.formula - d.planilha)})
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
