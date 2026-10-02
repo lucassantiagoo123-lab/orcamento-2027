@@ -13143,6 +13143,7 @@ function AbaReceitaPOC({ poc, justificativaGeral, deducoesJustificativa, atualiz
       </div>
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.4 Cálculo POC (fórmulas vivas)</h4>
+      <h5 style={{ fontSize: 12, color: COR.azul, margin: '0 0 6px' }}>2.4.1 Racional de receita</h5>
       <div style={{ marginBottom: 18 }}>
         <TabelaMensal
           linhas={[]} onChangeCelula={() => {}}
@@ -13157,6 +13158,15 @@ function AbaReceitaPOC({ poc, justificativaGeral, deducoesJustificativa, atualiz
             linhaCalc('rob', 'Receita Operacional Bruta', calc.robMes, COR.azul),
             linhaCalc('ret', '(−) Deduções — RET (RET acumulado − anterior)', calc.retMes.map(v => -v), COR.vermelho),
             linhaCalc('rl', 'Receita Líquida', receitaLiquidaMes, COR.azul),
+          ]}
+        />
+      </div>
+
+      <h5 style={{ fontSize: 12, color: COR.azul, margin: '0 0 6px' }}>2.4.2 Racional de custo e comissões</h5>
+      <div style={{ marginBottom: 18 }}>
+        <TabelaMensal
+          linhas={[]} onChangeCelula={() => {}}
+          linhasCalculadas={[
             linhaCalc('custoObra', 'Custo total da obra (anterior + desembolso)', calc.custoTotalObraMes, COR.texto, { totalValor: ultimo(calc.custoTotalObraMes) }),
             linhaCalc('m2', 'm² vendidos (anterior + m²/unidade × (vendas − distratos))', calc.m2VendidosMes, COR.texto, { totalValor: ultimo(calc.m2VendidosMes), formatar: formatM2 }),
             linhaCalc('custoRec', 'Custo total reconhecido = custo da obra ÷ m² a vender × m² vendidos × avanço', calc.custoReconhecidoMes, COR.texto, { totalValor: ultimo(calc.custoReconhecidoMes) }),
