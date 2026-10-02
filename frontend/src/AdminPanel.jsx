@@ -22,7 +22,7 @@ const COR = { azul: '#0C4391', laranja: '#FFA707', texto: '#494949', borda: '#D9
 // vinculadas pra ter o pacote completo (editar os dois sites + enviar o
 // Consolidado); um Gestor de CC só precisa dos dois sites (não acessa o
 // Consolidado).
-const UNIDADES_IDS = ['textil', 'textil_bg', 'textil_consolidado', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'resorts', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'ei', 'energia', 'corporativo'];
+const UNIDADES_IDS = ['textil', 'textil_bg', 'textil_consolidado', 'agricola_tds', 'agricola_fds', 'agricola', 'samoa_beach', 'samoa_villa', 'lfcvh', 'resorts', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'ei', 'energia', 'corporativo'];
 // Bug encontrado em 2026-08-30: os 3 botões de uma família (ex.: samoa_beach/
 // samoa_villa/resorts) eram toggles independentes — marcar só 'resorts' (ou
 // esquecer um dos dois sites) deixava um Gestor da Unidade com vínculo
@@ -53,6 +53,7 @@ const CCS_POR_UNIDADE = {
   agricola: [], // Consolidado — sem CC próprio pra vincular Gestor de CC (ver nota acima)
   samoa_beach: CCS_RESORTS.filter(cc => cc.resorts.includes('beach')),
   samoa_villa: CCS_RESORTS.filter(cc => cc.resorts.includes('villa')),
+  lfcvh: CCS_RESORTS,
   resorts: [], // Consolidado — idem
   corporativo: CCS_CORPORATIVO,
   ei: [], // Consolidado da ARA EI — idem
@@ -650,7 +651,7 @@ const UNIDADE_LABEL = {
   agricola: 'ARA Agrícola — Consolidado',
   agricola_tds: 'ARA Agrícola — Terra do Sol', agricola_fds: 'ARA Agrícola — Frutos do Sol',
   resorts: 'ARA Resorts — Consolidado', samoa_beach: 'ARA Resorts — Samoa Beach',
-  samoa_villa: 'ARA Resorts — Samoa Villa', corporativo: 'Corporativo',
+  samoa_villa: 'ARA Resorts — Samoa Villa', lfcvh: 'ARA Resorts — LFCVH', corporativo: 'Corporativo',
   ei_holding: 'ARA EI — Holding', ei_lafleur: 'ARA EI — La Fleur II', ei_southbay: 'ARA EI — South Bay',
   energia: 'Escritório de Investimentos',
 };

@@ -95,3 +95,10 @@ export async function getNotasGerenciais(unidadeId) {
 export function getCadastroServidor(unidadeId) {
   return apiFetch(`/api/orcamentos/${unidadeId}/cadastro`);
 }
+
+// Referência DRE 2026 da unidade (migração 0024) — null quando não há dado
+// (ou para Gestor de CC). Resorts Consolidado = Beach + Villa + LFCVH.
+export async function getReferenciaDre2026(unidadeId) {
+  const { referencia } = await apiFetch(`/api/orcamentos/${unidadeId}/referencia-dre-2026`);
+  return referencia;
+}

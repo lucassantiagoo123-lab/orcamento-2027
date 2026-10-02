@@ -311,7 +311,7 @@ function receitaVazia(unidadeId) {
       deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
     };
   }
-  if (unidadeId === 'resorts' || unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa') {
+  if (unidadeId === 'resorts' || unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa' || unidadeId === 'lfcvh') {
     const linhas = {};
     // premissaTipo já nasce correto por linha (ver tipoLinhaReceitaResorts) —
     // não é escolha do usuário, é fixo pela definição. Cálculo (computeDRE/
@@ -989,7 +989,7 @@ export function somarDRE(a, b) {
 // exatamente os mesmos CCs.
 const CONSOLIDADOS_MULTISITE = {
   agricola: { tipo: 'consolidado_agricola', sites: ['agricola_tds', 'agricola_fds'] },
-  resorts: { tipo: 'consolidado_resorts', sites: ['samoa_beach', 'samoa_villa'] },
+  resorts: { tipo: 'consolidado_resorts', sites: ['samoa_beach', 'samoa_villa', 'lfcvh'] },
   ei: { tipo: 'consolidado_ei', sites: ['ei_holding', 'ei_lafleur', 'ei_southbay'] },
   textil_consolidado: { tipo: 'consolidado_textil', sites: ['textil', 'textil_bg'] },
 };

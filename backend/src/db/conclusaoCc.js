@@ -39,3 +39,26 @@ export async function concluirCc(unidadeId, ccCodigo, usuarioId) {
 export async function liberarCc(unidadeId, ccCodigo) {
   await pool.query(`DELETE FROM conclusao_cc WHERE unidade_id = $1 AND cc_codigo = $2`, [unidadeId, ccCodigo]);
 }
+
+// Referência DRE 2026 por unidade (migração 0024) — somente leitura, só para
+// as colunas 2026/Δ da Revisão e os Bridges 2027 vs 2026. O Resorts
+// Consolidado é a soma de Samoa Beach + Samoa Villa + LFCVH.
+const SITES_DRE_2026 = { resorts: ['samoa_beach', 'samoa_villa', 'lfcvh'] };
+export async function listarReferenciaDre2026(unidadeId) {
+  const unidades = SITES_DRE_2026[unidadeId] || [unidadeId];
+  const { rows } = await pool.query(
+    `SELECT unidade_id, linha, tipo, valor::float8 AS valor, origem
+     FROM referencia_dre_2026 WHERE unidade_id = ANY($1)`,
+    [unidades]
+  );
+  if (rows.length === 0) return null;
+  const linhas = {};
+  const planilha = {};
+  const origem = {};
+  for (const r of rows) {
+    const alvo = r.tipo === 'importado' ? linhas : planilha;
+    alvo[r.linha] = (alvo[r.linha] || 0) + r.valor;
+    if (r.tipo === 'importado') origem[r.linha] = [origem[r.linha], `${r.unidade_id}: ${r.origem}`].filter(Boolean).join(' · ');
+  }
+  return { linhas, planilha, origem, fonte: 'Dados 2026.xlsx — aba "Tendência Grupo ARA", coluna U (FY 2026)' };
+}

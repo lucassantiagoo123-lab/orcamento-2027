@@ -4,7 +4,7 @@
 // do vínculo real do usuário no banco — nunca confia no que vem da URL.
 import { Router } from 'express';
 import { exigirUnidade, exigirCc, exigirPerfil, exigirAcessoNaoExpirado } from '../middleware/authorize.js';
-import { listarReferencia2026, listarConclusoes, ccsConcluidos, concluirCc, liberarCc } from '../db/conclusaoCc.js';
+import { listarReferencia2026, listarReferenciaDre2026, listarConclusoes, ccsConcluidos, concluirCc, liberarCc } from '../db/conclusaoCc.js';
 import { listarNotasGerenciais } from '../db/notasGerenciais.js';
 import { buscarOuCriarOrcamento, atualizarDadosComAuditoria, registrarEnvio, liberarReenvio, aprovar, listarVersoes, buscarVersao } from '../db/orcamentos.js';
 import { listarLog } from '../db/logAlteracoes.js';
@@ -46,7 +46,7 @@ export const orcamentosRouter = Router();
 const NOME_UNIDADE = {
   textil: 'ARA Têxtil — Produção Core', textil_bg: 'ARA Têxtil — Produção BG', textil_consolidado: 'ARA Têxtil — Consolidado',
   agricola: 'ARA Agrícola — Consolidado', agricola_tds: 'ARA Agrícola — Terra do Sol', agricola_fds: 'ARA Agrícola — Frutos do Sol',
-  resorts: 'ARA Resorts — Consolidado', samoa_beach: 'ARA Resorts — Samoa Beach', samoa_villa: 'ARA Resorts — Samoa Villa',
+  resorts: 'ARA Resorts — Consolidado', samoa_beach: 'ARA Resorts — Samoa Beach', samoa_villa: 'ARA Resorts — Samoa Villa', lfcvh: 'ARA Resorts — LFCVH',
   corporativo: 'Corporativo', energia: 'Escritório de Investimentos',
   ei: 'ARA EI — Consolidado', ei_holding: 'ARA EI — Holding', ei_lafleur: 'ARA EI — La Fleur II', ei_southbay: 'ARA EI — South Bay',
 };
@@ -88,7 +88,7 @@ function verificarPerdasAposSalvar(req, antes, depois) {
 // formulário de premissa próprio, só essas duas chamadas).
 // 2026-09-27: ARA EI (Holding, La Fleur II, South Bay + Consolidado 'ei') e
 // Escritório de Investimentos ('energia', só aportes/dividendos) habilitados.
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'textil_bg', 'textil_consolidado', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'textil_bg', 'textil_consolidado', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'lfcvh', 'corporativo', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
 
 // Período de edição encerrado pelo Admin FP&A (por unidade): Gestor de CC
 // só visualiza. Demais perfis seguem editando.
@@ -394,6 +394,14 @@ function ccsDoUsuario(usuario, unidadeId) {
 orcamentosRouter.get('/:unidadeId/referencia-2026', exigirUnidade('unidadeId'), async (req, res, next) => {
   try {
     res.json({ linhas: await listarReferencia2026(req.params.unidadeId, ccsDoUsuario(req.usuario, req.params.unidadeId)) });
+  } catch (err) { next(err); }
+});
+
+// Referência DRE 2026 da unidade (migração 0024) — Gestor de CC não vê a DRE da unidade.
+orcamentosRouter.get('/:unidadeId/referencia-dre-2026', exigirUnidade('unidadeId'), async (req, res, next) => {
+  try {
+    if (req.usuario.perfil === 'gerente_cc_corporativo') return res.json({ referencia: null });
+    res.json({ referencia: await listarReferenciaDre2026(req.params.unidadeId) });
   } catch (err) { next(err); }
 });
 

@@ -40,6 +40,8 @@ export const UNIDADES_ORCAMENTO = {
   resorts: { ccs: CCS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, planoContas: PLANO_CONTAS_RESORTS },
   samoa_beach: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('beach')), todasContas: TODAS_CONTAS_RESORTS, planoContas: PLANO_CONTAS_RESORTS },
   samoa_villa: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('villa')), todasContas: TODAS_CONTAS_RESORTS, planoContas: PLANO_CONTAS_RESORTS },
+  // LFCVH (2026-10-02): terceira unidade do Resorts, com todos os CCs do Resorts.
+  lfcvh: { ccs: CCS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, planoContas: PLANO_CONTAS_RESORTS },
   // Habilitada em 2026-08-16 — ver nota completa em constantesAgricolaResorts.js.
   corporativo: { ccs: CCS_CORPORATIVO, todasContas: TODAS_CONTAS_CORPORATIVO, planoContas: PLANO_CONTAS_CORPORATIVO },
   ei: REF_EI,

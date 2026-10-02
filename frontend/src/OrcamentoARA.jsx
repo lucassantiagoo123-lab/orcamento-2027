@@ -10,7 +10,7 @@ import {
   Building2, ChevronDown, ChevronRight, Plus, Trash2, Clock, ShieldCheck,
   Users, Loader2, Info, Upload, FileText,
 } from 'lucide-react';
-import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi, getReferencia2026, getConclusoesCc, getNotasGerenciais, getCadastroServidor, concluirCc, liberarCc } from './api/orcamentos.js';
+import { getOrcamento, putOrcamento, enviarVersao as enviarVersaoApi, listarVersoes, liberarReenvio as liberarReenvioApi, buscarVersao as buscarVersaoApi, getReferencia2026, getReferenciaDre2026, getConclusoesCc, getNotasGerenciais, getCadastroServidor, concluirCc, liberarCc } from './api/orcamentos.js';
 import { mesclarDados, iguais } from './mesclarDados.js';
 import { listarPremissasMacro as listarPremissasMacroApi, atualizarPremissaMacro as atualizarPremissaMacroApi, definirFontePremissaMacro as definirFontePremissaMacroApi, buscarBoletimFocusPdfMeta, enviarBoletimFocusPdf, urlBoletimFocusPdf } from './api/premissasMacro.js';
 import { listarEtapasProcesso as listarEtapasProcessoApi, atualizarEtapaProcesso as atualizarEtapaProcessoApi, listarBacklog as listarBacklogApi } from './api/processo.js';
@@ -37,7 +37,7 @@ const PERFIL_LABEL = {
 // — não têm formulário de premissa próprio (a tela não deixa editar `dados`
 // neles).
 // 2026-09-27: ARA EI (família de 3 + Consolidado) e Escritório de Investimentos.
-const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'textil_bg', 'textil_consolidado', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
+const UNIDADES_COM_LANCAMENTO_HABILITADO = ['textil', 'textil_bg', 'textil_consolidado', 'agricola', 'agricola_tds', 'agricola_fds', 'resorts', 'samoa_beach', 'samoa_villa', 'lfcvh', 'corporativo', 'ei', 'ei_holding', 'ei_lafleur', 'ei_southbay', 'energia'];
 
 const COR = {
   azul: '#0C4391',
@@ -74,6 +74,7 @@ const UNIDADES = [
   { id: 'resorts', nome: 'ARA Resorts — Consolidado', cor: '#79834F', logo: '/logos/ara-resorts.jpg' },
   { id: 'samoa_beach', nome: 'ARA Resorts — Samoa Beach', cor: '#79834F', logo: '/logos/ara-resorts.jpg' },
   { id: 'samoa_villa', nome: 'ARA Resorts — Samoa Villa', cor: '#79834F', logo: '/logos/ara-resorts.jpg' },
+  { id: 'lfcvh', nome: 'ARA Resorts — LFCVH', cor: '#79834F', logo: '/logos/ara-resorts.jpg' },
   // ARA EI virou família em 2026-09-27 (mesmo padrão da Agrícola/Resorts):
   // Holding, La Fleur II e South Bay editáveis; 'ei' é o Consolidado das três.
   { id: 'ei', nome: 'ARA EI — Consolidado', cor: '#F07D00', logo: null }, // pendente: aguardando o arquivo da logo (ver pedido de 2026-09-07)
@@ -112,10 +113,11 @@ const SUBUNIDADES_AGRICOLA = [
   { id: 'agricola', nome: 'Consolidado' },
 ];
 // Mesmo padrão, aplicado ao Resorts em 2026-08-20 (ver ConsolidadoResorts).
-export const FAMILIA_RESORTS = ['samoa_beach', 'samoa_villa', 'resorts'];
+export const FAMILIA_RESORTS = ['samoa_beach', 'samoa_villa', 'lfcvh', 'resorts'];
 const SUBUNIDADES_RESORTS = [
   { id: 'samoa_beach', nome: 'Samoa Beach' },
   { id: 'samoa_villa', nome: 'Samoa Villa' },
+  { id: 'lfcvh', nome: 'LFCVH' },
   { id: 'resorts', nome: 'Consolidado' },
 ];
 // ARA EI (2026-09-27): três empresas + Consolidado (ver ConsolidadoEI).
@@ -1844,6 +1846,8 @@ const REFERENCIA_POR_UNIDADE = {
   resorts: { ccs: CCS_RESORTS, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
   samoa_beach: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('beach')), planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
   samoa_villa: { ccs: CCS_RESORTS.filter(cc => cc.resorts.includes('villa')), planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
+  // LFCVH (2026-10-02): terceira unidade do Resorts, com todos os CCs do Resorts.
+  lfcvh: { ccs: CCS_RESORTS, planoContas: PLANO_CONTAS_RESORTS, todasContas: TODAS_CONTAS_RESORTS, pacotes: PACOTES_RESORTS },
   // Decisão de 2026-08-16: Corporativo usa os 22 CCs reais (CCS_CORPORATIVO,
   // fonte confiável) — diferente de Agrícola/Resorts, que usam CC
   // placeholder. Todo CC recebe o mesmo plano de contas completo, ver nota
@@ -1961,7 +1965,7 @@ const UNIDADES_COM_CUSTO_POR_KG = ['textil', 'textil_bg', 'agricola_tds', 'agric
 // Unidades onde "Base × % Receita Hospedagem" aparece nas opções — só
 // Resorts (as três variantes), única unidade com linha de hospedagem
 // na receita. Têxtil/Agrícola/Corporativo não têm esse conceito.
-const UNIDADES_COM_RATEIO_HOSPEDAGEM = ['samoa_beach', 'samoa_villa', 'resorts'];
+const UNIDADES_COM_RATEIO_HOSPEDAGEM = ['samoa_beach', 'samoa_villa', 'lfcvh', 'resorts'];
 // Unidades onde a pergunta "competência × caixa" aparece em toda conta
 // analítica (pedido de 2026-08-23: "precisamos ter a visão de DRE e FC" do
 // Corporativo). Só Corporativo por enquanto — é a única unidade 100%
@@ -2397,7 +2401,7 @@ function receitaVazia(unidadeId) {
       deducoes: DEDUCOES_REF_AGRICOLA.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
     };
   }
-  if (unidadeId === 'resorts' || unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa') {
+  if (unidadeId === 'resorts' || unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa' || unidadeId === 'lfcvh') {
     const linhas = {};
     // premissaTipo já nasce correto por linha (ver tipoLinhaReceitaResorts) —
     // não é escolha do usuário, é fixo pela definição. Cálculo (computeDRE/
@@ -2503,7 +2507,7 @@ function emptyFormData(unidadeId = 'textil') {
       // 5.2 Premissas de pagamento para Agrícola e Resorts (2026-09-13):
       // mesmo racional da Têxtil (carteira + Nov/Dez + timing por conta),
       // sem 5.1 cascata de recebimento (em construção).
-      ...(['agricola_tds', 'agricola_fds', 'samoa_beach', 'samoa_villa'].includes(unidadeId) ? {
+      ...(['agricola_tds', 'agricola_fds', 'samoa_beach', 'samoa_villa', 'lfcvh'].includes(unidadeId) ? {
         premissasPagamento2: {
           carteira: mesesVazios(),
           competenciaNovDez: mesesVazios(),
@@ -3546,7 +3550,7 @@ function somarPorLado(porLado) {
 // compartilharem a mesma estrutura.
 const CONSOLIDADOS_MULTISITE = {
   agricola: { tipo: 'consolidado_agricola', sites: ['agricola_tds', 'agricola_fds'], labels: ['Terra do Sol', 'Frutos do Sol'] },
-  resorts: { tipo: 'consolidado_resorts', sites: ['samoa_beach', 'samoa_villa'], labels: ['Samoa Beach', 'Samoa Villa'] },
+  resorts: { tipo: 'consolidado_resorts', sites: ['samoa_beach', 'samoa_villa', 'lfcvh'], labels: ['Samoa Beach', 'Samoa Villa', 'LFCVH'] },
   ei: { tipo: 'consolidado_ei', sites: ['ei_holding', 'ei_lafleur', 'ei_southbay'], labels: ['Holding', 'La Fleur II', 'South Bay'] },
   textil_consolidado: { tipo: 'consolidado_textil', sites: ['textil', 'textil_bg'], labels: ['Produção Core', 'Produção BG'] },
 };
@@ -5253,7 +5257,7 @@ export default function OrcamentoARA({ usuario }) {
   function updatePremissasPessoalCorporativo(campo, valor) {
     const COMPARTILHADOS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'bonusMultiplicador', 'bonusPjMultiplicador', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
     if (COMPARTILHADOS.includes(campo)) {
-      updatePremissasPessoalUnidade(['textil', 'textil_bg', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'], campo, valor);
+      updatePremissasPessoalUnidade(['textil', 'textil_bg', 'samoa_beach', 'samoa_villa', 'lfcvh', 'agricola_tds', 'agricola_fds'], campo, valor);
     }
     return updatePremissasPessoalUnidade('corporativo', campo, valor);
   }
@@ -8070,6 +8074,8 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
   // Drill-down por fazenda na DRE por conta sintética (pedido de 2026-09-07,
   // "parecido com o que está sendo apresentado no consolidado do Grupo ARA").
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
+  // Referência DRE 2026 do consolidado (2026-10-02) — ver calcularDre2026.
+  const dre2026 = useReferenciaDre2026('agricola');
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -8138,20 +8144,10 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
     { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
     { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
   ];
-  // Bridge 2027 vs 2026 (pedido de 2026-08-30) — ver nota completa em
-  // AbaRevisao sobre a fonte de dado de 2026 ainda pendente.
-  const EBITDA_2026 = 0; // TODO: substituir pela fonte real de EBITDA 2026
-  const FCO_2026 = 0; // TODO: substituir pela fonte real de FCO 2026
-  const bridgeEbitda2027vs2026 = [
-    { label: 'EBITDA 2026', valor: EBITDA_2026, tipo: 'inicio' },
-    { label: 'Variação', valor: dre.ebitda - EBITDA_2026, tipo: 'incremento' },
-    { label: 'EBITDA 2027', valor: dre.ebitda, tipo: 'total' },
-  ];
-  const bridgeFco2027vs2026 = [
-    { label: 'FCO 2026', valor: FCO_2026, tipo: 'inicio' },
-    { label: 'Variação', valor: totalFcOperacional - FCO_2026, tipo: 'incremento' },
-    { label: 'FCO 2027', valor: totalFcOperacional, tipo: 'total' },
-  ];
+  // Bridge 2027 vs 2026 (2026-10-02): a partir da referência DRE 2026 do
+  // consolidado — ver bridgesVs2026.
+  const totalFcInvestimento = fdTds.fcInvestimentoMes.reduce((a, v) => a + v, 0) + fdFds.fcInvestimentoMes.reduce((a, v) => a + v, 0);
+  const bridges2026 = bridgesVs2026(dre, totalFcOperacional, totalIrcslAno, dre2026);
 
   async function handleEnviar() {
     setEnviando(true);
@@ -8217,15 +8213,19 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
           drill-down por unidade a mais. */}
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por Terra do Sol (TDS) e Frutos do Sol (FDS).</p>
-      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
+        {dre2026 && <Cabecalho2026 />}
         {CONTAS_SINTETICAS_DRE.map(conta => (
           <LinhaContaConsolidada
             key={conta.id} conta={conta} grupoObjeto={dre} porUnidade={porUnidadeDreAgricola}
             aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => toggleDreAgricola(conta.id)}
             unidades={UNIDADES_FAMILIA_AGRICOLA}
+            grupo2026={dre2026 || undefined}
           />
         ))}
+        <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
       </div>
+      <div style={{ marginBottom: 18 }}><NotaReferencia2026 dre2026={dre2026} /></div>
 
       {/* 4 gráficos de Bridge (pedido de 2026-08-30, ordem/tamanho ajustados
           em 2026-09-07 — ver nota completa em AbaRevisao): Orçamento
@@ -8240,14 +8240,7 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
           <GraficoBridge etapas={bridgeEbitdaFco} />
         </div>
-        <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — EBITDA</div>
-          <GraficoBridge etapas={bridgeEbitda2027vs2026} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — FCO</div>
-          <GraficoBridge etapas={bridgeFco2027vs2026} />
-        </div>
+        <BridgesVs2026 bridges={bridges2026} />
       </div>
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>DRE mensal — por tipo de receita/custo/despesa, aberta por fazenda</h4>
@@ -8336,7 +8329,7 @@ const botaoSecundarioLocal = {
 // referência compartilhada como a Agrícola faz.
 // Samoa Beach/Samoa Villa, na ordem/cor já usadas em UNIDADES — pro
 // drill-down por unidade da DRE consolidada (ver LinhaContaConsolidada).
-const UNIDADES_FAMILIA_RESORTS = UNIDADES.filter(u => u.id === 'samoa_beach' || u.id === 'samoa_villa');
+const UNIDADES_FAMILIA_RESORTS = UNIDADES.filter(u => CONSOLIDADOS_MULTISITE.resorts.sites.includes(u.id));
 
 // Detalhe (Receita e Custos e Despesas) de uma unidade por vez no
 // Consolidado da Agrícola e do Resorts (2026-09-28, pedido do usuário): lista
@@ -8369,9 +8362,14 @@ function DetalheSiteConsolidado({ titulo, rotulo, sites, cambios, ipcaAnualPct }
   );
 }
 
+// LFCVH (2026-10-02): o Resorts passou a ter três unidades (Samoa Beach,
+// Samoa Villa e LFCVH) — o Consolidado soma os sites de
+// CONSOLIDADOS_MULTISITE.resorts, no mesmo padrão do ConsolidadoEI.
+const SITES_RESORTS = CONSOLIDADOS_MULTISITE.resorts.sites.map((id, i) => ({ id, nome: CONSOLIDADOS_MULTISITE.resorts.labels[i] }));
+const NOMES_SITES_RESORTS = SITES_RESORTS.map(s => s.nome).join(', ').replace(/, ([^,]*)$/, ' e $1');
+
 function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cambios }) {
-  const [dadosBeach, setDadosBeach] = useState(null);
-  const [dadosVilla, setDadosVilla] = useState(null);
+  const [dadosSites, setDadosSites] = useState(null);
   const [versoes, setVersoes] = useState([]);
   const [aguardandoLiberacao, setAguardandoLiberacao] = useState(false);
   const [carregando, setCarregando] = useState(true);
@@ -8381,19 +8379,18 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
   // Drill-down por resort na DRE por conta sintética (pedido de 2026-09-07,
   // "parecido com o que está sendo apresentado no consolidado do Grupo ARA").
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
+  // Referência DRE 2026 do consolidado (2026-10-02) — ver calcularDre2026.
+  const dre2026 = useReferenciaDre2026('resorts');
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     setErro(null);
     try {
-      const [rBeach, rVilla, rRes] = await Promise.all([
-        getOrcamento('samoa_beach'), getOrcamento('samoa_villa'), getOrcamento('resorts'),
-      ]);
-      setDadosBeach(rBeach.orcamento.dados);
-      setDadosVilla(rVilla.orcamento.dados);
-      setAguardandoLiberacao(rRes.orcamento.aguardando_liberacao || false);
+      const respostas = await Promise.all([...SITES_RESORTS.map(s => getOrcamento(s.id)), getOrcamento('resorts')]);
+      setDadosSites(Object.fromEntries(SITES_RESORTS.map((s, i) => [s.id, respostas[i].orcamento.dados])));
+      setAguardandoLiberacao(respostas[SITES_RESORTS.length].orcamento.aguardando_liberacao || false);
     } catch (e) {
-      setErro(e instanceof ApiError ? e.message : 'Falha ao carregar os dados de Samoa Beach e Samoa Villa.');
+      setErro(e instanceof ApiError ? e.message : `Falha ao carregar os dados de ${NOMES_SITES_RESORTS}.`);
     }
     try {
       setVersoes(await listarVersoes('resorts'));
@@ -8405,8 +8402,8 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  if (carregando) return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Carregando Samoa Beach e Samoa Villa…</p>;
-  if (!dadosBeach || !dadosVilla) {
+  if (carregando) return <p style={{ fontSize: 12.5, color: '#7A8088' }}>Carregando {NOMES_SITES_RESORTS}…</p>;
+  if (!dadosSites) {
     return (
       <div style={{ background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, color: COR.vermelho, borderRadius: 6, padding: 10, fontSize: 12 }}>
         {erro || 'Não foi possível carregar os dados dos resorts.'}
@@ -8414,29 +8411,31 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
     );
   }
 
-  const refBeach = referenciaDaUnidade('samoa_beach');
-  const refVilla = referenciaDaUnidade('samoa_villa');
-  const dreBeach = computeDRE(dadosBeach, refBeach, ipcaAnualPct);
-  const dreVilla = computeDRE(dadosVilla, refVilla, ipcaAnualPct);
-  const dre = somarDRE(dreBeach, dreVilla);
-  const checksBeach = runAuditoria(dadosBeach, dreBeach, refBeach, 'samoa_beach', ipcaAnualPct);
-  const checksVilla = runAuditoria(dadosVilla, dreVilla, refVilla, 'samoa_villa', ipcaAnualPct);
-  const tudoOkBeach = checksBeach.filter(c => c.obrigatorio !== false).every(c => c.ok);
-  const tudoOkVilla = checksVilla.filter(c => c.obrigatorio !== false).every(c => c.ok);
-  const tudoOk = tudoOkBeach && tudoOkVilla;
+  // Cada resort usa a própria referência (CCs diferentes — ver nota acima).
+  const lados = SITES_RESORTS.map(s => {
+    const ref = referenciaDaUnidade(s.id);
+    const dadosS = dadosSites[s.id];
+    const dreS = computeDRE(dadosS, ref, ipcaAnualPct);
+    return {
+      id: s.id, nome: s.nome, dados: dadosS, ref, dre: dreS,
+      fd: computeFluxoIndiretoMensal(dadosS, dreS, ref, ipcaAnualPct),
+      checks: runAuditoria(dadosS, dreS, ref, s.id, ipcaAnualPct),
+    };
+  });
+  const dre = lados.map(l => l.dre).reduce((acc, d) => somarDRE(acc, d));
+  const tudoOk = lados.every(l => l.checks.filter(c => c.obrigatorio !== false).every(c => c.ok));
+  const somaAno = (campo) => lados.reduce((acc, l) => acc + l.fd[campo].reduce((a, v) => a + v, 0), 0);
 
   // Bridge Receita->EBITDA->FCO (2026-08-23, item 3) — mesmo racional de
   // ConsolidadoAgricola (ver nota lá).
-  const fdBeach = computeFluxoIndiretoMensal(dadosBeach, dreBeach, refBeach, ipcaAnualPct);
-  const fdVilla = computeFluxoIndiretoMensal(dadosVilla, dreVilla, refVilla, ipcaAnualPct);
-  const totalFcOperacional = fdBeach.fcOperacionalMes.reduce((a, v) => a + v, 0) + fdVilla.fcOperacionalMes.reduce((a, v) => a + v, 0);
-  // FC Direto do Consolidado = soma dos dois resorts (premissas ficam nos sites).
-  const linhasFcdBeach = linhasFcDireto(computeFluxoCaixaDiretoMensal(dadosBeach, dreBeach, refBeach, ipcaAnualPct));
-  const linhasFcdVilla = linhasFcDireto(computeFluxoCaixaDiretoMensal(dadosVilla, dreVilla, refVilla, ipcaAnualPct));
-  const linhasFcdConsolidado = linhasFcdBeach.map((l, i) => ({
-    ...l,
-    valoresMensal: l.valoresMensal.map((v, m) => v + linhasFcdVilla[i].valoresMensal[m]),
-    totalValor: l.totalValor + linhasFcdVilla[i].totalValor,
+  const totalFcOperacional = somaAno('fcOperacionalMes');
+  const totalFcInvestimento = somaAno('fcInvestimentoMes');
+  // FC Direto do Consolidado = soma dos resorts (premissas ficam nos sites).
+  const linhasFcdPorLado = lados.map(l => linhasFcDireto(computeFluxoCaixaDiretoMensal(l.dados, l.dre, l.ref, ipcaAnualPct)));
+  const linhasFcdConsolidado = linhasFcdPorLado[0].map((linha, i) => ({
+    ...linha,
+    valoresMensal: linha.valoresMensal.map((_, m) => linhasFcdPorLado.reduce((acc, ls) => acc + ls[i].valoresMensal[m], 0)),
+    totalValor: linhasFcdPorLado.reduce((acc, ls) => acc + ls[i].totalValor, 0),
   }));
   const bridgeReceitaEbitda = [
     { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'inicio' },
@@ -8445,37 +8444,23 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
     { label: 'Despesas', valor: -dre.despesasSemDA, tipo: 'incremento' },
     { label: 'EBITDA', valor: dre.ebitda, tipo: 'total' },
   ];
-  const totalIrcslAno = fdBeach.ircslMes.reduce((a, v) => a + v, 0) + fdVilla.ircslMes.reduce((a, v) => a + v, 0);
-  const totalGiroAno = fdBeach.variacaoGiroMes.reduce((a, v) => a + v, 0) + fdVilla.variacaoGiroMes.reduce((a, v) => a + v, 0);
-  const totalAjuste13Ano = fdBeach.ajuste13Mes.reduce((a, v) => a + v, 0) + fdVilla.ajuste13Mes.reduce((a, v) => a + v, 0);
-  const totalAjustePagamentoAno = fdBeach.ajustePagamentoMes.reduce((a, v) => a + v, 0) + fdVilla.ajustePagamentoMes.reduce((a, v) => a + v, 0);
+  const totalIrcslAno = somaAno('ircslMes');
   const bridgeEbitdaFco = [
     { label: 'EBITDA', valor: dre.ebitda, tipo: 'inicio' },
     { label: 'Impostos', valor: -totalIrcslAno, tipo: 'incremento' },
-    { label: 'Var. Capital de Giro', valor: totalGiroAno, tipo: 'incremento' },
-    { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
+    { label: 'Var. Capital de Giro', valor: somaAno('variacaoGiroMes'), tipo: 'incremento' },
+    { label: 'Outros Ajustes', valor: somaAno('ajuste13Mes') + somaAno('ajustePagamentoMes'), tipo: 'incremento' },
     { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
   ];
-  // Bridge 2027 vs 2026 (pedido de 2026-08-30) — ver nota completa em
-  // AbaRevisao sobre a fonte de dado de 2026 ainda pendente.
-  const EBITDA_2026 = 0; // TODO: substituir pela fonte real de EBITDA 2026
-  const FCO_2026 = 0; // TODO: substituir pela fonte real de FCO 2026
-  const bridgeEbitda2027vs2026 = [
-    { label: 'EBITDA 2026', valor: EBITDA_2026, tipo: 'inicio' },
-    { label: 'Variação', valor: dre.ebitda - EBITDA_2026, tipo: 'incremento' },
-    { label: 'EBITDA 2027', valor: dre.ebitda, tipo: 'total' },
-  ];
-  const bridgeFco2027vs2026 = [
-    { label: 'FCO 2026', valor: FCO_2026, tipo: 'inicio' },
-    { label: 'Variação', valor: totalFcOperacional - FCO_2026, tipo: 'incremento' },
-    { label: 'FCO 2027', valor: totalFcOperacional, tipo: 'total' },
-  ];
+  // Bridge 2027 vs 2026 (2026-10-02): a partir da referência DRE 2026 do
+  // consolidado (Beach + Villa + LFCVH) — ver bridgesVs2026.
+  const bridges2026 = bridgesVs2026(dre, totalFcOperacional, totalIrcslAno, dre2026);
 
   async function handleEnviar() {
     setEnviando(true);
     setErro(null);
     try {
-      await putOrcamento('resorts', { _tipo: 'consolidado_resorts', samoa_beach: dadosBeach, samoa_villa: dadosVilla });
+      await putOrcamento('resorts', { _tipo: CONSOLIDADOS_MULTISITE.resorts.tipo, ...dadosSites });
       await enviarVersaoApi('resorts', { comentario: comentarioEnvio, autorNome });
       setComentarioEnvio('');
       await carregar();
@@ -8505,14 +8490,14 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
     );
   }
 
-  const porUnidadeDreResorts = { samoa_beach: dreBeach, samoa_villa: dreVilla };
+  const porUnidadeDreResorts = Object.fromEntries(lados.map(l => [l.id, l.dre]));
   function toggleDreResorts(id) { setLinhasAbertasDRE(prev => ({ ...prev, [id]: !prev[id] })); }
 
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>ARA Resorts — Consolidado</h3>
       <p style={{ fontSize: 12, color: '#7A8088', marginBottom: 14 }}>
-        Soma de Samoa Beach e Samoa Villa — sempre calculada ao vivo a partir do orçamento atual dos dois resorts.
+        Soma de {NOMES_SITES_RESORTS} — sempre calculada ao vivo a partir do orçamento atual de cada resort.
         O envio e o histórico de versões do orçamento do Resorts acontecem aqui, não em cada resort.
       </p>
 
@@ -8523,23 +8508,26 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
       </div>
 
       {/* Drill-down por resort (pedido de 2026-09-07) — mesmo componente do
-          Consolidado do Grupo ARA (LinhaContaConsolidada), só que com
-          unidades=Samoa Beach/Samoa Villa em vez do Grupo inteiro. A
-          CascataDRE (com o toggle IFRS 18) que ficava acima desta tabela
-          foi removida em 2026-09-07 (pedido: "já é suficiente, não precisa
-          ter a DRE acima") — essa tabela cobre a mesma informação, com
-          drill-down por unidade a mais. */}
+          Consolidado do Grupo ARA (LinhaContaConsolidada), só que com os
+          resorts em vez do Grupo inteiro. A CascataDRE (com o toggle IFRS 18)
+          que ficava acima desta tabela foi removida em 2026-09-07 (pedido:
+          "já é suficiente, não precisa ter a DRE acima") — essa tabela cobre a
+          mesma informação, com drill-down por unidade a mais. */}
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
-      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por Samoa Beach e Samoa Villa.</p>
-      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por resort.</p>
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
+        {dre2026 && <Cabecalho2026 />}
         {CONTAS_SINTETICAS_DRE.map(conta => (
           <LinhaContaConsolidada
             key={conta.id} conta={conta} grupoObjeto={dre} porUnidade={porUnidadeDreResorts}
             aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => toggleDreResorts(conta.id)}
             unidades={UNIDADES_FAMILIA_RESORTS}
+            grupo2026={dre2026 || undefined}
           />
         ))}
+        <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
       </div>
+      <div style={{ marginBottom: 18 }}><NotaReferencia2026 dre2026={dre2026} /></div>
 
       {/* 4 gráficos de Bridge (pedido de 2026-08-30, ordem/tamanho ajustados
           em 2026-09-07 — ver nota completa em AbaRevisao): Orçamento
@@ -8554,44 +8542,30 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
           <GraficoBridge etapas={bridgeEbitdaFco} />
         </div>
-        <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — EBITDA</div>
-          <GraficoBridge etapas={bridgeEbitda2027vs2026} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — FCO</div>
-          <GraficoBridge etapas={bridgeFco2027vs2026} />
-        </div>
+        <BridgesVs2026 bridges={bridges2026} />
       </div>
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>DRE mensal — por tipo de receita/custo/despesa, aberta por resort</h4>
-      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma linha com seta para abrir a quebra por Samoa Beach e Samoa Villa.</p>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma linha com seta para abrir a quebra por resort.</p>
       <div style={{ marginBottom: 24 }}>
-        <DREMensalConsolidada
-          lados={[{ nome: 'Samoa Beach', dados: dadosBeach, dre: dreBeach, fd: fdBeach, ref: refBeach }, { nome: 'Samoa Villa', dados: dadosVilla, dre: dreVilla, fd: fdVilla, ref: refVilla }]}
-          unidadeKind="resorts" ipcaAnualPct={ipcaAnualPct} cambios={cambios}
-        />
+        <DREMensalConsolidada lados={lados} unidadeKind="resorts" ipcaAnualPct={ipcaAnualPct} cambios={cambios} />
       </div>
 
-      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal (Samoa Beach + Samoa Villa)</h4>
-      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Soma dos dois resorts. As premissas de recebimento e pagamento ficam na aba Kgiro de cada resort.</p>
+      <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>Fluxo de Caixa Direto — mensal ({SITES_RESORTS.map(s => s.nome).join(' + ')})</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Soma dos resorts. As premissas de recebimento e pagamento ficam na aba Kgiro de cada resort.</p>
       <div style={{ marginBottom: 24 }}>
         <TabelaMensal linhas={[]} onChangeCelula={() => {}} linhasCalculadas={linhasFcdConsolidado} />
       </div>
 
       <DetalheSiteConsolidado
         titulo="Detalhe por resort (Receita e Custos e Despesas)" rotulo="Resort"
-        sites={[
-          { id: 'samoa_beach', nome: 'Samoa Beach', dados: dadosBeach, dre: dreBeach, ref: refBeach },
-          { id: 'samoa_villa', nome: 'Samoa Villa', dados: dadosVilla, dre: dreVilla, ref: refVilla },
-        ]}
+        sites={lados.map(l => ({ id: l.id, nome: l.nome, dados: l.dados, dre: l.dre, ref: l.ref }))}
         cambios={cambios} ipcaAnualPct={ipcaAnualPct}
       />
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 10 }}>Auditoria — checagens de completude</h4>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 10 }}>
-        <PainelChecklist titulo="Samoa Beach" checks={checksBeach} />
-        <PainelChecklist titulo="Samoa Villa" checks={checksVilla} />
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${lados.length}, 1fr)`, gap: 20, marginBottom: 10 }}>
+        {lados.map(l => <PainelChecklist key={l.id} titulo={l.nome} checks={l.checks} />)}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, margin: '20px 0 14px' }}>
@@ -8610,7 +8584,7 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
       )}
       {!tudoOk && (
         <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, color: COR.texto, borderRadius: 6, padding: 10, fontSize: 12, marginBottom: 12 }}>
-          Existem checagens de Auditoria pendentes em Samoa Beach e/ou Samoa Villa. Corrija-as antes de enviar (painel acima).
+          Existem checagens de Auditoria pendentes em algum dos resorts. Corrija-as antes de enviar (painel acima).
         </div>
       )}
       {aguardandoLiberacao && (
@@ -8642,7 +8616,6 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
   );
 }
 
-
 // Consolidado da ARA EI (2026-09-27) — mesmo racional do ConsolidadoResorts,
 // com três empresas: Holding, La Fleur II e South Bay (mesma estrutura de CC
 // e plano de contas). Sempre calculado ao vivo a partir das três; o envio e
@@ -8659,6 +8632,8 @@ function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cam
   const [comentarioEnvio, setComentarioEnvio] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
+  // Referência DRE 2026 do consolidado (2026-10-02) — ver calcularDre2026.
+  const dre2026 = useReferenciaDre2026('ei');
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -8703,6 +8678,10 @@ function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cam
   const tudoOk = lados.every(l => l.checks.filter(c => c.obrigatorio !== false).every(c => c.ok));
   const somaAno = (campo) => lados.reduce((acc, l) => acc + l.fd[campo].reduce((a, v) => a + v, 0), 0);
   const totalFcOperacional = somaAno('fcOperacionalMes');
+  // Bridge 2027 vs 2026 e linhas de caixa (2026-10-02) — ver bridgesVs2026.
+  const totalIrcslAno = somaAno('ircslMes');
+  const totalFcInvestimento = somaAno('fcInvestimentoMes');
+  const bridges2026 = bridgesVs2026(dre, totalFcOperacional, totalIrcslAno, dre2026);
   const linhasFcdPorLado = lados.map(l => linhasFcDireto(computeFluxoCaixaDiretoMensal(l.dados, l.dre, l.ref, ipcaAnualPct)));
   const linhasFcdConsolidado = linhasFcdPorLado[0].map((linha, i) => ({
     ...linha,
@@ -8757,15 +8736,19 @@ function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cam
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por empresa.</p>
-      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
+        {dre2026 && <Cabecalho2026 />}
         {CONTAS_SINTETICAS_DRE.map(conta => (
           <LinhaContaConsolidada
             key={conta.id} conta={conta} grupoObjeto={dre} porUnidade={porUnidadeDre}
             aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => setLinhasAbertasDRE(prev => ({ ...prev, [conta.id]: !prev[conta.id] }))}
             unidades={UNIDADES_FAMILIA_EI}
+            grupo2026={dre2026 || undefined}
           />
         ))}
+        <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
       </div>
+      <div style={{ marginBottom: 18 }}><NotaReferencia2026 dre2026={dre2026} /></div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
         <div>
@@ -8776,6 +8759,7 @@ function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cam
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
           <GraficoBridge etapas={bridgeEbitdaFco} />
         </div>
+        <BridgesVs2026 bridges={bridges2026} />
       </div>
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>DRE mensal — por tipo de receita/custo/despesa, aberta por empresa</h4>
@@ -8881,6 +8865,8 @@ function ConsolidadoTextil({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct,
   const [comentarioEnvio, setComentarioEnvio] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
+  // Referência DRE 2026 do consolidado (2026-10-02) — ver calcularDre2026.
+  const dre2026 = useReferenciaDre2026('textil_consolidado');
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -8925,6 +8911,10 @@ function ConsolidadoTextil({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct,
   const tudoOk = lados.every(l => l.checks.filter(c => c.obrigatorio !== false).every(c => c.ok));
   const somaAno = (campo) => lados.reduce((acc, l) => acc + l.fd[campo].reduce((a, v) => a + v, 0), 0);
   const totalFcOperacional = somaAno('fcOperacionalMes');
+  // Bridge 2027 vs 2026 e linhas de caixa (2026-10-02) — ver bridgesVs2026.
+  const totalIrcslAno = somaAno('ircslMes');
+  const totalFcInvestimento = somaAno('fcInvestimentoMes');
+  const bridges2026 = bridgesVs2026(dre, totalFcOperacional, totalIrcslAno, dre2026);
   const linhasFcdPorLado = lados.map(l => linhasFcDireto(computeFluxoCaixaDiretoMensal(l.dados, l.dre, l.ref, ipcaAnualPct)));
   const linhasFcdConsolidado = linhasFcdPorLado[0].map((linha, i) => ({
     ...linha,
@@ -8979,15 +8969,19 @@ function ConsolidadoTextil({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct,
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por produção.</p>
-      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 18 }}>
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
+        {dre2026 && <Cabecalho2026 />}
         {CONTAS_SINTETICAS_DRE.map(conta => (
           <LinhaContaConsolidada
             key={conta.id} conta={conta} grupoObjeto={dre} porUnidade={porUnidadeDre}
             aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => setLinhasAbertasDRE(prev => ({ ...prev, [conta.id]: !prev[conta.id] }))}
             unidades={UNIDADES_FAMILIA_TEXTIL}
+            grupo2026={dre2026 || undefined}
           />
         ))}
+        <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
       </div>
+      <div style={{ marginBottom: 18 }}><NotaReferencia2026 dre2026={dre2026} /></div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
         <div>
@@ -8998,6 +8992,7 @@ function ConsolidadoTextil({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct,
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
           <GraficoBridge etapas={bridgeEbitdaFco} />
         </div>
+        <BridgesVs2026 bridges={bridges2026} />
       </div>
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 10 }}>DRE mensal — por tipo de receita/custo/despesa, aberta por produção</h4>
@@ -13926,7 +13921,7 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>5. Kgiro e FC Operacional</h3>
 
-      {unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa' ? (
+      {unidadeId === 'samoa_beach' || unidadeId === 'samoa_villa' || unidadeId === 'lfcvh' ? (
         <PremissasRecebimentoResorts capitalGiro={capitalGiro} atualizar={atualizar} dados={dados} />
       ) : (
         <>
@@ -14689,50 +14684,253 @@ function AbaBalancoPlanoContasTextil({ planoContas, saldosIniciais, atualizar })
   );
 }
 
-function CascataDRE({ dre, ifrs18, extras }) {
-  // Pedido de 2026-09-07: "toda DRE começa da receita bruta".
-  const linhasLegado = [
-    { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'base' },
-    { label: '(-) Deduções', valor: -dre.deducoes, tipo: 'neg' },
-    { label: '(=) Receita Operacional Líquida', valor: dre.receitaLiquida, tipo: 'subtotal' },
-    { label: '(-) Custos dos Produtos Vendidos', valor: -dre.cpv, tipo: 'neg' },
-    { label: '(=) Lucro Bruto', valor: dre.lucroBruto, tipo: 'subtotal' },
-    { label: 'Margem Bruta (%)', valor: dre.margemBruta, tipo: 'margem' },
-    { label: '(-) Despesas Operacionais', valor: -dre.despesasSemDA, tipo: 'neg' },
-    { label: '(=) EBITDA', valor: dre.ebitda, tipo: 'subtotal' },
-    { label: 'Margem EBITDA (%)', valor: dre.margemEbitda, tipo: 'margem' },
-    { label: '(-) Depreciação e Amortização', valor: -dre.depreciacao, tipo: 'neg' },
-    { label: '(+/-) Resultado Financeiro', valor: dre.resultadoFinanceiro, tipo: 'flex' },
-    { label: '(+/-) Outras Receitas e Despesas', valor: dre.outras, tipo: 'flex' },
-    { label: '(-) IRCSL', valor: -dre.ircsl, tipo: 'neg' },
-    { label: '(=) Lucro Líquido', valor: dre.lucroLiquido, tipo: 'total' },
-    { label: 'Margem Líquida (%)', valor: dre.margemLiquida, tipo: 'margem' },
-  ];
+// ---------------------------------------------------------------------------
+// Referência DRE 2026 (2026-10-02) — realizado jan–ago/26 + previsto set–dez/26
+// (ver migração 0024_referencia_dre_2026_lfcvh.sql). Só referência: alimenta as
+// colunas 2026 / Δ R$ / Δ % da DRE da Revisão e os Bridges 2027 vs 2026; nunca
+// entra em total, cálculo ou checagem do orçamento 2027.
+// `linhas` chega no sinal da planilha (custos negativos); aqui vira um objeto no
+// mesmo formato do computeDRE (custos positivos), com subtotais e margens
+// recalculados por fórmula — nunca copiados da planilha. Onde a planilha não
+// bate com a fórmula, a diferença vai em `divergencias` (mostrada na tela).
+// ---------------------------------------------------------------------------
+function calcularDre2026(ref2026) {
+  if (!ref2026?.linhas) return null;
+  const n = k => Number(ref2026.linhas[k]) || 0;
+  const receitaBruta = n('receitaBruta');
+  const deducoes = -n('deducoes');
+  const receitaLiquida = receitaBruta - deducoes;
+  const cpv = -n('cpv');
+  const lucroBruto = receitaLiquida - cpv;
+  const despesasSemDA = -n('despesasSemDA');
+  const ebitda = lucroBruto - despesasSemDA;
+  const depreciacao = -n('depreciacao');
+  const resultadoFinanceiro = n('resultadoFinanceiro');
+  const outras = n('outras');
+  const ircsl = -n('ircsl');
+  const lucroLiquido = ebitda - depreciacao + resultadoFinanceiro + outras - ircsl;
+  const ircslCaixa = -n('ircslCaixa');
+  const variacaoNcg = n('variacaoNcg');
+  const fco = ebitda - ircslCaixa + variacaoNcg;
+  const fcInvestimento = n('fcInvestimento');
+  const fcl = fco + fcInvestimento;
+  const pct = (a, b) => (b ? (a / b) * 100 : 0);
+  const dre = {
+    receitaBruta, deducoes, receitaLiquida, cpv, lucroBruto, margemBruta: pct(lucroBruto, receitaLiquida),
+    despesasSemDA, ebitda, margemEbitda: pct(ebitda, receitaLiquida), depreciacao, resultadoFinanceiro, outras,
+    ircsl, lucroLiquido, margemLiquida: pct(lucroLiquido, receitaLiquida),
+    ircslCaixa, variacaoNcg, fco, fcInvestimento, fcl,
+  };
+  const ROTULOS = {
+    receitaLiquida: 'Receita Operacional Líquida', lucroBruto: 'Lucro Bruto', ebitda: 'EBITDA',
+    lucroLiquido: 'Lucro Líquido', fco: 'Fluxo de Caixa Operacional', fcl: 'Fluxo de Caixa Livre',
+  };
+  const divergencias = Object.keys(ROTULOS)
+    .filter(k => ref2026.planilha?.[k] != null && Math.abs(ref2026.planilha[k] - dre[k]) >= 1)
+    .map(k => ({ linha: ROTULOS[k], formula: dre[k], planilha: ref2026.planilha[k] }));
+  return { ...dre, divergencias, fonte: ref2026.fonte };
+}
 
-  const lucroOperacional = dre.ebitda - dre.depreciacao;
-  const linhasIfrs18 = [
-    { label: 'Receita Bruta', valor: dre.receitaBruta, tipo: 'base', categoria: 'Operacional' },
-    { label: '(-) Deduções', valor: -dre.deducoes, tipo: 'neg', categoria: 'Operacional' },
-    { label: '(=) Receita Operacional Líquida', valor: dre.receitaLiquida, tipo: 'subtotal', categoria: 'Operacional' },
-    { label: '(-) Custos dos Produtos Vendidos', valor: -dre.cpv, tipo: 'neg', categoria: 'Operacional' },
-    { label: '(=) Lucro Bruto', valor: dre.lucroBruto, tipo: 'subtotal', categoria: 'Operacional' },
-    { label: '(-) Despesas Operacionais', valor: -dre.despesasSemDA, tipo: 'neg', categoria: 'Operacional' },
-    { label: '(-) Depreciação e Amortização', valor: -dre.depreciacao, tipo: 'neg', categoria: 'Operacional' },
-    { label: '(=) Lucro Operacional', valor: lucroOperacional, tipo: 'total_ifrs', categoria: 'Operacional' },
-    { label: '(=) Lucro antes de Financiamento e Impostos', valor: lucroOperacional, tipo: 'total_ifrs', categoria: '— (sem investimentos)' },
-    { label: '(+/-) Resultado Financeiro', valor: dre.resultadoFinanceiro, tipo: 'flex', categoria: 'Financiamento' },
-    { label: '(+/-) Outras Receitas e Despesas', valor: dre.outras, tipo: 'flex', categoria: 'A reclassificar' },
-    { label: '(=) Lucro Antes dos Impostos', valor: lucroOperacional + dre.resultadoFinanceiro + dre.outras, tipo: 'subtotal', categoria: '—' },
-    { label: '(-) Impostos sobre o Lucro', valor: -dre.ircsl, tipo: 'neg', categoria: 'Impostos' },
-    { label: '(=) Lucro Líquido', valor: dre.lucroLiquido, tipo: 'total', categoria: '—' },
+function useReferenciaDre2026(unidadeId) {
+  const [ref, setRef] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    setRef(null);
+    getReferenciaDre2026(unidadeId).then(r => { if (vivo) setRef(r); }).catch(() => { if (vivo) setRef(null); });
+    return () => { vivo = false; };
+  }, [unidadeId]);
+  return useMemo(() => calcularDre2026(ref), [ref]);
+}
+
+// Bridges 2027 vs 2026 a partir da referência (null sem referência).
+// EBITDA: 2026 → Δ Receita Líquida → Δ CPV → Δ Despesas → 2027.
+// FCO: 2026 → Δ EBITDA → Δ Impostos → Δ NCG e outros ajustes → 2027.
+function bridgesVs2026(dre, fco2027, ircsl2027, dre2026) {
+  if (!dre2026) return null;
+  return {
+    ebitda: [
+      { label: 'EBITDA 2026', valor: dre2026.ebitda, tipo: 'inicio' },
+      { label: 'Δ Receita Líquida', valor: dre.receitaLiquida - dre2026.receitaLiquida, tipo: 'incremento' },
+      { label: 'Δ CPV', valor: -(dre.cpv - dre2026.cpv), tipo: 'incremento' },
+      { label: 'Δ Despesas', valor: -(dre.despesasSemDA - dre2026.despesasSemDA), tipo: 'incremento' },
+      { label: 'EBITDA 2027', valor: dre.ebitda, tipo: 'total' },
+    ],
+    fco: [
+      { label: 'FCO 2026', valor: dre2026.fco, tipo: 'inicio' },
+      { label: 'Δ EBITDA', valor: dre.ebitda - dre2026.ebitda, tipo: 'incremento' },
+      { label: 'Δ Impostos', valor: -(ircsl2027 - dre2026.ircslCaixa), tipo: 'incremento' },
+      { label: 'Δ NCG e outros', valor: (fco2027 - dre.ebitda + ircsl2027) - dre2026.variacaoNcg, tipo: 'incremento' },
+      { label: 'FCO 2027', valor: fco2027, tipo: 'total' },
+    ],
+  };
+}
+
+// Os dois Bridges 2027 vs 2026, ou o aviso de unidade sem referência.
+function BridgesVs2026({ bridges }) {
+  if (!bridges) {
+    return (
+      <div style={{ gridColumn: '1 / -1', fontSize: 11.5, color: '#7A8088', border: `1px dashed ${COR.borda}`, borderRadius: 8, padding: 12 }}>
+        Bridges 2027 vs 2026: sem referência 2026 para esta unidade (a planilha de 2026 traz só o total da empresa — ver o Consolidado).
+      </div>
+    );
+  }
+  return (
+    <>
+      <div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — EBITDA</div>
+        <GraficoBridge etapas={bridges.ebitda} />
+      </div>
+      <div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — FCO</div>
+        <GraficoBridge etapas={bridges.fco} />
+      </div>
+    </>
+  );
+}
+
+const LARGURAS_2026 = { valor: 104, delta: 96, pct: 62, atual: 108 };
+
+// Cabeçalho das colunas quando há referência 2026.
+function Cabecalho2026({ padding = '6px 12px' }) {
+  const th = (w, txt, sub) => (
+    <span style={{ width: w, textAlign: 'right', flexShrink: 0 }}>
+      {txt}{sub && <span style={{ display: 'block', fontSize: 9, fontWeight: 400, color: '#7A8088' }}>{sub}</span>}
+    </span>
+  );
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, padding, background: COR.claro, borderBottom: `1px solid ${COR.borda}`, fontSize: 10.5, fontWeight: 700, color: COR.azul }}>
+      <span style={{ flex: 1 }}>Linha</span>
+      {th(LARGURAS_2026.valor, '2026', 'Real jan–ago/26 + Prev. set–dez/26')}
+      {th(LARGURAS_2026.delta, 'Δ R$', '2027 − 2026')}
+      {th(LARGURAS_2026.pct, 'Δ %')}
+      {th(LARGURAS_2026.atual, '2027', 'Orçamento')}
+    </div>
+  );
+}
+
+// Células 2026 / Δ R$ / Δ % de uma linha. v2026 null/undefined = sem dado
+// (mostra "—"). Margem: Δ em pontos percentuais, sem Δ %.
+function Celulas2026({ v2026, v2027, margem }) {
+  const sem = v2026 === null || v2026 === undefined;
+  const delta = sem ? null : v2027 - v2026;
+  const deltaPct = sem || margem || !v2026 ? null : (delta / Math.abs(v2026)) * 100;
+  const cor = v => (v < 0 ? COR.vermelho : COR.texto);
+  const cinza = '#8A8F96';
+  return (
+    <>
+      <span style={{ width: LARGURAS_2026.valor, textAlign: 'right', flexShrink: 0, color: sem ? cinza : cor(v2026) }}>
+        {sem ? '—' : (margem ? formatPct(v2026) : formatValor(v2026))}
+      </span>
+      <span style={{ width: LARGURAS_2026.delta, textAlign: 'right', flexShrink: 0, color: sem ? cinza : cor(delta) }}>
+        {sem ? '—' : (margem ? `${formatarNumeroExibicao(delta)} p.p.` : formatValor(delta))}
+      </span>
+      <span style={{ width: LARGURAS_2026.pct, textAlign: 'right', flexShrink: 0, color: deltaPct === null ? cinza : cor(deltaPct) }}>
+        {deltaPct === null ? '—' : formatPct(deltaPct)}
+      </span>
+    </>
+  );
+}
+
+// Origem do dado 2026 e onde a planilha não bate com a soma das linhas.
+function NotaReferencia2026({ dre2026 }) {
+  if (!dre2026) return null;
+  return (
+    <div style={{ fontSize: 10.5, color: '#7A8088', marginTop: 6, lineHeight: 1.5 }}>
+      2026 = realizado jan–ago/26 + previsto set–dez/26. Fonte: {dre2026.fonte}. Subtotais e margens de 2026 recalculados por fórmula; o dado 2026 é só referência e não entra em nenhum cálculo do orçamento 2027.
+      {dre2026.divergencias.length > 0 && (
+        <div style={{ marginTop: 6, background: '#FBE9E9', border: `1px solid ${COR.vermelho}`, borderRadius: 6, padding: '6px 8px', color: COR.texto }}>
+          <b style={{ color: COR.vermelho }}>Onde a planilha não bate (a tela usa a fórmula):</b>
+          {dre2026.divergencias.map(d => (
+            <div key={d.linha}>
+              {d.linha}: fórmula {formatValor(d.formula)} × planilha {formatValor(d.planilha)} (diferença {formatValor(d.formula - d.planilha)})
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Linhas de fluxo de caixa no fim da DRE consolidada (2026-10-02), no mesmo
+// estilo das linhas de LinhaContaConsolidada — sem drill-down.
+function LinhasFcConsolidada({ itens, dre2026 }) {
+  return itens.map(it => {
+    const forte = it.tipo === 'subtotal' || it.tipo === 'total';
+    return (
+      <div key={it.label} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px 8px 30px', background: forte ? COR.total : COR.branco, borderBottom: `1px solid ${COR.borda}`, fontSize: 12.5, fontWeight: forte ? 700 : 400 }}>
+        <span style={{ flex: 1, color: COR.texto }}>{it.label}</span>
+        {dre2026 && <Celulas2026 v2026={it.valor2026} v2027={it.valor} />}
+        <span style={{ width: dre2026 ? LARGURAS_2026.atual : undefined, textAlign: 'right', flexShrink: 0, color: it.valor < 0 ? COR.vermelho : (forte ? COR.azul : COR.texto) }}>{formatValor(it.valor)}</span>
+      </div>
+    );
+  });
+}
+
+// Itens de fluxo de caixa (2027 × 2026) a partir dos totais anuais — mesma
+// sequência da planilha de 2026: EBITDA − IRCSLL (caixa) ± NCG = FCO; FCO +
+// FC de Investimentos = FCL.
+function itensFcVs2026({ ebitda, ircsl, fco, fcInvestimento }, dre2026) {
+  const r = dre2026 || {};
+  return [
+    { label: '(-) IRCSLL (caixa)', valor: -ircsl, valor2026: dre2026 ? -r.ircslCaixa : undefined },
+    { label: '(+/-) Variação de NCG e outros ajustes', valor: fco - ebitda + ircsl, valor2026: dre2026 ? r.variacaoNcg : undefined },
+    { label: '(=) Fluxo de Caixa Operacional', valor: fco, valor2026: dre2026 ? r.fco : undefined, tipo: 'subtotal' },
+    { label: '(-) Fluxo de Caixa de Investimentos (CAPEX)', valor: fcInvestimento, valor2026: dre2026 ? r.fcInvestimento : undefined },
+    { label: '(=) Fluxo de Caixa Livre', valor: fco + fcInvestimento, valor2026: dre2026 ? r.fcl : undefined, tipo: 'total' },
   ];
+}
+
+function CascataDRE({ dre, ifrs18, extras, dre2026 }) {
+  // Pedido de 2026-09-07: "toda DRE começa da receita bruta".
+  // Montadas a partir de um objeto no formato do computeDRE — o mesmo
+  // montador serve para 2027 (dre) e para a referência 2026 (dre2026).
+  const legado = d => [
+    { label: 'Receita Bruta', valor: d.receitaBruta, tipo: 'base' },
+    { label: '(-) Deduções', valor: -d.deducoes, tipo: 'neg' },
+    { label: '(=) Receita Operacional Líquida', valor: d.receitaLiquida, tipo: 'subtotal' },
+    { label: '(-) Custos dos Produtos Vendidos', valor: -d.cpv, tipo: 'neg' },
+    { label: '(=) Lucro Bruto', valor: d.lucroBruto, tipo: 'subtotal' },
+    { label: 'Margem Bruta (%)', valor: d.margemBruta, tipo: 'margem' },
+    { label: '(-) Despesas Operacionais', valor: -d.despesasSemDA, tipo: 'neg' },
+    { label: '(=) EBITDA', valor: d.ebitda, tipo: 'subtotal' },
+    { label: 'Margem EBITDA (%)', valor: d.margemEbitda, tipo: 'margem' },
+    { label: '(-) Depreciação e Amortização', valor: -d.depreciacao, tipo: 'neg' },
+    { label: '(+/-) Resultado Financeiro', valor: d.resultadoFinanceiro, tipo: 'flex' },
+    { label: '(+/-) Outras Receitas e Despesas', valor: d.outras, tipo: 'flex' },
+    { label: '(-) IRCSL', valor: -d.ircsl, tipo: 'neg' },
+    { label: '(=) Lucro Líquido', valor: d.lucroLiquido, tipo: 'total' },
+    { label: 'Margem Líquida (%)', valor: d.margemLiquida, tipo: 'margem' },
+  ];
+  const ifrs = d => {
+    const lucroOperacional = d.ebitda - d.depreciacao;
+    return [
+      { label: 'Receita Bruta', valor: d.receitaBruta, tipo: 'base', categoria: 'Operacional' },
+      { label: '(-) Deduções', valor: -d.deducoes, tipo: 'neg', categoria: 'Operacional' },
+      { label: '(=) Receita Operacional Líquida', valor: d.receitaLiquida, tipo: 'subtotal', categoria: 'Operacional' },
+      { label: '(-) Custos dos Produtos Vendidos', valor: -d.cpv, tipo: 'neg', categoria: 'Operacional' },
+      { label: '(=) Lucro Bruto', valor: d.lucroBruto, tipo: 'subtotal', categoria: 'Operacional' },
+      { label: '(-) Despesas Operacionais', valor: -d.despesasSemDA, tipo: 'neg', categoria: 'Operacional' },
+      { label: '(-) Depreciação e Amortização', valor: -d.depreciacao, tipo: 'neg', categoria: 'Operacional' },
+      { label: '(=) Lucro Operacional', valor: lucroOperacional, tipo: 'total_ifrs', categoria: 'Operacional' },
+      { label: '(=) Lucro antes de Financiamento e Impostos', valor: lucroOperacional, tipo: 'total_ifrs', categoria: '— (sem investimentos)' },
+      { label: '(+/-) Resultado Financeiro', valor: d.resultadoFinanceiro, tipo: 'flex', categoria: 'Financiamento' },
+      { label: '(+/-) Outras Receitas e Despesas', valor: d.outras, tipo: 'flex', categoria: 'A reclassificar' },
+      { label: '(=) Lucro Antes dos Impostos', valor: lucroOperacional + d.resultadoFinanceiro + d.outras, tipo: 'subtotal', categoria: '—' },
+      { label: '(-) Impostos sobre o Lucro', valor: -d.ircsl, tipo: 'neg', categoria: 'Impostos' },
+      { label: '(=) Lucro Líquido', valor: d.lucroLiquido, tipo: 'total', categoria: '—' },
+    ];
+  };
+  const montar = ifrs18 ? ifrs : legado;
+  const base2026 = dre2026 ? montar(dre2026) : null;
+  const lucroOperacional = dre.ebitda - dre.depreciacao;
 
   // extras (pedido de 2026-09-07): linhas de referência rápida acrescentadas
   // depois do Lucro Líquido/Margem Líquida — opcional, só quem passa a prop
   // (hoje só AbaRevisao) ganha essas linhas; os outros usos de CascataDRE
   // (ConsolidadoAgricola/Resorts, dashboard) continuam exatamente iguais.
+  // valor2026 (2026-10-02): valor da referência 2026 da linha extra, se houver.
   const linhas = [
-    ...(ifrs18 ? linhasIfrs18 : linhasLegado),
+    ...montar(dre).map((l, i) => ({ ...l, valor2026: base2026 ? base2026[i].valor : undefined })),
     // tipo default 'flex' (linha normal) — a própria extra pode passar
     // tipo: 'subtotal' pra ganhar o destaque em negrito/fundo das linhas
     // "(=)" de sempre (ex.: Fluxo de Caixa Operacional/Livre).
@@ -14750,6 +14948,7 @@ function CascataDRE({ dre, ifrs18, extras }) {
         </div>
       )}
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden' }}>
+      {dre2026 && <Cabecalho2026 />}
       {linhas.map((l, i) => {
         const isMargem = l.tipo === 'margem';
         const isSubtotalForte = l.tipo === 'subtotal' || l.tipo === 'total' || l.tipo === 'total_ifrs';
@@ -14757,7 +14956,7 @@ function CascataDRE({ dre, ifrs18, extras }) {
           <div
             key={i}
             style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
               padding: '8px 12px', fontSize: isMargem ? 10.5 : 12.5,
               background: isSubtotalForte ? COR.total : (COR.branco),
               borderBottom: `1px solid ${COR.borda}`,
@@ -14766,19 +14965,21 @@ function CascataDRE({ dre, ifrs18, extras }) {
               color: isMargem ? '#8A8F96' : COR.texto,
             }}
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
               {l.label}
               {ifrs18 && l.categoria && (
                 <span style={{ fontSize: 9, fontWeight: 700, color: COR.azul, background: COR.branco, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: '1px 6px' }}>{l.categoria}</span>
               )}
             </span>
-            <span style={{ color: l.valor < 0 && l.tipo !== 'margem' ? COR.vermelho : (isSubtotalForte ? COR.azul : COR.texto) }}>
+            {dre2026 && <Celulas2026 v2026={l.valor2026} v2027={l.valor} margem={isMargem} />}
+            <span style={{ width: dre2026 ? LARGURAS_2026.atual : undefined, textAlign: 'right', flexShrink: 0, color: l.valor < 0 && l.tipo !== 'margem' ? COR.vermelho : (isSubtotalForte ? COR.azul : COR.texto) }}>
               {isMargem ? formatPct(l.valor) : formatValor(l.valor)}
             </span>
           </div>
         );
       })}
     </div>
+    <NotaReferencia2026 dre2026={dre2026} />
     </div>
   );
 }
@@ -15056,8 +15257,10 @@ function valorConta(conta, objeto) {
 // de 2026-09-07: "deve aparecer os valores por unidade abaixo de cada conta
 // sintética, parecido com o que está sendo apresentado no consolidado do
 // Grupo ARA" — ali passa `unidades` com só os 2 sites da família).
-function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggle, unidades = UNIDADES_PARA_TOTAL_GRUPO }) {
+function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggle, unidades = UNIDADES_PARA_TOTAL_GRUPO, grupo2026 }) {
   const isMargem = conta.tipo === 'margem';
+  // grupo2026 (2026-10-02): referência DRE 2026 do consolidado — colunas 2026 / Δ R$ / Δ % antes do 2027.
+  const temRef = grupo2026 !== undefined;
   const isPendencia = conta.tipo === 'pendencia';
   const isForte = conta.tipo === 'subtotal' || conta.tipo === 'total';
   const valorGrupo = valorConta(conta, grupoObjeto);
@@ -15072,7 +15275,7 @@ function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggl
         }}
       >
         <span style={{
-          display: 'flex', alignItems: 'center', gap: 6, fontSize: isMargem ? 10.5 : 12.5,
+          display: 'flex', alignItems: 'center', gap: 6, flex: 1, fontSize: isMargem ? 10.5 : 12.5,
           fontWeight: isForte ? 700 : (isMargem ? 400 : 500), fontStyle: isMargem ? 'italic' : 'normal',
           color: isMargem ? '#8A8F96' : COR.texto,
         }}>
@@ -15080,8 +15283,10 @@ function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggl
           {conta.label}
           {isPendencia && <AlertTriangle size={11} color={COR.vermelho} />}
         </span>
+        {temRef && <span style={{ display: 'flex', gap: 8, fontSize: isMargem ? 10.5 : 12.5, fontWeight: isForte ? 700 : 400 }}><Celulas2026 v2026={grupo2026 ? valorConta(conta, grupo2026) : undefined} v2027={valorGrupo} margem={isMargem} /></span>}
         <span style={{
           fontSize: isMargem ? 10.5 : 12.5, fontWeight: isForte ? 700 : 400,
+          width: temRef ? LARGURAS_2026.atual : undefined, textAlign: 'right', flexShrink: 0, marginLeft: temRef ? 8 : 0,
           color: isPendencia ? '#8A8F96' : (valorGrupo < 0 && !isMargem ? COR.vermelho : (isForte ? COR.azul : COR.texto)),
         }}>
           {isMargem ? formatPct(valorGrupo) : formatValor(valorGrupo)}
@@ -15290,6 +15495,7 @@ function AnaliseSensibilidades({ dados, dre, sensibilidades, updateCenarioSensib
 
 function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaAnualPct, cambios, autorNome, setAutorNome, comentarioEnvio, setComentarioEnvio, enviarVersao, enviando, tudoOk, erro, aguardandoLiberacao, sensibilidades, updateCenarioSensibilidade, podeEnviar = true }) {
   const [ifrs18, setIfrs18] = useState(false);
+  const dre2026 = useReferenciaDre2026(unidadeId);
   const fd = computeFluxoIndiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const fcd = computeFluxoCaixaDiretoMensal(dados, dre, refUnidade, ipcaAnualPct);
   const totalFcOperacional = fd.fcOperacionalMes.reduce((a, v) => a + v, 0);
@@ -15318,23 +15524,10 @@ function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaA
     { label: 'Outros Ajustes', valor: totalAjuste13Ano + totalAjustePagamentoAno, tipo: 'incremento' },
     { label: 'FCO', valor: totalFcOperacional, tipo: 'total' },
   ];
-  // Bridge 2027 vs 2026 (pedido de 2026-08-30) — EBITDA/FCO de 2026 ainda
-  // sem fonte de dado definida (o app só tem referência de Receita/Volume/
-  // Preço de 2026 — REFERENCIA_2026_*, não Custos/Despesas/FCO de 2026)
-  // — fica em R$0 até o FP&A trazer essa planilha. Estrutura já pronta
-  // pra receber o valor real depois, só trocar EBITDA_2026/FCO_2026.
-  const EBITDA_2026 = 0; // TODO: substituir pela fonte real de EBITDA 2026
-  const FCO_2026 = 0; // TODO: substituir pela fonte real de FCO 2026
-  const bridgeEbitda2027vs2026 = [
-    { label: 'EBITDA 2026', valor: EBITDA_2026, tipo: 'inicio' },
-    { label: 'Variação', valor: dre.ebitda - EBITDA_2026, tipo: 'incremento' },
-    { label: 'EBITDA 2027', valor: dre.ebitda, tipo: 'total' },
-  ];
-  const bridgeFco2027vs2026 = [
-    { label: 'FCO 2026', valor: FCO_2026, tipo: 'inicio' },
-    { label: 'Variação', valor: totalFcOperacional - FCO_2026, tipo: 'incremento' },
-    { label: 'FCO 2027', valor: totalFcOperacional, tipo: 'total' },
-  ];
+  // Bridge 2027 vs 2026 (2026-10-02): parte da referência DRE 2026 da unidade
+  // (realizado jan–ago + previsto set–dez) — ver bridgesVs2026. Sem referência,
+  // mostra o aviso no lugar dos gráficos.
+  const bridges2026 = bridgesVs2026(dre, totalFcOperacional, totalIrcslAno, dre2026);
 
   return (
     <div>
@@ -15386,20 +15579,24 @@ function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaA
           2x2 fixo — Orçamento (Receita→EBITDA / EBITDA→FCO) na primeira
           linha, 2027 vs 2026 (EBITDA / FCO) na segunda. */}
       <div style={{ display: 'flex', gap: 20, marginBottom: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div style={{ flex: '0 0 400px', minWidth: 320 }}>
+        <div style={{ flex: dre2026 ? '0 0 720px' : '0 0 400px', minWidth: 320, maxWidth: '100%', overflowX: 'auto' }}>
           <CascataDRE
-            dre={dre} ifrs18={ifrs18}
+            dre={dre} ifrs18={ifrs18} dre2026={dre2026}
             // Pedido de 2026-09-07: depois do Lucro Líquido, D&A e Variação
             // de NCG (reconciliação rápida), depois os totalizadores de
             // Fluxo de Caixa Operacional, CAPEX e Fluxo de Caixa Livre —
             // os mesmos totais já usados no resto da tela (Bridge EBITDA→FCO,
             // cards e FC Indireto mensal), não um recálculo paralelo.
             extras={[
+              // valor2026 (2026-10-02): referência 2026 na mesma sequência da planilha
+              // (EBITDA − IRCSLL caixa ± NCG = FCO). A planilha não tem a linha de D&A
+              // do bloco de caixa, então ela fica "—" em 2026.
               { label: '(+) Depreciação e Amortização', valor: dre.depreciacao },
-              { label: '(+/-) Variação de NCG', valor: totalGiroAno },
-              { label: '(=) Fluxo de Caixa Operacional', valor: totalFcOperacional, tipo: 'subtotal' },
-              { label: '(-) CAPEX', valor: totalFcInvestimento },
-              { label: '(=) Fluxo de Caixa Livre', valor: totalFcOperacional + totalFcInvestimento, tipo: 'total' },
+              { label: '(-) IRCSLL (caixa)', valor: -totalIrcslAno, valor2026: dre2026 ? -dre2026.ircslCaixa : undefined },
+              { label: '(+/-) Variação de NCG', valor: totalGiroAno, valor2026: dre2026?.variacaoNcg },
+              { label: '(=) Fluxo de Caixa Operacional', valor: totalFcOperacional, tipo: 'subtotal', valor2026: dre2026?.fco },
+              { label: '(-) CAPEX', valor: totalFcInvestimento, valor2026: dre2026?.fcInvestimento },
+              { label: '(=) Fluxo de Caixa Livre', valor: totalFcOperacional + totalFcInvestimento, tipo: 'total', valor2026: dre2026?.fcl },
             ]}
           />
         </div>
@@ -15417,14 +15614,7 @@ function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaA
             <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
             <GraficoBridge etapas={bridgeEbitdaFco} />
           </div>
-          <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — EBITDA</div>
-            <GraficoBridge etapas={bridgeEbitda2027vs2026} />
-          </div>
-          <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge 2027 vs 2026 — FCO</div>
-            <GraficoBridge etapas={bridgeFco2027vs2026} />
-          </div>
+          <BridgesVs2026 bridges={bridges2026} />
         </div>
       </div>
 
@@ -15835,7 +16025,7 @@ const CAMPO_LOG_LABEL = {
 // e com o cadastro que o servidor usa — divergência aparece antes de virar
 // número diferente entre tela, versão enviada e servidor. Nada é gravado.
 // ---------------------------------------------------------------------------
-const UNIDADES_CONFERENCIA = ['textil', 'textil_bg', 'agricola_tds', 'agricola_fds', 'samoa_beach', 'samoa_villa', 'corporativo', 'ei_holding', 'ei_lafleur', 'ei_southbay'];
+const UNIDADES_CONFERENCIA = ['textil', 'textil_bg', 'agricola_tds', 'agricola_fds', 'samoa_beach', 'samoa_villa', 'lfcvh', 'corporativo', 'ei_holding', 'ei_lafleur', 'ei_southbay'];
 
 // Compara dois objetos/arrays numéricos e acumula as diferenças em `saida`.
 // Tolerância em R$; NaN/null/undefined tratados como zero.
@@ -15992,7 +16182,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const _propInicial = useRef(false);
   const COMPARTILHADOS_PREMISSAS = ['meritocraciaMes', 'meritocraciaPct', 'bonusMes', 'bonusPct', 'bonusMultiplicador', 'bonusPjMultiplicador', 'dissidioMes', 'dissidioPct', 'dissidioMes2', 'dissidioPct2'];
-  const OUTRAS_UNIDADES = ['textil', 'textil_bg', 'samoa_beach', 'samoa_villa', 'agricola_tds', 'agricola_fds'];
+  const OUTRAS_UNIDADES = ['textil', 'textil_bg', 'samoa_beach', 'samoa_villa', 'lfcvh', 'agricola_tds', 'agricola_fds'];
   useEffect(() => {
     if (_propInicial.current) return;
     const corpPremi = statusUnidades['corporativo']?.custos?.premissasPessoal;
@@ -16209,10 +16399,10 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
 
           {/* Premissas de Pessoal — ARA Resorts */}
           <h3 style={{ fontSize: 14, color: COR.azul, marginBottom: 4 }}>Premissas de Pessoal — ARA Resorts</h3>
-          <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Aplica às duas unidades (Samoa Beach + Samoa Villa). Dissídio: 1% em Janeiro + 5% em Agosto.</p>
+          <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Aplica às três unidades (Samoa Beach + Samoa Villa + LFCVH). Dissídio: 1% em Janeiro + 5% em Agosto.</p>
           {(() => {
             const _pp = statusUnidades['samoa_beach']?.custos?.premissasPessoal || {};
-            const upd = (c, v) => updatePremissasPessoalUnidade(['samoa_beach', 'samoa_villa'], c, v);
+            const upd = (c, v) => updatePremissasPessoalUnidade(['samoa_beach', 'samoa_villa', 'lfcvh'], c, v);
             return (
               <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 14, marginBottom: 24 }}>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
