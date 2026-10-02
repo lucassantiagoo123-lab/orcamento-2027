@@ -8084,6 +8084,7 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
   // Referência DRE 2026 do consolidado (2026-10-02) — ver calcularDre2026.
   const dre2026 = useReferenciaDre2026('agricola');
+  const dre2026Sites = useReferenciasDre2026(CONSOLIDADOS_MULTISITE.agricola.sites);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -8234,6 +8235,7 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
             aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => toggleDreAgricola(conta.id)}
             unidades={UNIDADES_FAMILIA_AGRICOLA}
             grupo2026={dre2026 || undefined}
+            porUnidade2026={dre2026Sites}
           />
         ))}
         <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
@@ -8398,6 +8400,7 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
   // Referência DRE 2026 do consolidado (2026-10-02) — ver calcularDre2026.
   const dre2026 = useReferenciaDre2026('resorts');
+  const dre2026Sites = useReferenciasDre2026(CONSOLIDADOS_MULTISITE.resorts.sites);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -8545,6 +8548,7 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
             aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => toggleDreResorts(conta.id)}
             unidades={UNIDADES_FAMILIA_RESORTS}
             grupo2026={dre2026 || undefined}
+            porUnidade2026={dre2026Sites}
           />
         ))}
         <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
@@ -8660,6 +8664,7 @@ function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cam
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
   // Referência DRE 2026 do consolidado (2026-10-02) — ver calcularDre2026.
   const dre2026 = useReferenciaDre2026('ei');
+  const dre2026Sites = useReferenciasDre2026(CONSOLIDADOS_MULTISITE.ei.sites);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -8775,6 +8780,7 @@ function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cam
             aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => setLinhasAbertasDRE(prev => ({ ...prev, [conta.id]: !prev[conta.id] }))}
             unidades={UNIDADES_FAMILIA_EI}
             grupo2026={dre2026 || undefined}
+            porUnidade2026={dre2026Sites}
           />
         ))}
         <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
@@ -8902,6 +8908,7 @@ function ConsolidadoTextil({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct,
   const [linhasAbertasDRE, setLinhasAbertasDRE] = useState({});
   // Referência DRE 2026 do consolidado (2026-10-02) — ver calcularDre2026.
   const dre2026 = useReferenciaDre2026('textil_consolidado');
+  const dre2026Sites = useReferenciasDre2026(CONSOLIDADOS_MULTISITE.textil_consolidado.sites);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -9017,6 +9024,7 @@ function ConsolidadoTextil({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct,
             aberto={!!linhasAbertasDRE[conta.id]} onToggle={() => setLinhasAbertasDRE(prev => ({ ...prev, [conta.id]: !prev[conta.id] }))}
             unidades={UNIDADES_FAMILIA_TEXTIL}
             grupo2026={dre2026 || undefined}
+            porUnidade2026={dre2026Sites}
           />
         ))}
         <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
@@ -14788,6 +14796,21 @@ function useReferenciaDre2026(unidadeId) {
   return useMemo(() => calcularDre2026(ref), [ref]);
 }
 
+// Referência DRE 2026 de cada site de um consolidado (para o drill-down por
+// unidade). Site sem referência fica fora do objeto (mostra "—").
+function useReferenciasDre2026(ids) {
+  const chave = ids.join(',');
+  const [refs, setRefs] = useState({});
+  useEffect(() => {
+    let vivo = true;
+    Promise.all(ids.map(id => getReferenciaDre2026(id).then(r => [id, calcularDre2026(r)]).catch(() => [id, null])))
+      .then(pares => { if (vivo) setRefs(Object.fromEntries(pares.filter(([, d]) => d))); });
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chave]);
+  return refs;
+}
+
 // Bridges 2027 vs 2026 a partir da referência (null sem referência).
 // EBITDA: 2026 → Δ Receita Líquida → Δ CPV → Δ Despesas → 2027.
 // FCO: 2026 → Δ EBITDA → Δ Impostos → Δ NCG e outros ajustes → 2027.
@@ -15312,7 +15335,7 @@ function valorConta(conta, objeto) {
 // de 2026-09-07: "deve aparecer os valores por unidade abaixo de cada conta
 // sintética, parecido com o que está sendo apresentado no consolidado do
 // Grupo ARA" — ali passa `unidades` com só os 2 sites da família).
-function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggle, unidades = UNIDADES_PARA_TOTAL_GRUPO, grupo2026 }) {
+function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggle, unidades = UNIDADES_PARA_TOTAL_GRUPO, grupo2026, porUnidade2026 }) {
   const isMargem = conta.tipo === 'margem';
   // grupo2026 (2026-10-02): referência DRE 2026 do consolidado — colunas 2026 / Δ R$ / Δ % antes do 2027.
   const temRef = grupo2026 !== undefined;
@@ -15356,14 +15379,21 @@ function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggl
           {unidades.map(u => {
             const v = valorConta(conta, porUnidade[u.id]);
             return (
-              <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: temRef ? `6px ${12 + LARGURAS_2026.delta + LARGURAS_2026.pct + 16}px 6px 30px` : '6px 12px 6px 30px', fontSize: 11.5, borderBottom: `1px solid ${COR.borda}` }}>
+              <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px 6px 30px', fontSize: 11.5, borderBottom: `1px solid ${COR.borda}` }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: COR.texto }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: u.cor, display: 'inline-block', flexShrink: 0 }} />
                   {conta.label} | {u.nome}
                 </span>
-                <span style={{ color: isMargem ? '#8A8F96' : (v < 0 ? COR.vermelho : COR.texto) }}>
-                  {isMargem ? formatPct(v) : formatValor(v)}
-                </span>
+                {/* porUnidade2026 (2026-10-02): referência 2026 de cada unidade, quando existir. */}
+                {temRef ? (
+                  <span style={{ display: 'flex', gap: 8 }}>
+                    <Celulas2026 v2026={porUnidade2026?.[u.id] ? valorConta(conta, porUnidade2026[u.id]) : undefined} v2027={v} margem={isMargem} />
+                  </span>
+                ) : (
+                  <span style={{ color: isMargem ? '#8A8F96' : (v < 0 ? COR.vermelho : COR.texto) }}>
+                    {isMargem ? formatPct(v) : formatValor(v)}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -15638,7 +15668,7 @@ function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaA
           2x2 fixo — Orçamento (Receita→EBITDA / EBITDA→FCO) na primeira
           linha, 2027 vs 2026 (EBITDA / FCO) na segunda. */}
       <div style={{ display: 'flex', gap: 20, marginBottom: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div style={{ flex: dre2026 ? '0 0 720px' : '0 0 400px', minWidth: 320, maxWidth: '100%', overflowX: 'auto' }}>
+        <div style={{ flex: dre2026 ? '0 1 640px' : '0 0 400px', minWidth: 320, overflowX: 'auto' }}>
           <CascataDRE
             dre={dre} ifrs18={ifrs18} dre2026={dre2026}
             // Pedido de 2026-09-07: depois do Lucro Líquido, D&A e Variação
@@ -15659,12 +15689,10 @@ function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaA
             ]}
           />
         </div>
-        {/* 4 gráficos de Bridge (pedido de 2026-08-30): os dois de sempre
-            (Orçamento — Receita→EBITDA e EBITDA→FCO) lado a lado na 1ª
-            linha, os dois novos (2027 vs 2026 — EBITDA e FCO, ver nota em
-            bridgeEbitda2027vs2026 sobre a fonte de dado de 2026 ainda
-            pendente) lado a lado na 2ª. */}
-        <div style={{ flex: '1 1 500px', minWidth: 320, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        {/* Layout de 2026-10-02 (pedido do usuário, igual aos Consolidados):
+            os dois Bridges de Orçamento ao lado da tabela; os Bridges 2027 vs
+            2026 logo abaixo dela. */}
+        <div style={{ flex: '1 1 340px', minWidth: 300, display: 'grid', gap: 16 }}>
           <div>
             <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
             <GraficoBridge etapas={bridgeReceitaEbitda} />
@@ -15673,10 +15701,11 @@ function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaA
             <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
             <GraficoBridge etapas={bridgeEbitdaFco} />
           </div>
-          <BridgesVs2026 bridges={bridges2026} />
         </div>
       </div>
-
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        <BridgesVs2026 bridges={bridges2026} />
+      </div>
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>DRE Consolidada — mensal</h4>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>Todas as contas sintéticas, mês a mês, com o total do ano na última coluna.</p>
       <div style={{ marginBottom: 24 }}>
