@@ -2323,11 +2323,11 @@ function parseNum(v) {
 // seguro reexibir um valor com ponto de milhar sem corromper o dado no
 // próximo parse. Puramente uma transformação de EXIBIÇÃO (ver
 // InputNumerico) — nunca escreve de volta no valor armazenado.
-function formatarNumeroExibicao(v) {
+function formatarNumeroExibicao(v, casas = 1) {
   if (v === '' || v === null || v === undefined) return v;
   if (typeof v === 'string' && v.trim() === '') return v;
   const n = parseNum(v);
-  return n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
 }
 
 // Input numérico genérico — mostra o valor bruto (como o usuário está
@@ -2335,12 +2335,12 @@ function formatarNumeroExibicao(v) {
 // vírgula decimal, ver formatarNumeroExibicao) assim que perde o foco.
 // Usado nas ~4 rotinas de input numérico do app (célula mensal de
 // TabelaMensal, colunaExtra, CampoNumero, GradeMensalLinha).
-function InputNumerico({ value, onChange, onPaste, placeholder, style }) {
+function InputNumerico({ value, onChange, onPaste, placeholder, style, casas }) {
   const [focado, setFocado] = useState(false);
   return (
     <input
       type="text" inputMode="decimal"
-      value={focado ? value : formatarNumeroExibicao(value)}
+      value={focado ? value : formatarNumeroExibicao(value, casas)}
       placeholder={placeholder}
       onFocus={() => setFocado(true)}
       onBlur={() => setFocado(false)}
@@ -2518,7 +2518,7 @@ function emptyFormData(unidadeId = 'textil') {
     },
     resultado: {
       receitaFinanceira: mesesVazios(), despesaFinanceira: mesesVazios(), outrasReceitasDespesas: mesesVazios(),
-      aliquotaIR: '34', justificativa: '',
+      aliquotaIR: '34', aliquotaIRPct: '6,25', aliquotaCSPct: '9', justificativa: '',
     },
     fcFinanciamentos: {
       linhas: [],
@@ -3147,6 +3147,28 @@ function receitaBrutaPorMes(data, cambios) {
 // (2026-09-11) e Devoluções (2026-10-01, pedido do usuário). As demais usam a
 // receita bruta total (que inclui o Mercado Externo e o refugo).
 const DEDUCOES_SOBRE_MI_AGRICOLA = ['inss', 'devolucoes'];
+// Apuração mensal de IRCSL (2026-10-02): EBT mês a mês = EBITDA − D&A + Receita
+// financeira − Despesa financeira + Outras; IR e CS incidem sobre o EBT do mês
+// (mês com EBT negativo não paga e não gera crédito). A despesa financeira vem da
+// "Provisão desp. financeira" do FC Financiamentos; se nenhuma linha tiver
+// provisão lançada, vale a despesa digitada antes (resultado.despesaFinanceira,
+// preservada no documento). Alíquotas: IR 6,25% (25% com redução Sudene de 75%) e
+// CS 9% como padrão quando o documento ainda não tem os campos novos.
+const ALIQUOTA_IR_PADRAO = 6.25;
+const ALIQUOTA_CS_PADRAO = 9;
+function aliquotasIRCS(data) {
+  const r = data.resultado || {};
+  return {
+    ir: r.aliquotaIRPct == null ? ALIQUOTA_IR_PADRAO : parseNum(r.aliquotaIRPct),
+    cs: r.aliquotaCSPct == null ? ALIQUOTA_CS_PADRAO : parseNum(r.aliquotaCSPct),
+  };
+}
+function despesaFinanceiraMesCalc(data) {
+  const prov = MESES.map((_, m) => (data.fcFinanciamentos?.linhas || []).reduce((acc, l) => acc + parseNum(l.provisaoDespesaFinanceira?.[m]), 0));
+  if (prov.some(v => v !== 0)) return prov;
+  return MESES.map((_, m) => parseNum(data.resultado?.despesaFinanceira?.[m]));
+}
+
 function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data, cambios);
@@ -3239,17 +3261,17 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0);
 
-  const resultadoFinanceiro = somaMes(data.resultado.receitaFinanceira) - somaMes(data.resultado.despesaFinanceira);
+  const resultadoFinanceiro = somaMes(data.resultado.receitaFinanceira) - despesaFinanceiraMesCalc(data).reduce((a, v) => a + v, 0);
   const outras = somaMes(data.resultado.outrasReceitasDespesas);
 
   const ebt = ebitda - depreciacao + resultadoFinanceiro + outras;
-  const ircsl = ebt > 0 ? ebt * (parseNum(data.resultado.aliquotaIR) / 100) : 0;
-  const lucroLiquido = ebt - ircsl;
+  const ircsl = 0; // provisório: o IRCSL real é a soma mensal, calculado abaixo
+  const lucroLiquido = ebt;
   const margemLiquida = receitaLiquida ? (lucroLiquido / receitaLiquida) * 100 : 0;
 
   const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
 
-  return {
+  const dreCalc = {
     receitaBruta, deducoes, receitaLiquida, cpv, lucroBruto, margemBruta,
     despesasSemDA, ebitda, margemEbitda, depreciacao, resultadoFinanceiro, outras,
     ebt, ircsl, lucroLiquido, margemLiquida, capexTotal,
@@ -3266,6 +3288,16 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
     // Custo do POC por mês (La Fleur II) — somado ao CPV mensal dos fluxos.
     pocCpvMes,
     totalGeral: lucroLiquido,
+  };
+  // IRCSL do ano = soma dos 12 meses (cada mês sobre o próprio EBT, sem IRCSL em mês negativo).
+  const ircslAno = computeFluxoIndiretoMensal(data, dreCalc, ref, ipcaAnualPct).ircslMes.reduce((a, v) => a + v, 0);
+  const lucroLiquidoAno = ebt - ircslAno;
+  return {
+    ...dreCalc,
+    ircsl: ircslAno,
+    lucroLiquido: lucroLiquidoAno,
+    margemLiquida: receitaLiquida ? (lucroLiquidoAno / receitaLiquida) * 100 : 0,
+    totalGeral: lucroLiquidoAno,
   };
 }
 
@@ -3747,7 +3779,8 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'despesa' || pacoteId !== 'depreciacao') return acc;
     return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
   }, 0));
-  const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
+  const despesaFinanceiraMes = despesaFinanceiraMesCalc(data);
+  const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - despesaFinanceiraMes[m]);
   const outrasMes = MESES.map((_, m) => parseNum(data.resultado.outrasReceitasDespesas?.[m]));
   const ebtMes = MESES.map((_, m) => ebitdaMes[m] - depreciacaoMes[m] + resultadoFinanceiroMes[m] + outrasMes[m]);
 
@@ -3760,8 +3793,10 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   // proporcionalmente ao EBT de cada um — mês sem lucro não carrega
   // IRCSL, e a soma do ano continua batendo exatamente com dre.ircsl
   // (nenhuma tela que só lê o total anual muda de valor).
-  const somaEbtPositivoMes = ebtMes.reduce((acc, v) => acc + Math.max(v, 0), 0);
-  const ircslMes = MESES.map((_, m) => somaEbtPositivoMes > 0 ? dre.ircsl * (Math.max(ebtMes[m], 0) / somaEbtPositivoMes) : 0);
+  const { ir: aliqIR, cs: aliqCS } = aliquotasIRCS(data);
+  const irMes = ebtMes.map(v => (v > 0 ? v * (aliqIR / 100) : 0));
+  const csMes = ebtMes.map(v => (v > 0 ? v * (aliqCS / 100) : 0));
+  const ircslMes = MESES.map((_, m) => irMes[m] + csMes[m]);
 
   // + 13º da abertura do HC Existente da ARA Agrícola (pago metade em Nov, metade em Dez).
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro
@@ -3827,6 +3862,8 @@ function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   return {
     receitaBrutaMes, receitaLiquidaMes, deducoesMes, cpvMes, lucroBrutoMes, despesasSemDAmes,
     ebitdaMes, depreciacaoMes, resultadoFinanceiroMes, outrasMes, ircslMes, lucroLiquidoMes,
+    ebtMes, irMes, csMes, despesaFinanceiraMes,
+    ebtMes, irMes, csMes, despesaFinanceiraMes,
     ajuste13Mes, ajustePagamentoMes, variacaoGiroMes, fcOperacionalMes,
     fcInvestimentoMes, fcFinanciamentoMes, variacaoCaixaMes, caixaInicial, caixaAcumuladoMes,
   };
@@ -4567,12 +4604,12 @@ function Rotulo({ children }) {
   return <div style={{ fontSize: 11, fontWeight: 700, color: COR.texto, marginBottom: 4 }}>{children}</div>;
 }
 
-function CampoNumero({ value, onChange, placeholder, prefixo, sufixo }) {
+function CampoNumero({ value, onChange, placeholder, prefixo, sufixo, casas }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', border: `1px solid ${COR.borda}`, borderRadius: 6, background: COR.branco }}>
       {prefixo && <span style={{ padding: '0 8px', color: '#8A8F96', fontSize: 12 }}>{prefixo}</span>}
       <InputNumerico
-        value={value} placeholder={placeholder}
+        value={value} placeholder={placeholder} casas={casas}
         onChange={onChange}
         style={{ flex: 1, border: 'none', outline: 'none', padding: '8px 10px', fontFamily: FONT, fontSize: 13, color: COR.texto, background: 'transparent', minWidth: 0 }}
       />
@@ -6273,10 +6310,10 @@ export default function OrcamentoARA({ usuario }) {
     });
     const rowEbitda = addDreRow('(=) EBITDA', m => `${colL(1 + m)}${rowLucroBruto + 1}+${colL(1 + m)}${rowDespesas + 1}`);
     const rowDA = addDreRow('(-) Depreciação e Amortização', m => `-SUMIFS(${rngCus(CD.MES + m)},${rngCus(CD.CCTIPO)},"despesa",${rngCus(CD.PACID)},"depreciacao")`);
-    const rowResFin = addDreRowValues('(+/-) Resultado Financeiro (premissa)', MESES.map((_, m) => parseNum(d.resultado?.receitaFinanceira?.[m]) - parseNum(d.resultado?.despesaFinanceira?.[m])));
+    const rowResFin = addDreRowValues('(+/-) Resultado Financeiro (premissa)', (() => { const despFin = despesaFinanceiraMesCalc(d); return MESES.map((_, m) => parseNum(d.resultado?.receitaFinanceira?.[m]) - despFin[m]); })());
     const rowOutras = addDreRowValues('(+/-) Outras Receitas e Despesas (premissa)', MESES.map((_, m) => parseNum(d.resultado?.outrasReceitasDespesas?.[m])));
-    const rowAliq = rd; putS(wsDre, rd, 0, 'Alíquota IR/CSLL (%) — premissa');
-    for (let m = 0; m < 12; m++) putN(wsDre, rd, 1 + m, d.resultado?.aliquotaIR ?? 34);
+    const rowAliq = rd; putS(wsDre, rd, 0, 'Alíquota IR + CS (%) — premissa');
+    { const aq = aliquotasIRCS(d); for (let m = 0; m < 12; m++) putN(wsDre, rd, 1 + m, aq.ir + aq.cs); }
     rd++;
     const rowEbt = addDreRow('(=) EBT (antes do IR)', m => `${colL(1 + m)}${rowEbitda + 1}+${colL(1 + m)}${rowDA + 1}+${colL(1 + m)}${rowResFin + 1}+${colL(1 + m)}${rowOutras + 1}`);
     const rowIrcsl = addDreRow('(-) IR/CSLL', m => `-IF(${colL(1 + m)}${rowEbt + 1}>0,${colL(1 + m)}${rowEbt + 1}*${colL(1 + m)}${rowAliq + 1}/100,0)`);
@@ -6647,7 +6684,7 @@ export default function OrcamentoARA({ usuario }) {
         ]);
         addTabelaMensal('Fluxo de Caixa Indireto — mensal, a partir do EBITDA', [
           { label: 'EBITDA', valoresMensal: fd.ebitdaMes, totalValor: fd.ebitdaMes.reduce((a, v) => a + v, 0) },
-          { label: '(-) IRCSL proporcional', valoresMensal: fd.ircslMes.map(v => -v), totalValor: -fd.ircslMes.reduce((a, v) => a + v, 0) },
+          { label: '(-) IRCSL', valoresMensal: fd.ircslMes.map(v => -v), totalValor: -fd.ircslMes.reduce((a, v) => a + v, 0) },
           { label: '(+/-) Ajuste 13º (competência × caixa)', valoresMensal: fd.ajuste13Mes, totalValor: fd.ajuste13Mes.reduce((a, v) => a + v, 0) },
           { label: '(+/-) Variação de Capital de Giro', valoresMensal: fd.variacaoGiroMes, totalValor: fd.variacaoGiroMes.reduce((a, v) => a + v, 0) },
           { label: '(+/-) Ajuste de Pagamento (competência × caixa)', valoresMensal: fd.ajustePagamentoMes, totalValor: fd.ajustePagamentoMes.reduce((a, v) => a + v, 0) },
@@ -7271,7 +7308,7 @@ function VisaoGerente(props) {
           />
         )}
         {aba === 'giro' && <AbaGiro capitalGiro={dados.capitalGiro} atualizar={atualizar} dre={dre} dados={dados} refUnidade={referenciaDaUnidade(unidadeAtual)} ipcaAnualPct={ipcaAnualPct} unidadeId={unidadeAtual} />}
-        {aba === 'provisoes' && <AbaProvisoes provisoes={dados.provisoes} resultado={dados.resultado} atualizar={atualizar} />}
+        {aba === 'provisoes' && <AbaProvisoes provisoes={dados.provisoes} resultado={dados.resultado} atualizar={atualizar} dados={dados} dre={dre} refUnidade={referenciaDaUnidade(unidadeAtual)} ipcaAnualPct={ipcaAnualPct} />}
         {aba === 'fcfinanciamentos' && (
           <AbaFcFinanciamentos
             fcFinanciamentos={dados.fcFinanciamentos}
@@ -7850,7 +7887,7 @@ function ProvisoesLeituraVersao({ dados }) {
           </tbody>
         </table>
       </div>
-      <div style={{ fontSize: 11.5, color: '#7A8088', marginTop: 8 }}>Alíquota IRCSL sobre EBT (anual): <b style={{ color: COR.texto }}>{resultado.aliquotaIR || '—'}%</b></div>
+      <div style={{ fontSize: 11.5, color: '#7A8088', marginTop: 8 }}>Alíquotas sobre o EBT mensal — IR: <b style={{ color: COR.texto }}>{aliquotasIRCS({ resultado }).ir.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</b> · CS: <b style={{ color: COR.texto }}>{aliquotasIRCS({ resultado }).cs.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</b></div>
     </div>
   );
 }
@@ -14256,7 +14293,9 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
   );
 }
 
-function AbaProvisoes({ provisoes, resultado, atualizar }) {
+function AbaProvisoes({ provisoes, resultado, atualizar, dados, dre, refUnidade, ipcaAnualPct }) {
+  const fd = (dados && dre && refUnidade) ? computeFluxoIndiretoMensal(dados, dre, refUnidade, ipcaAnualPct) : null;
+  const aliq = aliquotasIRCS(dados || { resultado });
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>4. Provisões, resultado financeiro e outras receitas/despesas</h3>
@@ -14286,7 +14325,7 @@ function AbaProvisoes({ provisoes, resultado, atualizar }) {
       <TabelaMensal
         linhas={[
           { key: 'receitaFinanceira', label: 'Receita financeira', valores: resultado.receitaFinanceira },
-          { key: 'despesaFinanceira', label: 'Despesa financeira', valores: resultado.despesaFinanceira },
+          { key: 'despesaFinanceira', label: 'Despesa financeira (digitada — só vale se não houver provisão no FC Financiamentos)', valores: resultado.despesaFinanceira },
           { key: 'outrasReceitasDespesas', label: 'Outras receitas/despesas', valores: resultado.outrasReceitasDespesas },
         ]}
         onChangeCelula={(chave, mesIdx, valor) => {
@@ -14294,10 +14333,16 @@ function AbaProvisoes({ provisoes, resultado, atualizar }) {
           atualizar(['resultado', chave], novoArray);
         }}
       />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 3fr', gap: 14, marginTop: 12, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 3fr', gap: 14, marginTop: 12, alignItems: 'start' }}>
         <div>
-          <Rotulo>Alíquota IRCSL sobre EBT (anual)</Rotulo>
-          <CampoNumero value={resultado.aliquotaIR} onChange={v => atualizar(['resultado', 'aliquotaIR'], v)} sufixo="%" placeholder="34" />
+          <Rotulo>Alíquota de IR (%)</Rotulo>
+          <CampoNumero value={resultado.aliquotaIRPct ?? '6,25'} onChange={v => atualizar(['resultado', 'aliquotaIRPct'], v)} sufixo="%" casas={2} placeholder="6,25" />
+          <div style={{ fontSize: 10.5, color: '#7A8088', marginTop: 4 }}>Padrão 6,25% (25% com redução Sudene de 75%).</div>
+        </div>
+        <div>
+          <Rotulo>Alíquota de CS (%)</Rotulo>
+          <CampoNumero value={resultado.aliquotaCSPct ?? '9'} onChange={v => atualizar(['resultado', 'aliquotaCSPct'], v)} sufixo="%" casas={2} placeholder="9" />
+          <div style={{ fontSize: 10.5, color: '#7A8088', marginTop: 4 }}>Padrão 9%.</div>
         </div>
         <div>
           <Rotulo>Justificativa</Rotulo>
@@ -14305,6 +14350,33 @@ function AbaProvisoes({ provisoes, resultado, atualizar }) {
             placeholder="Justificativa do resultado financeiro (ex.: nova linha de crédito, aplicação financeira)" />
         </div>
       </div>
+
+      {fd && (
+        <div style={{ marginTop: 22 }}>
+          <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Apuração mensal de IRCSL (base: EBT)</h4>
+          <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
+            Parte do EBITDA, subtrai a D&A e o resultado financeiro até chegar ao EBT, que é a base de cálculo. A despesa financeira vem da
+            “Provisão desp. financeira” da seção FC Financiamentos (se nenhuma linha tiver provisão, vale a despesa digitada acima).
+            IR e CS incidem sobre o EBT de cada mês; mês com EBT negativo não tem IRCSL nem gera crédito. O resultado alimenta a DRE, o FC Operacional, o FC Direto e o Balanço.
+          </p>
+          <TabelaMensal
+            linhas={[]}
+            onChangeCelula={() => {}}
+            linhasCalculadas={[
+              { key: 'ebitdaIr', label: 'EBITDA', valoresMensal: fd.ebitdaMes, totalValor: fd.ebitdaMes.reduce((a, v) => a + v, 0) },
+              { key: 'daIr', label: '(–) D&A', valoresMensal: fd.depreciacaoMes.map(v => -v), totalValor: -fd.depreciacaoMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+              { key: 'recFinIr', label: '(+) Receita financeira', valoresMensal: MESES.map((_, m) => parseNum(resultado.receitaFinanceira?.[m])), totalValor: somaMes(resultado.receitaFinanceira) },
+              { key: 'despFinIr', label: '(–) Despesa financeira (FC Financiamentos)', valoresMensal: fd.despesaFinanceiraMes.map(v => -v), totalValor: -fd.despesaFinanceiraMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+              { key: 'outrasIr', label: '(+/–) Outras receitas/despesas', valoresMensal: fd.outrasMes, totalValor: fd.outrasMes.reduce((a, v) => a + v, 0) },
+              { key: 'ebtIr', label: '(=) EBT — base de cálculo do IRCSL', valoresMensal: fd.ebtMes, totalValor: fd.ebtMes.reduce((a, v) => a + v, 0), cor: COR.azul },
+              { key: 'irIr', label: `(–) IR (${aliq.ir.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)`, valoresMensal: fd.irMes.map(v => -v), totalValor: -fd.irMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+              { key: 'csIr', label: `(–) CS (${aliq.cs.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)`, valoresMensal: fd.csMes.map(v => -v), totalValor: -fd.csMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+              { key: 'ircslIr', label: '(–) IRCSL total', valoresMensal: fd.ircslMes.map(v => -v), totalValor: -fd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+              { key: 'llIr', label: '(=) Lucro líquido', valoresMensal: fd.lucroLiquidoMes, totalValor: fd.lucroLiquidoMes.reduce((a, v) => a + v, 0), cor: COR.verde },
+            ]}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -15381,7 +15453,7 @@ function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaA
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Fluxo de Caixa Indireto — mensal, a partir do EBITDA</h4>
       <p style={{ fontSize: 11.5, color: '#7A8088', marginBottom: 10 }}>
-        FC Operacional: EBITDA menos IRCSL proporcional, mais variação de capital de giro (prazos da aba 5 sobre os saldos de abertura da aba 8), o ajuste de competência × caixa do 13º salário (provisionado mês a mês, pago metade em novembro e metade em dezembro) e o ajuste de pagamento (competência × caixa) de qualquer conta analítica marcada com fato gerador em mês diferente do pagamento (aba 3 — hoje só no Corporativo, ver pergunta em cada conta).
+        FC Operacional: EBITDA menos IRCSL (apurado mês a mês sobre o EBT), mais variação de capital de giro (prazos da aba 5 sobre os saldos de abertura da aba 8), o ajuste de competência × caixa do 13º salário (provisionado mês a mês, pago metade em novembro e metade em dezembro) e o ajuste de pagamento (competência × caixa) de qualquer conta analítica marcada com fato gerador em mês diferente do pagamento (aba 3 — hoje só no Corporativo, ver pergunta em cada conta).
         FC Investimentos: mês de cada projeto de CAPEX (aba 6). FC Financiamentos: linhas por banco e movimentações de acionistas (aba 7).
       </p>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -15396,7 +15468,7 @@ function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaA
           onChangeCelula={() => {}}
           linhasCalculadas={[
             { key: 'ebitda', label: 'EBITDA', valoresMensal: fd.ebitdaMes, totalValor: fd.ebitdaMes.reduce((a, v) => a + v, 0), cor: COR.texto },
-            { key: 'ircsl', label: '(-) IRCSL proporcional', valoresMensal: fd.ircslMes.map(v => -v), totalValor: -fd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
+            { key: 'ircsl', label: '(-) IRCSL', valoresMensal: fd.ircslMes.map(v => -v), totalValor: -fd.ircslMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
             { key: 'ajuste13', label: '(+/-) Ajuste 13º (competência × caixa)', valoresMensal: fd.ajuste13Mes, totalValor: fd.ajuste13Mes.reduce((a, v) => a + v, 0), cor: COR.texto },
             { key: 'giro', label: '(+/-) Variação de Capital de Giro', valoresMensal: fd.variacaoGiroMes, totalValor: fd.variacaoGiroMes.reduce((a, v) => a + v, 0), cor: COR.texto },
             { key: 'ajustePagamento', label: '(+/-) Ajuste de Pagamento (competência × caixa)', valoresMensal: fd.ajustePagamentoMes, totalValor: fd.ajustePagamentoMes.reduce((a, v) => a + v, 0), cor: COR.texto },

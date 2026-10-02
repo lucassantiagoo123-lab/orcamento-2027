@@ -381,7 +381,7 @@ export function emptyFormData(unidadeId = 'textil') {
     },
     resultado: {
       receitaFinanceira: mesesVazios(), despesaFinanceira: mesesVazios(), outrasReceitasDespesas: mesesVazios(),
-      aliquotaIR: '34', justificativa: '',
+      aliquotaIR: '34', aliquotaIRPct: '6,25', aliquotaCSPct: '9', justificativa: '',
     },
     fcFinanciamentos: {
       linhas: [],
@@ -802,6 +802,28 @@ function receitaBrutaPorMes(data, cambios) {
 // (2026-09-11) e Devoluções (2026-10-01, pedido do usuário). As demais usam a
 // receita bruta total (que inclui o Mercado Externo e o refugo).
 const DEDUCOES_SOBRE_MI_AGRICOLA = ['inss', 'devolucoes'];
+// Apuração mensal de IRCSL (2026-10-02): EBT mês a mês = EBITDA − D&A + Receita
+// financeira − Despesa financeira + Outras; IR e CS incidem sobre o EBT do mês
+// (mês com EBT negativo não paga e não gera crédito). A despesa financeira vem da
+// "Provisão desp. financeira" do FC Financiamentos; se nenhuma linha tiver
+// provisão lançada, vale a despesa digitada antes (resultado.despesaFinanceira,
+// preservada no documento). Alíquotas: IR 6,25% (25% com redução Sudene de 75%) e
+// CS 9% como padrão quando o documento ainda não tem os campos novos.
+const ALIQUOTA_IR_PADRAO = 6.25;
+const ALIQUOTA_CS_PADRAO = 9;
+function aliquotasIRCS(data) {
+  const r = data.resultado || {};
+  return {
+    ir: r.aliquotaIRPct == null ? ALIQUOTA_IR_PADRAO : parseNum(r.aliquotaIRPct),
+    cs: r.aliquotaCSPct == null ? ALIQUOTA_CS_PADRAO : parseNum(r.aliquotaCSPct),
+  };
+}
+function despesaFinanceiraMesCalc(data) {
+  const prov = MESES.map((_, m) => (data.fcFinanciamentos?.linhas || []).reduce((acc, l) => acc + parseNum(l.provisaoDespesaFinanceira?.[m]), 0));
+  if (prov.some(v => v !== 0)) return prov;
+  return MESES.map((_, m) => parseNum(data.resultado?.despesaFinanceira?.[m]));
+}
+
 export function computeDRE(data, ref, ipcaAnualPct, cambios) {
   // Receita bruta por mês, para aplicar deduções percentuais mês a mês
   const { receitaBrutaMes, linhasReceitaMes } = receitaBrutaPorMes(data, cambios);
@@ -887,17 +909,17 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     return acc + valorLinhaAnual(linha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes, receitaHospedagemMes, receitaAebMes);
   }, 0);
 
-  const resultadoFinanceiro = somaMes(data.resultado.receitaFinanceira) - somaMes(data.resultado.despesaFinanceira);
+  const resultadoFinanceiro = somaMes(data.resultado.receitaFinanceira) - despesaFinanceiraMesCalc(data).reduce((a, v) => a + v, 0);
   const outras = somaMes(data.resultado.outrasReceitasDespesas);
 
   const ebt = ebitda - depreciacao + resultadoFinanceiro + outras;
-  const ircsl = ebt > 0 ? ebt * (parseNum(data.resultado.aliquotaIR) / 100) : 0;
-  const lucroLiquido = ebt - ircsl;
+  const ircsl = 0; // provisório: o IRCSL real é a soma mensal, calculado abaixo
+  const lucroLiquido = ebt;
   const margemLiquida = receitaLiquida ? (lucroLiquido / receitaLiquida) * 100 : 0;
 
   const capexTotal = (data.capex.projetos || []).reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0);
 
-  return {
+  const dreCalc = {
     receitaBruta, deducoes, receitaLiquida, cpv, lucroBruto, margemBruta,
     despesasSemDA, ebitda, margemEbitda, depreciacao, resultadoFinanceiro, outras,
     ebt, ircsl, lucroLiquido, margemLiquida, capexTotal,
@@ -911,6 +933,16 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
     // Custo do POC por mês (La Fleur II) — somado ao CPV mensal dos fluxos.
     pocCpvMes,
     totalGeral: lucroLiquido,
+  };
+  // IRCSL do ano = soma dos 12 meses (cada mês sobre o próprio EBT, sem IRCSL em mês negativo).
+  const ircslAno = computeFluxoIndiretoMensal(data, dreCalc, ref, ipcaAnualPct).ircslMes.reduce((a, v) => a + v, 0);
+  const lucroLiquidoAno = ebt - ircslAno;
+  return {
+    ...dreCalc,
+    ircsl: ircslAno,
+    lucroLiquido: lucroLiquidoAno,
+    margemLiquida: receitaLiquida ? (lucroLiquidoAno / receitaLiquida) * 100 : 0,
+    totalGeral: lucroLiquidoAno,
   };
 }
 
@@ -1086,15 +1118,18 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
     if (!cc || tipoDaLinha(ref, cc, contaCodigo) !== 'despesa' || pacoteId !== 'depreciacao') return acc;
     return acc + valorLinhaMes(linha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, dre.volumeTotalKgMes, dre.receitaHospedagemMes, dre.receitaAebMes);
   }, 0));
-  const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - parseNum(data.resultado.despesaFinanceira?.[m]));
+  const despesaFinanceiraMes = despesaFinanceiraMesCalc(data);
+  const resultadoFinanceiroMes = MESES.map((_, m) => parseNum(data.resultado.receitaFinanceira?.[m]) - despesaFinanceiraMes[m]);
   const outrasMes = MESES.map((_, m) => parseNum(data.resultado.outrasReceitasDespesas?.[m]));
   const ebtMes = MESES.map((_, m) => ebitdaMes[m] - depreciacaoMes[m] + resultadoFinanceiroMes[m] + outrasMes[m]);
 
   // dre.ircsl (total anual) distribuído só pelos meses com EBT positivo,
   // proporcionalmente — não mais dividido igual por 12 (aparecia até em
   // mês sem lucro). Soma do ano continua batendo com dre.ircsl.
-  const somaEbtPositivoMes = ebtMes.reduce((acc, v) => acc + Math.max(v, 0), 0);
-  const ircslMes = MESES.map((_, m) => somaEbtPositivoMes > 0 ? dre.ircsl * (Math.max(ebtMes[m], 0) / somaEbtPositivoMes) : 0);
+  const { ir: aliqIR, cs: aliqCS } = aliquotasIRCS(data);
+  const irMes = ebtMes.map(v => (v > 0 ? v * (aliqIR / 100) : 0));
+  const csMes = ebtMes.map(v => (v > 0 ? v * (aliqCS / 100) : 0));
+  const ircslMes = MESES.map((_, m) => irMes[m] + csMes[m]);
 
   // + 13º da abertura do HC Existente da ARA Agrícola (pago metade em Nov, metade em Dez).
   const decimoTerceiroMes = MESES.map((_, m) => ref.ccs.reduce((acc, cc) => acc + folhaAnualPorCC(data, cc.codigo).mensal[m].decimoTerceiro
@@ -1155,6 +1190,7 @@ export function computeFluxoIndiretoMensal(data, dre, ref, ipcaAnualPct) {
   return {
     receitaBrutaMes, receitaLiquidaMes, deducoesMes, cpvMes, lucroBrutoMes, despesasSemDAmes,
     ebitdaMes, depreciacaoMes, resultadoFinanceiroMes, outrasMes, ircslMes, lucroLiquidoMes,
+    ebtMes, irMes, csMes, despesaFinanceiraMes,
     ajuste13Mes, ajustePagamentoMes, variacaoGiroMes, fcOperacionalMes,
     fcInvestimentoMes, fcFinanciamentoMes, variacaoCaixaMes, caixaInicial, caixaAcumuladoMes,
   };
