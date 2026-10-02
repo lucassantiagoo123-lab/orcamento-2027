@@ -1873,10 +1873,9 @@ const LINHAS_RECEITA_RESORTS = [
   { id: 'hospedagem', nome: '1.1 Hospedagem', tipo: 'qtd_valor', rotuloQtd: 'Acomodações ocupadas (#)', rotuloValor: 'Tarifa média (R$/acomodação)' },
   { id: 'aeb', nome: '1.2.1 Alimentação e Bebidas', tipo: 'qtd_valor', rotuloQtd: 'Nº de adultos', rotuloValor: 'Consumo médio de A&B (R$)' },
   { id: 'cafePensao', nome: '1.2.2 Café e Pensão', tipo: 'qtd_valor', rotuloQtd: 'Nº de adultos', rotuloValor: 'Consumo médio (R$)' },
-  { id: 'moorea', nome: '1.3 Receita Moorea', tipo: 'direto' },
-  { id: 'alugueis', nome: '1.4 Outras Receitas — Aluguéis', tipo: 'direto' },
-  { id: 'outrasIss', nome: '1.4 Outras Receitas — ISS', tipo: 'direto' },
-  { id: 'arrumacao', nome: '1.4 Outras Receitas — Arrumação (LFCVH)', tipo: 'direto' },
+  { id: 'alugueis', nome: '1.3 Outras Receitas — Aluguéis', tipo: 'direto' },
+  { id: 'outrasIss', nome: '1.3 Outras Receitas — ISS', tipo: 'direto' },
+  { id: 'arrumacao', nome: '1.3 Outras Receitas — Arrumação (LFCVH)', tipo: 'direto' },
 ];
 // O tipo de premissa de cada linha de receita.linhas (Resorts) é fixo pela
 // definição acima — não existe seletor de premissaTipo nesta tela, diferente
@@ -1903,6 +1902,9 @@ function tipoLinhaReceitaResorts(id) {
 // 21), que só faz sentido se a Hospedagem contabilizada alhures já a
 // inclui. Somar Café e Pensão de novo na ROB duplicaria essa receita.
 const LINHA_RECEITA_INFORMATIVA_RESORTS = 'cafePensao';
+// Linhas de receita dos Resorts retiradas da análise (2026-10-02): Moorea (sem dado).
+// Documentos antigos podem ainda ter a chave — ela é ignorada no cálculo e na tela.
+const LINHAS_DESCONTINUADAS_RESORTS = ['moorea'];
 // baseLinhaIds: quais linhas de receita somadas formam a base do percentual
 // ("A&B" na planilha = Alimentação e Bebidas + Café e Pensão somados).
 // Bases conferidas direto nas fórmulas da planilha (não aproximação — ver
@@ -1915,7 +1917,7 @@ const DEDUCOES_REF_RESORTS = [
   { id: 'pis_aeb', nome: 'PIS — % Receita A&B', pctRef: 1.65, baseLinhaIds: ['aeb', 'alugueis', 'arrumacao'] },
   { id: 'cofins_aeb', nome: 'Cofins — % Receita A&B', pctRef: 7.6, baseLinhaIds: ['aeb', 'alugueis', 'arrumacao'] },
   { id: 'icms_aeb', nome: 'ICMS — % A&B', pctRef: 2.12, baseLinhaIds: ['aeb'] },
-  { id: 'descontos_servicos', nome: 'Descontos sobre serviços — % Receita A&B', pctRef: 0, baseLinhaIds: ['hospedagem', 'moorea', 'alugueis', 'outrasIss', 'arrumacao'] },
+  { id: 'descontos_servicos', nome: 'Descontos sobre serviços — % Receita A&B', pctRef: 0, baseLinhaIds: ['hospedagem', 'alugueis', 'outrasIss', 'arrumacao'] },
   { id: 'descontos_aeb', nome: 'Descontos A&B — % A&B', pctRef: 0, baseLinhaIds: ['aeb'] },
 ];
 
@@ -3109,7 +3111,7 @@ function receitaBrutaPorMes(data, cambios) {
   }
   if (data.receita.linhas) {
     const linhasMes = {};
-    Object.entries(data.receita.linhas).forEach(([id, linha]) => {
+    Object.entries(data.receita.linhas).filter(([id]) => !LINHAS_DESCONTINUADAS_RESORTS.includes(id)).forEach(([id, linha]) => {
       // Bug de 2026-08-30: nunca confiar no premissaTipo armazenado nessas
       // linhas — ver nota em tipoLinhaReceitaResorts.
       const linhaTipada = { ...linha, premissaTipo: tipoLinhaReceitaResorts(id) || linha.premissaTipo };
@@ -4252,12 +4254,12 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     } else if (data.receita.linhas) {
       // Mesma normalização de premissaTipo de receitaBrutaPorMes — ver
       // tipoLinhaReceitaResorts (bug de 2026-08-30).
-      const linhasReceitaValidas = Object.entries(data.receita.linhas)
+      const linhasReceitaValidas = Object.entries(data.receita.linhas).filter(([id]) => !LINHAS_DESCONTINUADAS_RESORTS.includes(id))
         .filter(([id, l]) => valorLinhaAnual({ ...l, premissaTipo: tipoLinhaReceitaResorts(id) || l.premissaTipo }, null, null) > 0);
       checks.push({
         label: 'Receita: ao menos uma linha (Hospedagem, A&B, etc.) com valor lançado',
         ok: linhasReceitaValidas.length > 0,
-        detalhe: `${linhasReceitaValidas.length} de ${Object.keys(data.receita.linhas).length} linha(s) preenchida(s)`,
+        detalhe: `${linhasReceitaValidas.length} de ${Object.keys(data.receita.linhas).filter(id => !LINHAS_DESCONTINUADAS_RESORTS.includes(id)).length} linha(s) preenchida(s)`,
       });
     } else {
       // Mercado Externo (2026-08-23): preço mora em precoMoeda, não em
@@ -5974,7 +5976,7 @@ export default function OrcamentoARA({ usuario }) {
         });
       });
     } else if (d.receita.linhas) {
-      Object.entries(d.receita.linhas).forEach(([id, linha]) => {
+      Object.entries(d.receita.linhas).filter(([id]) => !LINHAS_DESCONTINUADAS_RESORTS.includes(id)).forEach(([id, linha]) => {
         const def = LINHAS_RECEITA_RESORTS.find(l => l.id === id);
         const ehQtdValor = def?.tipo === 'qtd_valor';
         linhasReceitaRows.push({
@@ -9723,6 +9725,21 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
 // Reaproveita valorLinhaMes/valorLinhaAnual — a mesma mecânica já usada em
 // Custos — em vez de inventar um cálculo novo.
 function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificativaGeral, atualizar, dre }) {
+  // Receita mensal de uma linha (premissaTipo sempre normalizado — ver tipoLinhaReceitaResorts).
+  const receitaLinhaMes = (id) => MESES.map((_, m) => valorLinhaMes({ ...(linhas[id] || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts(id) }, m, null, null));
+  const somar = (...series) => MESES.map((_, m) => series.reduce((acc, s) => acc + s[m], 0));
+  const total = (arr) => arr.reduce((a, v) => a + v, 0);
+  const hospedagemMes = receitaLinhaMes('hospedagem');
+  const aebMes = receitaLinhaMes('aeb');
+  const cafePensaoMes = receitaLinhaMes('cafePensao');
+  const alugueisMes = receitaLinhaMes('alugueis');
+  const issMes = receitaLinhaMes('outrasIss');
+  const arrumacaoMes = receitaLinhaMes('arrumacao');
+  const outrasMes = somar(alugueisMes, issMes, arrumacaoMes);
+  const hospedagemSemPensaoMes = MESES.map((_, m) => hospedagemMes[m] - cafePensaoMes[m]);
+  const linhaConsol = (key, label, valores, cor, nivel = 0) => ({
+    key, label: `${'    '.repeat(nivel)}${label}`, valoresMensal: valores, totalValor: total(valores), cor,
+  });
   return (
     <div>
       <h3 style={{ fontSize: 15, color: COR.azul, marginBottom: 4 }}>2. Premissas de receita — ARA Resorts</h3>
@@ -9774,7 +9791,15 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
               { key: 'valor', label: 'Valor (R$)', valores: linha.valores },
             ];
         return (
-          <div key={def.id} style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: COR.branco }}>
+          <React.Fragment key={def.id}>
+            {/* Título do grupo (2026-10-02): 1.2 Receita com A&B agrupa 1.2.1 e 1.2.2. */}
+            {def.id === 'aeb' && (
+              <h4 style={{ fontSize: 14, color: COR.azul, margin: '22px 0 10px' }}>1.2 Receita com A&amp;B</h4>
+            )}
+            {def.id === 'alugueis' && (
+              <h4 style={{ fontSize: 14, color: COR.azul, margin: '22px 0 10px' }}>1.3 Outras Receitas</h4>
+            )}
+          <div style={{ marginBottom: 18, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 12, background: COR.branco }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul, marginBottom: 8 }}>{def.nome}</div>
             {ehHospedagem && (
               <p style={{ fontSize: 10.5, color: '#7A8088', marginBottom: 8 }}>
@@ -9830,6 +9855,7 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
               />
             </div>
           </div>
+          </React.Fragment>
         );
       })}
 
@@ -9839,19 +9865,22 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
         Hospedagem (mesmo racional de Premissa Resorts.xlsx) — por isso a linha abaixo mostra o quanto disso
         está implícito na Hospedagem, só para conferência.
       </p>
+      {/* Subtotais com abertura (2026-10-02): 1.1 Hospedagem, 1.2 Receita com A&B e
+          1.3 Outras Receitas — a soma dos três é a Receita Operacional Bruta. */}
       <TabelaMensal
         linhas={[]}
         onChangeCelula={() => {}}
         linhasCalculadas={[
-          {
-            key: 'hospedagemSemPensao', label: 'Receita com Hospedagem sem Pensão (informativo)',
-            // Bug de 2026-08-30: nunca confiar no premissaTipo armazenado —
-            // ver nota em tipoLinhaReceitaResorts.
-            valoresMensal: MESES.map((_, m) => valorLinhaMes({ ...(linhas.hospedagem || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts('hospedagem') }, m, null, null) - valorLinhaMes({ ...(linhas.cafePensao || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts('cafePensao') }, m, null, null)),
-            totalValor: valorLinhaAnual({ ...(linhas.hospedagem || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts('hospedagem') }, null, null) - valorLinhaAnual({ ...(linhas.cafePensao || novaLinhaVazia()), premissaTipo: tipoLinhaReceitaResorts('cafePensao') }, null, null),
-            cor: '#8A8F96',
-          },
           { key: 'receitaBruta', label: 'Receita Operacional Bruta (R$)', valoresMensal: dre.receitaBrutaMes, totalValor: dre.receitaBruta, cor: COR.verde },
+          linhaConsol('sub11', '1.1 Hospedagem', hospedagemMes, COR.azul),
+          linhaConsol('ab11a', 'Hospedagem sem Pensão (informativo)', hospedagemSemPensaoMes, '#8A8F96', 1),
+          linhaConsol('ab11b', '1.2.2 Café e Pensão — embutida na tarifa da Hospedagem (informativo)', cafePensaoMes, '#8A8F96', 1),
+          linhaConsol('sub12', '1.2 Receita com A&B', aebMes, COR.azul),
+          linhaConsol('ab121', '1.2.1 Alimentação e Bebidas', aebMes, COR.texto, 1),
+          linhaConsol('sub13', '1.3 Outras Receitas', outrasMes, COR.azul),
+          linhaConsol('ab131', '1.3 Outras Receitas — Aluguéis', alugueisMes, COR.texto, 1),
+          linhaConsol('ab132', '1.3 Outras Receitas — ISS', issMes, COR.texto, 1),
+          linhaConsol('ab133', '1.3 Outras Receitas — Arrumação (LFCVH)', arrumacaoMes, COR.texto, 1),
         ]}
       />
 

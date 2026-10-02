@@ -52,10 +52,9 @@ export const LINHAS_RECEITA_RESORTS = [
   { id: 'hospedagem', nome: '1.1 Hospedagem', tipo: 'qtd_valor', rotuloQtd: 'Acomodações ocupadas (#)', rotuloValor: 'Tarifa média (R$/acomodação)' },
   { id: 'aeb', nome: '1.2.1 Alimentação e Bebidas', tipo: 'qtd_valor', rotuloQtd: 'Nº de adultos', rotuloValor: 'Consumo médio de A&B (R$)' },
   { id: 'cafePensao', nome: '1.2.2 Café e Pensão', tipo: 'qtd_valor', rotuloQtd: 'Nº de adultos', rotuloValor: 'Consumo médio (R$)' },
-  { id: 'moorea', nome: '1.3 Receita Moorea', tipo: 'direto' },
-  { id: 'alugueis', nome: '1.4 Outras Receitas — Aluguéis', tipo: 'direto' },
-  { id: 'outrasIss', nome: '1.4 Outras Receitas — ISS', tipo: 'direto' },
-  { id: 'arrumacao', nome: '1.4 Outras Receitas — Arrumação (LFCVH)', tipo: 'direto' },
+  { id: 'alugueis', nome: '1.3 Outras Receitas — Aluguéis', tipo: 'direto' },
+  { id: 'outrasIss', nome: '1.3 Outras Receitas — ISS', tipo: 'direto' },
+  { id: 'arrumacao', nome: '1.3 Outras Receitas — Arrumação (LFCVH)', tipo: 'direto' },
 ];
 
 // Café e Pensão NÃO soma na Receita Operacional Bruta (conferido célula a
@@ -70,6 +69,9 @@ export const LINHAS_RECEITA_RESORTS = [
 // 21), que só faz sentido se a Hospedagem contabilizada alhures já a
 // inclui. Somar Café e Pensão de novo na ROB duplicaria essa receita.
 export const LINHA_RECEITA_INFORMATIVA_RESORTS = 'cafePensao';
+// Linhas de receita dos Resorts retiradas da análise (2026-10-02): Moorea (sem dado).
+// Documentos antigos podem ainda ter a chave — ela é ignorada no cálculo.
+export const LINHAS_DESCONTINUADAS_RESORTS = ['moorea'];
 
 // O tipo de premissa de cada linha de receita.linhas (Resorts) é fixo pela
 // definição da linha acima (LINHAS_RECEITA_RESORTS) — não existe seletor de
@@ -99,7 +101,6 @@ export const REFERENCIA_2026_RESORTS = {
     quantidades: [10016, 9050.8248788187375, 9618.5790003501406, 8359, 8590, 7706, 9442.5669049214412, 8131.0436145593867, 7880.1196203354566, 8347.650837636982, 7900.2, 8593.2],
     valoresUnit: [137, 137, 137, 137, 137, 137, 137, 137, 137, 137, 137, 137],
   },
-  moorea: { valores: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
   alugueis: { valores: [44440.31319, 44925.98101, 37408.38846, 38883.43955, 36361.86099, 36356.57838, 35264.72194, 45054.08124, 35893.17442, 36897.52967, 36570.82575, 39410.89584] },
   outrasIss: { valores: [401195.74880677764, 237427.92535849859, 218095.91648298313, 179829.18701605801, 159576.43019061597, 149397.6768139115, 283459.1354225126, 169914.58164750063, 217737.89380903557, 196043.43297052011, 212255.70320833341, 292091.02520833345] },
   arrumacao: { valores: [11034.073218039501, 11071.717624384575, 13485.212167793332, 13173.58001700911, 15236.803356997434, 15180.440458644696, 21193.187684836041, 21411.073993284026, 23581.94180548103, 27911.989431083683, 28658.229974325044, 34813.01222088113] },
@@ -125,6 +126,6 @@ export const DEDUCOES_REF_RESORTS = [
   { id: 'pis_aeb', nome: 'PIS — % Receita A&B', pctRef: 1.65, baseLinhaIds: ['aeb', 'alugueis', 'arrumacao'] },
   { id: 'cofins_aeb', nome: 'Cofins — % Receita A&B', pctRef: 7.6, baseLinhaIds: ['aeb', 'alugueis', 'arrumacao'] },
   { id: 'icms_aeb', nome: 'ICMS — % A&B', pctRef: 2.12, baseLinhaIds: ['aeb'] },
-  { id: 'descontos_servicos', nome: 'Descontos sobre serviços — % Receita A&B', pctRef: 0, baseLinhaIds: ['hospedagem', 'moorea', 'alugueis', 'outrasIss', 'arrumacao'] },
+  { id: 'descontos_servicos', nome: 'Descontos sobre serviços — % Receita A&B', pctRef: 0, baseLinhaIds: ['hospedagem', 'alugueis', 'outrasIss', 'arrumacao'] },
   { id: 'descontos_aeb', nome: 'Descontos A&B — % A&B', pctRef: 0, baseLinhaIds: ['aeb'] },
 ];
