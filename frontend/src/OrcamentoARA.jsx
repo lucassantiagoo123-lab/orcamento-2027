@@ -50,6 +50,12 @@ const COR = {
   verde: '#008000',
   vermelho: '#C00000',
 };
+// Linhas totalizadoras das tabelas (2026-10-02, pedido do usuário): sempre fonte
+// preta em negrito — rótulos "(=) ..." e "Total ..." / "... TOTAL".
+const COR_TOTALIZADOR = '#000000';
+function ehLinhaTotalizadora(label) {
+  return typeof label === 'string' && /^\s*\(=\)|^\s*total\b|\btotal\s*$/i.test(label);
+}
 
 // logoAltura removido em 2026-09-07 (pedido: "logomarcas desalinhadas...
 // mesmo tamanho") — o tamanho na tela agora vem só da caixa fixa no render
@@ -4517,6 +4523,8 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
     );
   }
   function linhaCalculadaRow(linha) {
+    // Totalizadora (2026-10-02): preto em negrito, independente da cor da linha.
+    if (ehLinhaTotalizadora(linha.label)) linha = { ...linha, cor: COR_TOTALIZADOR };
     return (
       <tr key={linha.key} onClick={linha.onClick} style={{ background: COR.branco, cursor: linha.onClick ? 'pointer' : 'default' }}>
         <td style={{ fontWeight: 700, fontSize: 11.5, padding: '6px 10px', border: `1px solid ${COR.borda}`, position: 'sticky', left: 0, background: COR.branco, color: linha.cor || COR.azul }}>
@@ -8213,6 +8221,11 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
           drill-down por unidade a mais. */}
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por Terra do Sol (TDS) e Frutos do Sol (FDS).</p>
+      {/* Layout de 2026-10-02 (pedido do usuário): tabela mais estreita (coluna de
+          descrição menor) com os dois Bridges de Orçamento ao lado; os
+          Bridges 2027 vs 2026 ficam embaixo. */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 18 }}>
+        <div style={{ flex: '0 1 640px', minWidth: 320, overflowX: 'auto' }}>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
         {dre2026 && <Cabecalho2026 />}
         {CONTAS_SINTETICAS_DRE.map(conta => (
@@ -8226,12 +8239,8 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
         <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
       </div>
       <div style={{ marginBottom: 18 }}><NotaReferencia2026 dre2026={dre2026} /></div>
-
-      {/* 4 gráficos de Bridge (pedido de 2026-08-30, ordem/tamanho ajustados
-          em 2026-09-07 — ver nota completa em AbaRevisao): Orçamento
-          (Receita→EBITDA / EBITDA→FCO) juntos, 2027 vs 2026 (EBITDA / FCO)
-          juntos. */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
+        </div>
+        <div style={{ flex: '1 1 340px', minWidth: 300, display: 'grid', gap: 16 }}>
         <div>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
           <GraficoBridge etapas={bridgeReceitaEbitda} />
@@ -8240,6 +8249,14 @@ function ConsolidadoAgricola({ autorNome, setAutorNome, abrirVersao, ipcaAnualPc
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
           <GraficoBridge etapas={bridgeEbitdaFco} />
         </div>
+        </div>
+      </div>
+
+      {/* 4 gráficos de Bridge (pedido de 2026-08-30, ordem/tamanho ajustados
+          em 2026-09-07 — ver nota completa em AbaRevisao): Orçamento
+          (Receita→EBITDA / EBITDA→FCO) juntos, 2027 vs 2026 (EBITDA / FCO)
+          juntos. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
         <BridgesVs2026 bridges={bridges2026} />
       </div>
 
@@ -8515,6 +8532,11 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
           mesma informação, com drill-down por unidade a mais. */}
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por resort.</p>
+      {/* Layout de 2026-10-02 (pedido do usuário): tabela mais estreita (coluna de
+          descrição menor) com os dois Bridges de Orçamento ao lado; os
+          Bridges 2027 vs 2026 ficam embaixo. */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 18 }}>
+        <div style={{ flex: '0 1 640px', minWidth: 320, overflowX: 'auto' }}>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
         {dre2026 && <Cabecalho2026 />}
         {CONTAS_SINTETICAS_DRE.map(conta => (
@@ -8528,12 +8550,8 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
         <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
       </div>
       <div style={{ marginBottom: 18 }}><NotaReferencia2026 dre2026={dre2026} /></div>
-
-      {/* 4 gráficos de Bridge (pedido de 2026-08-30, ordem/tamanho ajustados
-          em 2026-09-07 — ver nota completa em AbaRevisao): Orçamento
-          (Receita→EBITDA / EBITDA→FCO) juntos, 2027 vs 2026 (EBITDA / FCO)
-          juntos. */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
+        </div>
+        <div style={{ flex: '1 1 340px', minWidth: 300, display: 'grid', gap: 16 }}>
         <div>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
           <GraficoBridge etapas={bridgeReceitaEbitda} />
@@ -8542,6 +8560,14 @@ function ConsolidadoResorts({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
           <GraficoBridge etapas={bridgeEbitdaFco} />
         </div>
+        </div>
+      </div>
+
+      {/* 4 gráficos de Bridge (pedido de 2026-08-30, ordem/tamanho ajustados
+          em 2026-09-07 — ver nota completa em AbaRevisao): Orçamento
+          (Receita→EBITDA / EBITDA→FCO) juntos, 2027 vs 2026 (EBITDA / FCO)
+          juntos. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
         <BridgesVs2026 bridges={bridges2026} />
       </div>
 
@@ -8736,6 +8762,11 @@ function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cam
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por empresa.</p>
+      {/* Layout de 2026-10-02 (pedido do usuário): tabela mais estreita (coluna de
+          descrição menor) com os dois Bridges de Orçamento ao lado; os
+          Bridges 2027 vs 2026 ficam embaixo. */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 18 }}>
+        <div style={{ flex: '0 1 640px', minWidth: 320, overflowX: 'auto' }}>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
         {dre2026 && <Cabecalho2026 />}
         {CONTAS_SINTETICAS_DRE.map(conta => (
@@ -8749,8 +8780,8 @@ function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cam
         <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
       </div>
       <div style={{ marginBottom: 18 }}><NotaReferencia2026 dre2026={dre2026} /></div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
+        </div>
+        <div style={{ flex: '1 1 340px', minWidth: 300, display: 'grid', gap: 16 }}>
         <div>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
           <GraficoBridge etapas={bridgeReceitaEbitda} />
@@ -8759,6 +8790,10 @@ function ConsolidadoEI({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct, cam
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
           <GraficoBridge etapas={bridgeEbitdaFco} />
         </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
         <BridgesVs2026 bridges={bridges2026} />
       </div>
 
@@ -8969,6 +9004,11 @@ function ConsolidadoTextil({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct,
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 20, marginBottom: 4 }}>DRE Consolidada — por conta sintética (R$)</h4>
       <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>Clique em uma conta para abrir a quebra por produção.</p>
+      {/* Layout de 2026-10-02 (pedido do usuário): tabela mais estreita (coluna de
+          descrição menor) com os dois Bridges de Orçamento ao lado; os
+          Bridges 2027 vs 2026 ficam embaixo. */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 18 }}>
+        <div style={{ flex: '0 1 640px', minWidth: 320, overflowX: 'auto' }}>
       <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
         {dre2026 && <Cabecalho2026 />}
         {CONTAS_SINTETICAS_DRE.map(conta => (
@@ -8982,8 +9022,8 @@ function ConsolidadoTextil({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct,
         <LinhasFcConsolidada dre2026={dre2026} itens={itensFcVs2026({ ebitda: dre.ebitda, ircsl: totalIrcslAno, fco: totalFcOperacional, fcInvestimento: totalFcInvestimento }, dre2026)} />
       </div>
       <div style={{ marginBottom: 18 }}><NotaReferencia2026 dre2026={dre2026} /></div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
+        </div>
+        <div style={{ flex: '1 1 340px', minWidth: 300, display: 'grid', gap: 16 }}>
         <div>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — Receita até EBITDA</div>
           <GraficoBridge etapas={bridgeReceitaEbitda} />
@@ -8992,6 +9032,10 @@ function ConsolidadoTextil({ autorNome, setAutorNome, abrirVersao, ipcaAnualPct,
           <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>Bridge Orçamento — EBITDA até FCO</div>
           <GraficoBridge etapas={bridgeEbitdaFco} />
         </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '18px 0' }}>
         <BridgesVs2026 bridges={bridges2026} />
       </div>
 
@@ -11001,6 +11045,7 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
   }
 
   function Linha({ label, valoresMensal, total, indent, onClick, aberto, temFilhos, cor, bold, bg }) {
+    if (ehLinhaTotalizadora(label)) { cor = COR_TOTALIZADOR; bold = true; }
     return (
       <tr style={{ background: bg || COR.branco }}>
         <td
@@ -11174,6 +11219,7 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
   const totalUnidadeAnual = totalUnidadeMes.reduce((a, v) => a + v, 0);
 
   function Linha({ label, valoresMensal, total, indent, onClick, aberto, temFilhos, cor, bold, bg }) {
+    if (ehLinhaTotalizadora(label)) { cor = COR_TOTALIZADOR; bold = true; }
     return (
       <tr style={{ background: bg || COR.branco }}>
         <td
@@ -14790,7 +14836,8 @@ function BridgesVs2026({ bridges }) {
 
 const LARGURAS_2026 = { valor: 104, delta: 96, pct: 62, atual: 108 };
 
-// Cabeçalho das colunas quando há referência 2026.
+// Cabeçalho das colunas quando há referência 2026. Ordem (2026-10-02, pedido
+// do usuário): 2026 à esquerda do 2027, variações logo depois do 2027.
 function Cabecalho2026({ padding = '6px 12px' }) {
   const th = (w, txt, sub) => (
     <span style={{ width: w, textAlign: 'right', flexShrink: 0 }}>
@@ -14801,25 +14848,30 @@ function Cabecalho2026({ padding = '6px 12px' }) {
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, padding, background: COR.claro, borderBottom: `1px solid ${COR.borda}`, fontSize: 10.5, fontWeight: 700, color: COR.azul }}>
       <span style={{ flex: 1 }}>Linha</span>
       {th(LARGURAS_2026.valor, '2026', 'Real jan–ago/26 + Prev. set–dez/26')}
+      {th(LARGURAS_2026.atual, '2027', 'Orçamento')}
       {th(LARGURAS_2026.delta, 'Δ R$', '2027 − 2026')}
       {th(LARGURAS_2026.pct, 'Δ %')}
-      {th(LARGURAS_2026.atual, '2027', 'Orçamento')}
     </div>
   );
 }
 
-// Células 2026 / Δ R$ / Δ % de uma linha. v2026 null/undefined = sem dado
-// (mostra "—"). Margem: Δ em pontos percentuais, sem Δ %.
-function Celulas2026({ v2026, v2027, margem }) {
+// Células 2026 / 2027 / Δ R$ / Δ % de uma linha. v2026 null/undefined = sem
+// dado (mostra "—"). Margem: Δ em pontos percentuais, sem Δ %. forte = linha
+// totalizadora: tudo em preto (o negrito vem da linha).
+function Celulas2026({ v2026, v2027, margem, forte }) {
   const sem = v2026 === null || v2026 === undefined;
   const delta = sem ? null : v2027 - v2026;
   const deltaPct = sem || margem || !v2026 ? null : (delta / Math.abs(v2026)) * 100;
-  const cor = v => (v < 0 ? COR.vermelho : COR.texto);
+  const cor = v => (forte ? COR_TOTALIZADOR : (v < 0 ? COR.vermelho : COR.texto));
   const cinza = '#8A8F96';
+  const fmt = v => (margem ? formatPct(v) : formatValor(v));
   return (
     <>
       <span style={{ width: LARGURAS_2026.valor, textAlign: 'right', flexShrink: 0, color: sem ? cinza : cor(v2026) }}>
-        {sem ? '—' : (margem ? formatPct(v2026) : formatValor(v2026))}
+        {sem ? '—' : fmt(v2026)}
+      </span>
+      <span style={{ width: LARGURAS_2026.atual, textAlign: 'right', flexShrink: 0, color: cor(v2027) }}>
+        {fmt(v2027)}
       </span>
       <span style={{ width: LARGURAS_2026.delta, textAlign: 'right', flexShrink: 0, color: sem ? cinza : cor(delta) }}>
         {sem ? '—' : (margem ? `${formatarNumeroExibicao(delta)} p.p.` : formatValor(delta))}
@@ -14858,9 +14910,10 @@ function LinhasFcConsolidada({ itens, dre2026 }) {
     const forte = it.tipo === 'subtotal' || it.tipo === 'total';
     return (
       <div key={it.label} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px 8px 30px', background: forte ? COR.total : COR.branco, borderBottom: `1px solid ${COR.borda}`, fontSize: 12.5, fontWeight: forte ? 700 : 400 }}>
-        <span style={{ flex: 1, color: COR.texto }}>{it.label}</span>
-        {dre2026 && <Celulas2026 v2026={it.valor2026} v2027={it.valor} />}
-        <span style={{ width: dre2026 ? LARGURAS_2026.atual : undefined, textAlign: 'right', flexShrink: 0, color: it.valor < 0 ? COR.vermelho : (forte ? COR.azul : COR.texto) }}>{formatValor(it.valor)}</span>
+        <span style={{ flex: 1, color: forte ? COR_TOTALIZADOR : COR.texto }}>{it.label}</span>
+        {dre2026
+          ? <Celulas2026 v2026={it.valor2026} v2027={it.valor} forte={forte} />
+          : <span style={{ textAlign: 'right', flexShrink: 0, color: forte ? COR_TOTALIZADOR : (it.valor < 0 ? COR.vermelho : COR.texto) }}>{formatValor(it.valor)}</span>}
       </div>
     );
   });
@@ -14962,7 +15015,7 @@ function CascataDRE({ dre, ifrs18, extras, dre2026 }) {
               borderBottom: `1px solid ${COR.borda}`,
               fontWeight: isSubtotalForte ? 700 : (isMargem ? 400 : 500),
               fontStyle: isMargem ? 'italic' : 'normal',
-              color: isMargem ? '#8A8F96' : COR.texto,
+              color: isMargem ? '#8A8F96' : (isSubtotalForte ? COR_TOTALIZADOR : COR.texto),
             }}
           >
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
@@ -14971,10 +15024,11 @@ function CascataDRE({ dre, ifrs18, extras, dre2026 }) {
                 <span style={{ fontSize: 9, fontWeight: 700, color: COR.azul, background: COR.branco, border: `1px solid ${COR.borda}`, borderRadius: 8, padding: '1px 6px' }}>{l.categoria}</span>
               )}
             </span>
-            {dre2026 && <Celulas2026 v2026={l.valor2026} v2027={l.valor} margem={isMargem} />}
-            <span style={{ width: dre2026 ? LARGURAS_2026.atual : undefined, textAlign: 'right', flexShrink: 0, color: l.valor < 0 && l.tipo !== 'margem' ? COR.vermelho : (isSubtotalForte ? COR.azul : COR.texto) }}>
-              {isMargem ? formatPct(l.valor) : formatValor(l.valor)}
-            </span>
+            {dre2026 ? <Celulas2026 v2026={l.valor2026} v2027={l.valor} margem={isMargem} forte={isSubtotalForte} /> : (
+              <span style={{ textAlign: 'right', flexShrink: 0, color: isSubtotalForte ? COR_TOTALIZADOR : (l.valor < 0 && l.tipo !== 'margem' ? COR.vermelho : COR.texto) }}>
+                {isMargem ? formatPct(l.valor) : formatValor(l.valor)}
+              </span>
+            )}
           </div>
         );
       })}
@@ -15025,6 +15079,7 @@ function DREMensalConsolidada({ lados, unidadeKind, ipcaAnualPct, cambios }) {
   function total(arr) { return arr.reduce((a, v) => a + v, 0); }
 
   function Linha({ label, valoresMensal, cor, bold, indent, onClick, aberto, temFilhos, bg }) {
+    if (ehLinhaTotalizadora(label)) { cor = COR_TOTALIZADOR; bold = true; }
     return (
       <tr style={{ background: bg || COR.branco }}>
         <td
@@ -15277,27 +15332,31 @@ function LinhaContaConsolidada({ conta, grupoObjeto, porUnidade, aberto, onToggl
         <span style={{
           display: 'flex', alignItems: 'center', gap: 6, flex: 1, fontSize: isMargem ? 10.5 : 12.5,
           fontWeight: isForte ? 700 : (isMargem ? 400 : 500), fontStyle: isMargem ? 'italic' : 'normal',
-          color: isMargem ? '#8A8F96' : COR.texto,
+          color: isMargem ? '#8A8F96' : (isForte ? COR_TOTALIZADOR : COR.texto),
         }}>
           {aberto ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           {conta.label}
           {isPendencia && <AlertTriangle size={11} color={COR.vermelho} />}
         </span>
-        {temRef && <span style={{ display: 'flex', gap: 8, fontSize: isMargem ? 10.5 : 12.5, fontWeight: isForte ? 700 : 400 }}><Celulas2026 v2026={grupo2026 ? valorConta(conta, grupo2026) : undefined} v2027={valorGrupo} margem={isMargem} /></span>}
-        <span style={{
-          fontSize: isMargem ? 10.5 : 12.5, fontWeight: isForte ? 700 : 400,
-          width: temRef ? LARGURAS_2026.atual : undefined, textAlign: 'right', flexShrink: 0, marginLeft: temRef ? 8 : 0,
-          color: isPendencia ? '#8A8F96' : (valorGrupo < 0 && !isMargem ? COR.vermelho : (isForte ? COR.azul : COR.texto)),
-        }}>
-          {isMargem ? formatPct(valorGrupo) : formatValor(valorGrupo)}
-        </span>
+        {temRef ? (
+          <span style={{ display: 'flex', gap: 8, fontSize: isMargem ? 10.5 : 12.5, fontWeight: isForte ? 700 : 400 }}>
+            <Celulas2026 v2026={grupo2026 ? valorConta(conta, grupo2026) : undefined} v2027={valorGrupo} margem={isMargem} forte={isForte} />
+          </span>
+        ) : (
+          <span style={{
+            fontSize: isMargem ? 10.5 : 12.5, fontWeight: isForte ? 700 : 400,
+            color: isPendencia ? '#8A8F96' : (isForte ? COR_TOTALIZADOR : (valorGrupo < 0 && !isMargem ? COR.vermelho : COR.texto)),
+          }}>
+            {isMargem ? formatPct(valorGrupo) : formatValor(valorGrupo)}
+          </span>
+        )}
       </button>
       {aberto && (
         <div style={{ background: COR.claro }}>
           {unidades.map(u => {
             const v = valorConta(conta, porUnidade[u.id]);
             return (
-              <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px 6px 30px', fontSize: 11.5, borderBottom: `1px solid ${COR.borda}` }}>
+              <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: temRef ? `6px ${12 + LARGURAS_2026.delta + LARGURAS_2026.pct + 16}px 6px 30px` : '6px 12px 6px 30px', fontSize: 11.5, borderBottom: `1px solid ${COR.borda}` }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: COR.texto }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: u.cor, display: 'inline-block', flexShrink: 0 }} />
                   {conta.label} | {u.nome}
@@ -16930,16 +16989,16 @@ function TabelaResultados({ linhas, serie, porUnidade, ini, fim }) {
     const bg = linha.total && nivel === 0 ? COR.total : COR.branco;
     return (
       <tr style={{ background: bg }}>
-        <td onClick={onClick} style={{ ...cel, textAlign: 'left', fontSize: 11, whiteSpace: 'normal', minWidth: 165, fontWeight: negrito ? 700 : 400, paddingLeft: 8 + nivel * 14, position: 'sticky', left: 0, background: bg, color: nivel ? '#7A8088' : (negrito ? COR.azul : COR.texto), cursor: clicavel ? 'pointer' : 'default', borderTop: linha.separador && nivel === 0 ? `2px solid ${COR.azul}` : undefined }}>
+        <td onClick={onClick} style={{ ...cel, textAlign: 'left', fontSize: 11, whiteSpace: 'normal', minWidth: 165, fontWeight: negrito ? 700 : 400, paddingLeft: 8 + nivel * 14, position: 'sticky', left: 0, background: bg, color: nivel ? '#7A8088' : (negrito ? COR_TOTALIZADOR : COR.texto), cursor: clicavel ? 'pointer' : 'default', borderTop: linha.separador && nivel === 0 ? `2px solid ${COR.azul}` : undefined }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {clicavel && (aberto ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
             {rotulo}
           </span>
         </td>
         {meses.map((_, i) => (
-          <td key={i} style={{ ...cel, fontWeight: negrito ? 700 : 400, color: nivel ? '#7A8088' : COR.texto }}>{formatValor(arr[ini + i] || 0)}</td>
+          <td key={i} style={{ ...cel, fontWeight: negrito ? 700 : 400, color: nivel ? '#7A8088' : (negrito ? COR_TOTALIZADOR : COR.texto) }}>{formatValor(arr[ini + i] || 0)}</td>
         ))}
-        <td style={{ ...cel, fontWeight: 700, fontSize: 11, color: nivel ? '#7A8088' : COR.azul }}>{formatValor(valorNoPeriodo(arr, linha, ini, fim))}</td>
+        <td style={{ ...cel, fontWeight: 700, fontSize: 11, color: nivel ? '#7A8088' : (negrito ? COR_TOTALIZADOR : COR.azul) }}>{formatValor(valorNoPeriodo(arr, linha, ini, fim))}</td>
       </tr>
     );
   }
