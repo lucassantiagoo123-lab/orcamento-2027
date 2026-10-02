@@ -4504,7 +4504,7 @@ function TabelaMensal({ linhas, onChangeCelula, corTotal, sufixo, formatarTotal,
           <InputNumerico
             value={dado.valor} placeholder={dado.placeholder}
             onChange={dado.onChange}
-            style={{ width: '100%', border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 11, color: COR.laranja, fontWeight: 700, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' }}
+            style={{ width: '100%', border: 'none', outline: 'none', padding: '5px 4px', fontFamily: FONT, fontSize: 11, color: '#000000', fontWeight: 700, background: 'transparent', boxSizing: 'border-box', textAlign: 'right' }}
           />
         ) : (
           <div style={{ textAlign: 'right', padding: '5px 4px', color: '#C7CBD1', fontSize: 11 }}>—</div>
@@ -9613,7 +9613,7 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
         colunaExtra={{ titulo: '% Refugo', chave: 'refugoInput' }}
         linhasCalculadas={[
           {
-            key: 'refugoKg', label: 'Safra Produção — Refugo (Kg)', valoresMensal: r.refugoKgMes, totalValor: somaMes(r.refugoKgMes), cor: COR.laranja, ...FMT_KG,
+            key: 'refugoKg', label: 'Safra Produção — Refugo (Kg)', valoresMensal: r.refugoKgMes, totalValor: somaMes(r.refugoKgMes), cor: '#000000', ...FMT_KG,
             refugoInput: { valor: ag.refugoPct, onChange: v => atualizarAgricola(['refugoPct'], v), placeholder: '0,0' },
           },
           { key: 'producaoTotal', label: 'Produção Total da Fazenda (Kg)', valoresMensal: r.producaoTotalKgMes, totalValor: somaMes(r.producaoTotalKgMes), cor: COR.azul, ...FMT_KG },
@@ -10827,7 +10827,7 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
             key: 'totalPessoal', label: 'Total Pessoal CLT',
             valoresMensal: folha.mensal.map((m, i) => m.total + (hcExistenteMes?.[i] || 0)),
             totalValor: folha.totalAnual + (hcExistenteMes?.reduce((a, v) => a + v, 0) || 0),
-            cor: COR.laranja,
+            cor: '#000000',
           },
         ]}
       />
@@ -11131,7 +11131,7 @@ function VisaoConsolidadaPorPacote({ refUnidade, ccsConsolidado, totalContaMesCC
               </React.Fragment>
             );
           })}
-          <Linha label="Total da unidade" valoresMensal={totalUnidadeMes} total={totalUnidadeAnual} bold cor={COR.laranja} />
+          <Linha label="Total da unidade" valoresMensal={totalUnidadeMes} total={totalUnidadeAnual} bold cor={'#000000'} />
         </tbody>
       </table>
     </div>
@@ -11270,7 +11270,7 @@ function VisaoConsolidadaPorCC({ refUnidade, ccsConsolidado, totalContaMesCC, fo
               </React.Fragment>
             );
           })}
-          <Linha label="Total da unidade" valoresMensal={totalUnidadeMes} total={totalUnidadeAnual} bold cor={COR.laranja} />
+          <Linha label="Total da unidade" valoresMensal={totalUnidadeMes} total={totalUnidadeAnual} bold cor={'#000000'} />
         </tbody>
       </table>
     </div>
@@ -11511,8 +11511,8 @@ function PainelComparativo2026({ unidadeId, refUnidade, dados, dre, ipcaAnualPct
               );
             })}
             <tr style={{ background: COR.total }}>
-              <td style={{ padding: '6px 10px', border: `1px solid ${COR.borda}`, fontSize: 11.5, fontWeight: 700, color: COR.laranja }}>{ehGestorCc ? 'Total do(s) meu(s) CC(s)' : 'Total da unidade'}</td>
-              <Celulas a={totalA} b={totalB} c={totalC} cor={COR.laranja} />
+              <td style={{ padding: '6px 10px', border: `1px solid ${COR.borda}`, fontSize: 11.5, fontWeight: 700, color: '#000000' }}>{ehGestorCc ? 'Total do(s) meu(s) CC(s)' : 'Total da unidade'}</td>
+              <Celulas a={totalA} b={totalB} c={totalC} cor={'#000000'} />
               <td style={{ border: `1px solid ${COR.borda}` }} />
             </tr>
           </tbody>
@@ -11678,7 +11678,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
               totalValor: totalCcAnual(f.codigo),
               cor: COR.texto,
             })),
-            { key: '__total__', label: `Total ${ccAtual.nome}`, valoresMensal: totalMes, totalValor: totalAnual, cor: COR.laranja },
+            { key: '__total__', label: `Total ${ccAtual.nome}`, valoresMensal: totalMes, totalValor: totalAnual, cor: '#000000' },
           ]}
         />
       </div>
@@ -11946,7 +11946,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
               label: `Total ${ccAtual.nome}`,
               valoresMensal: MESES.map((_, m) => todasContasCC.reduce((acc, c) => acc + totalContaMes(c.codigo, m), 0) + totalPessoalExtraCcMes[m]),
               totalValor: totalCC,
-              cor: COR.laranja,
+              cor: '#000000',
             },
           ]}
         />
@@ -12036,7 +12036,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                         label: `Total ${cc.nome}`,
                         valoresMensal: MESES.map((_, m) => totalCcMes(cc.codigo, m)),
                         totalValor: totalCcAno,
-                        cor: COR.laranja,
+                        cor: '#000000',
                       },
                     ]}
                   />
@@ -12206,7 +12206,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                             key: 'totalHcEx', label: 'Total — HC Existente',
                                             valoresMensal: hcExistenteMesCorp.map((v, m) => v + (dissidioRowCorp?.[m] || 0) + (meritocraciaRowCorp?.[m] || 0) + (bonusRowCorp?.[m] || 0)),
                                             totalValor: _somaRow(hcExistenteMesCorp) + _somaRow(dissidioRowCorp) + _somaRow(meritocraciaRowCorp) + _somaRow(bonusRowCorp),
-                                            cor: COR.laranja,
+                                            cor: '#000000',
                                           },
                                         ]}
                                       />
@@ -12253,7 +12253,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                       key: 'totalNovoHc', label: 'Total — Novo HC',
                                       valoresMensal: folhaAtual.mensal.map((m, i) => m.total + (encargosNovoHcRowCorp?.[i] || 0)),
                                       totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowCorp),
-                                      cor: COR.laranja,
+                                      cor: '#000000',
                                     },
                                   ]}
                                 />
@@ -12301,7 +12301,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                   label: 'Total CORP03 (Remuneração + Bônus)',
                                   valoresMensal: MESES.map((_, m) => (corp03MesCorp?.[m] || 0) + (bonusPjRowCorp?.[m] || 0)),
                                   totalValor: _somaRow(corp03MesCorp) + _somaRow(bonusPjRowCorp),
-                                  cor: COR.laranja,
+                                  cor: '#000000',
                                 },
                               ] : undefined}
                             />
@@ -12456,7 +12456,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                         key: 'totalHcEx', label: 'Total — HC Existente',
                                         valoresMensal: hcExistenteMesTextil.map((v, m) => v + (dissidioRow1Textil?.[m] || 0) + (dissidioRow2Textil?.[m] || 0) + (meritocraciaRowTextil?.[m] || 0) + (bonusRowTextil?.[m] || 0)),
                                         totalValor: _somaRow(hcExistenteMesTextil) + _somaRow(dissidioRow1Textil) + _somaRow(dissidioRow2Textil) + _somaRow(meritocraciaRowTextil) + _somaRow(bonusRowTextil),
-                                        cor: COR.laranja,
+                                        cor: '#000000',
                                       },
                                     ]}
                                   />
@@ -12500,7 +12500,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                             ...Object.entries(a.linhas).map(([chave, valores]) => ({
                                               key: chave, label: nomeConta(a.contaDaChave[chave]), valoresMensal: valores, totalValor: _somaRow(valores), cor: COR.texto,
                                             })),
-                                            { key: 'abTot', label: 'Total — abertura', valoresMensal: a.totalMes, totalValor: a.totalAnual, cor: COR.laranja },
+                                            { key: 'abTot', label: 'Total — abertura', valoresMensal: a.totalMes, totalValor: a.totalAnual, cor: '#000000' },
                                             { key: 'abCons', label: 'Valor consolidado atual (HC Existente)', valoresMensal: consolidado, totalValor: _somaRow(consolidado), cor: '#8A8F96' },
                                             { key: 'abDif', label: 'Diferença (abertura − consolidado)', valoresMensal: a.totalMes.map((v, m) => v - consolidado[m]), totalValor: a.totalAnual - _somaRow(consolidado), cor: COR.azul },
                                           ]}
@@ -12577,7 +12577,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                       ...(dissidioNovoHcRow1Textil ? [{ key: 'dissidioNovoHc1', label: `Dissídio 1${_ppC.dissidioMes ? ` — ${_ppC.dissidioMes}` : ''}${_ppC.dissidioPct ? ` (${_ppC.dissidioPct}%)` : ''}`, valoresMensal: dissidioNovoHcRow1Textil, totalValor: _somaRow(dissidioNovoHcRow1Textil), cor: COR.texto }] : []),
                                       ...(dissidioNovoHcRow2Textil ? [{ key: 'dissidioNovoHc2', label: `Dissídio 2${_ppC.dissidioMes2 ? ` — ${_ppC.dissidioMes2}` : ''}${_ppC.dissidioPct2 ? ` (${_ppC.dissidioPct2}%)` : ''}`, valoresMensal: dissidioNovoHcRow2Textil, totalValor: _somaRow(dissidioNovoHcRow2Textil), cor: COR.texto }] : []),
                                       ...(encargosNovoHcRowTextil ? [{ key: 'encargosNovoHc', label: `Encargos e Benefícios${_ppC.encargosNovoHcPct ? ` — ${_ppC.encargosNovoHcPct}%` : ''}`, valoresMensal: encargosNovoHcRowTextil, totalValor: _somaRow(encargosNovoHcRowTextil), cor: COR.texto }] : []),
-                                      { key: 'totalNovoHcTextil', label: 'Total — Novo HC', valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + (encargosNovoHcRowTextil?.[m] || 0)), totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowTextil), cor: COR.laranja },
+                                      { key: 'totalNovoHcTextil', label: 'Total — Novo HC', valoresMensal: MESES.map((_, m) => folhaAtual.mensal[m].total + (encargosNovoHcRowTextil?.[m] || 0)), totalValor: folhaAtual.totalAnual + _somaRow(encargosNovoHcRowTextil), cor: '#000000' },
                                     ]}
                                   />
                                 </div>
@@ -12722,7 +12722,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                               label: `Total ${CONTA_COMISSAO_POC} (Lançado + POC)`,
                               valoresMensal: MESES.map((_, m) => totalContaMes(c.codigo, m) + (comissaoPocRow[m] || 0)),
                               totalValor: totalConta(c.codigo) + _somaRow(comissaoPocRow),
-                              cor: COR.laranja,
+                              cor: '#000000',
                             },
                           ]}
                         />
@@ -12765,7 +12765,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                             label: 'Total CORP10 (Lançado + Novo HC)',
                             valoresMensal: MESES.map((_, m) => totalContaMes(c.codigo, m) + (licencaSoftwareNovoHcRowCorp?.[m] || 0)),
                             totalValor: totalConta(c.codigo) + _somaRow(licencaSoftwareNovoHcRowCorp),
-                            cor: COR.laranja,
+                            cor: '#000000',
                           },
                         ] : undefined}
                       />
@@ -13055,7 +13055,7 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
               label: 'Total CapEx',
               valoresMensal: MESES.map((_, m) => projetosVisiveis.reduce((acc, p) => acc + parseNum(desembolsosDoProjeto(p)[m]), 0) + (capexEquipNovoHcRowCorp?.[m] || 0)),
               totalValor: projetosVisiveis.reduce((acc, p) => acc + somaMes(desembolsosDoProjeto(p)), 0) + _somaCapexEquip,
-              cor: COR.laranja,
+              cor: '#000000',
             },
           ]}
         />
@@ -13355,7 +13355,7 @@ function AbaInvestimentosEscritorio({ projetos, addProjeto, updateProjeto, remov
                           linhasCalculadas={[{
                             key: 'liquido', label: 'Efeito no FC de Investimentos',
                             valoresMensal: MESES.map((_, m) => parseNum(p.dividendos?.[m]) - parseNum(p.aportes?.[m])),
-                            totalValor: liquido, cor: COR.laranja,
+                            totalValor: liquido, cor: '#000000',
                           }]}
                         />
                       </div>
@@ -13390,7 +13390,7 @@ function TabelaFcInvestimentosEscritorio({ projetos }) {
       linhas={[]} onChangeCelula={() => {}}
       linhasCalculadas={[
         ...linhas,
-        { key: '__total__', label: 'FC de Investimentos (dividendos − aportes)', valoresMensal: totalMes, totalValor: totalMes.reduce((a, v) => a + v, 0), cor: COR.laranja },
+        { key: '__total__', label: 'FC de Investimentos (dividendos − aportes)', valoresMensal: totalMes, totalValor: totalMes.reduce((a, v) => a + v, 0), cor: '#000000' },
       ]}
     />
   );
@@ -13519,7 +13519,7 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
                   />
                 </td>
               ))}
-              <td style={{ ...TD, background: COR.claro, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>{formatValor(totalFlat)}</td>
+              <td style={{ ...TD, background: COR.claro, fontWeight: 700, color: '#000000', padding: '3px 8px' }}>{formatValor(totalFlat)}</td>
               <td style={{ ...TD, background: COR.claro }}></td>
             </tr>
             {/* linhas por conta */}
@@ -13547,7 +13547,7 @@ function BlocoLinhasGiro({ titulo, flatValores, onChangeFlat, linhas, onAdd, onR
                       />
                     </td>
                   ))}
-                  <td style={{ ...TD, background: COR.branco, fontWeight: 600, color: COR.laranja, padding: '2px 8px' }}>{formatValor(tot)}</td>
+                  <td style={{ ...TD, background: COR.branco, fontWeight: 700, color: '#000000', padding: '2px 8px' }}>{formatValor(tot)}</td>
                   <td style={{ ...TD, background: COR.branco, textAlign: 'center' }}>
                     <button
                       onClick={() => onRemove(idx)}
@@ -13908,7 +13908,7 @@ function AbaGiroPacotes({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAn
                         )}
                       </td>
                     ))}
-                    <td style={{ ...TD, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>
+                    <td style={{ ...TD, fontWeight: 700, color: '#000000', padding: '3px 8px' }}>
                       {formatValor(config.tipo === 'valor_direto' ? valsTotal : pagMes.reduce((a, v) => a + v, 0))}
                     </td>
                   </tr>
@@ -14265,7 +14265,7 @@ function AbaGiroTextil({ capitalGiro, atualizar, dre, dados, refUnidade, ipcaAnu
                             )}
                           </td>
                         ))}
-                        <td style={{ ...TD, fontWeight: 600, color: COR.laranja, padding: '3px 8px' }}>
+                        <td style={{ ...TD, fontWeight: 700, color: '#000000', padding: '3px 8px' }}>
                           {formatValor(config.tipo === 'valor_direto' ? valsTotal : pagMes.reduce((a, v) => a + v, 0))}
                         </td>
                       </tr>
@@ -14681,7 +14681,7 @@ function AbaBalancoPlanoContasTextil({ planoContas, saldosIniciais, atualizar })
         onChangeCelula={() => {}}
         linhasCalculadas={[
           { key: 'ativoTotal', label: 'ATIVO TOTAL', valoresMensal: calc.ativoTotalMes, totalValor: somaMes(calc.ativoTotalMes), cor: COR.azul, inicial: { valor: calc.ativoInicial, onChange: () => {}, placeholder: '' } },
-          { key: 'passivoPlTotal', label: 'PASSIVO E PL TOTAL', valoresMensal: calc.passivoPlTotalMes, totalValor: somaMes(calc.passivoPlTotalMes), cor: COR.laranja, inicial: { valor: calc.passivoPlInicial, onChange: () => {}, placeholder: '' } },
+          { key: 'passivoPlTotal', label: 'PASSIVO E PL TOTAL', valoresMensal: calc.passivoPlTotalMes, totalValor: somaMes(calc.passivoPlTotalMes), cor: '#000000', inicial: { valor: calc.passivoPlInicial, onChange: () => {}, placeholder: '' } },
           { key: 'check', label: 'Check Balanço (Ativo − Passivo e PL)', valoresMensal: calc.checkMes, totalValor: somaMes(calc.checkMes), cor: COR.verde, inicial: { valor: calc.checkInicial, onChange: () => {}, placeholder: '' } },
         ]}
       />
@@ -14898,7 +14898,7 @@ function DREMensalConsolidada({ lados, unidadeKind, ipcaAnualPct, cambios }) {
           <LinhasPorLado chave="__desp_pessoal__" nome="Despesas com Pessoal" porLado={despesasOp.pessoal} />
           <LinhasPorLado chave="__desp_vendas__" nome="Despesas com Vendas" porLado={despesasOp.vendas} />
           <LinhasPorLado chave="__desp_gerais__" nome="Despesas Gerais" porLado={despesasOp.gerais} />
-          <Linha label="(=) EBITDA" valoresMensal={ebitdaMes} cor={COR.laranja} bold bg={COR.total} />
+          <Linha label="(=) EBITDA" valoresMensal={ebitdaMes} cor={'#000000'} bold bg={COR.total} />
           <Linha label="(-) Depreciação e Amortização" valoresMensal={depreciacaoMes.map(v => -v)} cor={COR.vermelho} />
           <Linha label="(+/-) Resultado Financeiro" valoresMensal={resultadoFinanceiroMes} cor={COR.texto} />
           <Linha label="(+/-) Outras Receitas e Despesas" valoresMensal={outrasMes} cor={COR.texto} />
@@ -15441,7 +15441,7 @@ function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaA
             { key: 'cpv', label: '(-) CPV', valoresMensal: fd.cpvMes.map(v => -v), totalValor: -fd.cpvMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
             { key: 'lucroBruto', label: '(=) Lucro Bruto', valoresMensal: fd.lucroBrutoMes, totalValor: fd.lucroBrutoMes.reduce((a, v) => a + v, 0), cor: COR.azul },
             { key: 'despesas', label: '(-) Despesas Operacionais', valoresMensal: fd.despesasSemDAmes.map(v => -v), totalValor: -fd.despesasSemDAmes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
-            { key: 'ebitdaDRE', label: '(=) EBITDA', valoresMensal: fd.ebitdaMes, totalValor: fd.ebitdaMes.reduce((a, v) => a + v, 0), cor: COR.laranja },
+            { key: 'ebitdaDRE', label: '(=) EBITDA', valoresMensal: fd.ebitdaMes, totalValor: fd.ebitdaMes.reduce((a, v) => a + v, 0), cor: '#000000' },
             { key: 'depreciacaoDRE', label: '(-) Depreciação e Amortização', valoresMensal: fd.depreciacaoMes.map(v => -v), totalValor: -fd.depreciacaoMes.reduce((a, v) => a + v, 0), cor: COR.vermelho },
             { key: 'resultadoFin', label: '(+/-) Resultado Financeiro', valoresMensal: fd.resultadoFinanceiroMes, totalValor: fd.resultadoFinanceiroMes.reduce((a, v) => a + v, 0), cor: COR.texto },
             { key: 'outrasDRE', label: '(+/-) Outras Receitas e Despesas', valoresMensal: fd.outrasMes, totalValor: fd.outrasMes.reduce((a, v) => a + v, 0), cor: COR.texto },
@@ -15475,7 +15475,7 @@ function AbaRevisao({ usuario, refUnidade, unidadeId, versoes, dados, dre, ipcaA
             { key: 'fcop', label: '(=) FC Operacional', valoresMensal: fd.fcOperacionalMes, totalValor: totalFcOperacional, cor: COR.verde },
             { key: 'fcinv', label: '(=) FC Investimentos', valoresMensal: fd.fcInvestimentoMes, totalValor: totalFcInvestimento, cor: COR.vermelho },
             { key: 'fcfin', label: '(=) FC Financiamentos', valoresMensal: fd.fcFinanciamentoMes, totalValor: totalFcFinanciamento, cor: COR.azul },
-            { key: 'varcaixa', label: '(=) Variação de Caixa no Mês', valoresMensal: fd.variacaoCaixaMes, totalValor: totalVariacaoCaixa, cor: COR.laranja },
+            { key: 'varcaixa', label: '(=) Variação de Caixa no Mês', valoresMensal: fd.variacaoCaixaMes, totalValor: totalVariacaoCaixa, cor: '#000000' },
             { key: 'caixaacum', label: 'Caixa Acumulado', valoresMensal: fd.caixaAcumuladoMes, totalValor: fd.caixaAcumuladoMes[11], cor: COR.azul, formatarTotal: v => formatValor(fd.caixaAcumuladoMes[11]) },
           ]}
         />
