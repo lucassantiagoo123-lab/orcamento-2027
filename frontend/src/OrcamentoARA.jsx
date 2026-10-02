@@ -16896,12 +16896,12 @@ const WATERFALLS_RESULTADOS = {
   fin: [{ titulo: 'FC de Financiamentos', componentes: ['captacoes', 'amortizacoes', 'juros', 'aportesAcionistas', 'distMinoritarios', 'distSocios', 'emprestimosAcionistas', 'devolucaoEmprestimos'], total: 'fin' }],
   caixa: [{ titulo: 'Saldo de Caixa', componentes: ['fco', 'fci', 'fin', 'bloqueadosNeg'], total: 'disponivel', fluxo: true }],
 };
-// 2027 = orçamento da plataforma. 2026: o usuário ainda vai compartilhar os
-// dados (2026-09-28) — enquanto isso, os waterfalls ficam como pendência
-// (nenhum valor digitado ou estimado). Quando chegar, SERIE_2026 recebe a
-// mesma estrutura de serieResultadosUnidade, por unidade ('grupo' incluso).
+// 2027 = orçamento da plataforma. 2026 = referência DRE 2026 (migração 0024,
+// anual, até o FCL) — ver WaterfallAnual.
 const ANOS_WATERFALL = { de: 2026, para: 2027 };
-const SERIE_2026 = null;
+// Unidades do Grupo com referência DRE 2026.
+const UNIDADES_REFERENCIA_2026_RESULTADOS = ['textil_consolidado', 'agricola', 'resorts', 'ei'];
+const NOMES_CURTOS_REFERENCIA_2026 = { textil_consolidado: 'Têxtil', agricola: 'Agrícola', resorts: 'Resorts', ei: 'ARA EI' };
 
 const negarSerie = (arr) => arr.map(v => -v);
 
@@ -17035,52 +17035,66 @@ function TabelaResultados({ linhas, serie, porUnidade, ini, fim }) {
   );
 }
 
-// Waterfall 2026 → 2027 (pedido do usuário, 2026-09-28): parte do total de
-// 2026, mostra a variação de cada conta sintética e chega ao total do
-// orçamento 2027 (a base atual), no mesmo período do filtro. O Saldo de
-// Caixa é de fluxo: parte do saldo final de 2026 e soma FCO, FCI,
-// Financiamentos e saldos bloqueados de 2027 até o saldo disponível. Sem os
-// dados de 2026, mostra a pendência no lugar do gráfico.
+// Waterfall 2026 → 2027 (pedido do usuário, 2026-09-28; ligado à referência
+// DRE 2026 em 2026-10-02): parte do total de 2026, mostra a variação de cada
+// conta sintética e chega ao total do orçamento 2027 (a base atual).
+// A referência 2026 (migração 0024) é ANUAL e vai até o Fluxo de Caixa Livre:
+// só existe no período Jan–Dez, e Financiamentos/Saldo de Caixa de 2026 não
+// foram carregados — nesses casos o gráfico mostra o motivo, sem estimar nada.
+// 2026 não separa o capital de giro dos ajustes de competência × caixa, então
+// no FCO os três entram juntos ("Var. NCG e ajustes"); no FCI, 2026 só traz o
+// total (sem os grupos de CapEx).
 const TODAS_LINHAS_RESULTADOS = Object.values(LINHAS_RESULTADOS).flat();
+const ROTULOS_EXTRA_WATERFALL = { ncgAjustes: 'Var. NCG e ajustes' };
 function rotuloCurto(k) {
+  if (ROTULOS_EXTRA_WATERFALL[k]) return ROTULOS_EXTRA_WATERFALL[k];
   return (TODAS_LINHAS_RESULTADOS.find(l => l.k === k)?.label || k).replace(/^\([^)]*\)\s*/, '');
 }
-function WaterfallAnual({ config, anterior, atual, ini, fim, nomeFiltro }) {
+// Componentes usados quando a comparação é com o 2026 anual.
+const COMPONENTES_ANUAL_2026 = {
+  'FC Operacional': ['ebitda', 'ircsl', 'ncgAjustes'],
+  'FC de Investimentos': ['fci'],
+};
+// Referência 2026 (formato calcularDre2026) → valores anuais no sinal da série
+// de Resultados (custos e saídas negativos).
+function anual2026DaReferencia(d) {
+  return {
+    receitaBruta: d.receitaBruta, deducoes: -d.deducoes, receitaLiquida: d.receitaLiquida,
+    cpv: -d.cpv, despesas: -d.despesasSemDA, ebitda: d.ebitda,
+    ircsl: -d.ircslCaixa, ncgAjustes: d.variacaoNcg, fco: d.fco, fci: d.fcInvestimento, fcf: d.fcl,
+  };
+}
+function somarAnuais(lista) {
+  const out = {};
+  lista.forEach(o => Object.keys(o).forEach(k => { out[k] = (out[k] || 0) + o[k]; }));
+  return out;
+}
+function WaterfallAnual({ config, anterior, motivo, atual, ini, fim, nomeFiltro }) {
   const titulo = `${config.titulo} — ${nomeFiltro} · ${ANOS_WATERFALL.de} → ${ANOS_WATERFALL.para}`;
-  if (!anterior) {
+  const anoInteiro = ini === 0 && fim === 11;
+  const semDado2026 = config.fluxo || config.titulo === 'FC de Financiamentos';
+  const aviso = !anterior ? motivo
+    : !anoInteiro ? `A referência ${ANOS_WATERFALL.de} é anual — selecione o período Jan a Dez para ver o gráfico.`
+    : semDado2026 ? `A referência ${ANOS_WATERFALL.de} vai até o Fluxo de Caixa Livre — ${config.titulo} de ${ANOS_WATERFALL.de} não foi carregado (ver Pendências).`
+    : null;
+  if (aviso) {
     return (
       <div style={{ border: `1px dashed ${COR.laranja}`, borderRadius: 8, padding: 14, background: COR.total }}>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>{titulo}</div>
-        <div style={{ fontSize: 11, color: COR.texto }}>
-          Aguardando os dados de {ANOS_WATERFALL.de} — gráfico pendente (ver Pendências). O lado {ANOS_WATERFALL.para} já vem do orçamento.
-        </div>
+        <div style={{ fontSize: 11, color: COR.texto }}>{aviso}</div>
       </div>
     );
   }
-  const linhaDe = (k) => TODAS_LINHAS_RESULTADOS.find(l => l.k === k) || {};
-  const noPeriodo = (serie, k) => valorNoPeriodo(serie[k] || [], linhaDe(k), ini, fim);
-  let etapas;
-  if (config.fluxo) {
-    // Saldo final de 2026 deveria ser o saldo inicial de 2027 do orçamento;
-    // se não bater, a diferença aparece como barra própria (as barras
-    // continuam somando até o total, sem esconder a divergência).
-    const saldoAnterior = (anterior.saldoFinal || [])[fim] || 0;
-    const diferencaAbertura = (atual.saldoInicial?.[ini] || 0) - saldoAnterior;
-    etapas = [
-      { label: `Saldo ${ANOS_WATERFALL.de}`, valor: saldoAnterior, tipo: 'inicio' },
-      ...(Math.abs(diferencaAbertura) > 0.01 ? [{ label: 'Diferença de abertura', valor: diferencaAbertura, tipo: 'incremento' }] : []),
-      ...config.componentes.map(k => ({ label: rotuloCurto(k), valor: noPeriodo(atual, k), tipo: 'incremento' })),
-      { label: `Saldo ${ANOS_WATERFALL.para}`, valor: noPeriodo(atual, config.total), tipo: 'total' },
-    ];
-  } else {
-    etapas = [
-      { label: String(ANOS_WATERFALL.de), valor: noPeriodo(anterior, config.total), tipo: 'inicio' },
-      ...config.componentes
-        .map(k => ({ k, label: rotuloCurto(k), valor: noPeriodo(atual, k) - noPeriodo(anterior, k), tipo: 'incremento' }))
-        .filter(e => !(linhaDe(e.k).soSeHouver && e.valor === 0)),
-      { label: String(ANOS_WATERFALL.para), valor: noPeriodo(atual, config.total), tipo: 'total' },
-    ];
-  }
+  // Ano inteiro: soma dos 12 meses do orçamento.
+  const val2027 = (k) => (k === 'ncgAjustes'
+    ? ['ajuste13', 'variacaoGiro', 'ajustePagamento'].reduce((a, kk) => a + atual[kk].reduce((s, v) => s + v, 0), 0)
+    : (atual[k] || []).reduce((s, v) => s + v, 0));
+  const componentes = COMPONENTES_ANUAL_2026[config.titulo] || config.componentes;
+  const etapas = [
+    { label: String(ANOS_WATERFALL.de), valor: anterior[config.total] || 0, tipo: 'inicio' },
+    ...componentes.map(k => ({ label: componentes.length === 1 && k === config.total ? 'Variação' : rotuloCurto(k), valor: val2027(k) - (anterior[k] || 0), tipo: 'incremento' })),
+    { label: String(ANOS_WATERFALL.para), valor: val2027(config.total), tipo: 'total' },
+  ];
   return (
     <div>
       <div style={{ fontSize: 11.5, fontWeight: 700, color: COR.azul, marginBottom: 2 }}>{titulo}</div>
@@ -17089,13 +17103,295 @@ function WaterfallAnual({ config, anterior, atual, ini, fim, nomeFiltro }) {
   );
 }
 
-const CHAVE_SENSIBILIDADE_FCO = 'obz2027_sensibilidade_fco_pct';
-function lerPercentuaisSensibilidade() {
+// ---------------------------------------------------------------------------
+// Sensibilidade de caixa (2026-10-02) — Resultados Consolidados, visão 5.
+// Cada cenário tem duas alavancas (premissas digitadas pelo FP&A): % do FCO
+// realizado e % de execução do CapEx (só os grupos de CapEx — aportes em
+// investidas e dividendos ficam como no orçamento). Tudo o mais vem da série
+// do orçamento, mês a mês:
+//   FCO sens. = FCO × %FCO; FCI sens. = FCI − CapEx + CapEx × %CapEx;
+//   variação = FCO sens. + FCI sens. + Financiamentos;
+//   saldo final = saldo inicial do período + variações acumuladas;
+//   saldo disponível = saldo final − saldos bloqueados.
+// Com 100% / 100% reproduz o orçamento (checado na tela).
+// ---------------------------------------------------------------------------
+const CHAVE_SENSIBILIDADE_CAIXA = 'obz2027_sensibilidade_caixa_v2';
+const CORES_CENARIOS = ['#0C4391', '#FFA707', '#008000', '#C00000', '#79834F', '#0069B4', '#F07D00'];
+const GRADE_FCO_PCT = [70, 80, 90, 100, 110];
+const GRADE_CAPEX_PCT = [50, 75, 100, 125];
+
+function lerCenariosCaixa() {
   try {
-    const v = JSON.parse(localStorage.getItem(CHAVE_SENSIBILIDADE_FCO) || 'null');
-    if (Array.isArray(v) && v.length) return v.map(String);
+    const v = JSON.parse(localStorage.getItem(CHAVE_SENSIBILIDADE_CAIXA) || 'null');
+    if (v && Array.isArray(v.cenarios) && v.cenarios.length) return v;
+    // Versão anterior: só a lista de % do FCO.
+    const antigo = JSON.parse(localStorage.getItem('obz2027_sensibilidade_fco_pct') || 'null');
+    if (Array.isArray(antigo) && antigo.length) return { cenarios: antigo.map(p => ({ fco: String(p), capex: '100' })), caixaMinimo: '' };
   } catch { /* storage indisponível: usa o padrão */ }
-  return ['100'];
+  return { cenarios: [{ fco: '100', capex: '100' }, { fco: '90', capex: '100' }, { fco: '80', capex: '75' }], caixaMinimo: '' };
+}
+
+function capexDaSerie(serie, m) {
+  return serie.capexCarryover[m] + serie.capexMelhoria[m] + serie.capexDesenvolvimento[m] + serie.capexSemCategoria[m];
+}
+
+// Simula um cenário no período [ini, fim]. Devolve as séries mensais (só do
+// período) e os indicadores de liquidez.
+function simularCaixa(serie, ini, fim, pctFco, pctCapex, caixaMinimo) {
+  const meses = [];
+  let saldo = serie.saldoInicial[ini];
+  for (let m = ini; m <= fim; m++) {
+    const fco = serie.fco[m] * pctFco / 100;
+    const capex = capexDaSerie(serie, m);
+    const fci = serie.fci[m] - capex + capex * pctCapex / 100;
+    const fin = serie.fin[m];
+    const variacao = fco + fci + fin;
+    saldo += variacao;
+    meses.push({ m, fco, fci, fin, variacao, saldoFinal: saldo, bloqueados: serie.bloqueados[m], disponivel: saldo - serie.bloqueados[m] });
+  }
+  const soma = k => meses.reduce((a, x) => a + x[k], 0);
+  const minimo = meses.reduce((a, x) => (x.disponivel < a.disponivel ? x : a), meses[0]);
+  const abaixo = meses.filter(x => x.disponivel < caixaMinimo);
+  return {
+    meses, fco: soma('fco'), fci: soma('fci'), fin: soma('fin'), variacao: soma('variacao'),
+    fcf: soma('fco') + soma('fci'),
+    saldoFinal: meses[meses.length - 1].saldoFinal, disponivel: meses[meses.length - 1].disponivel,
+    minimo, mesesAbaixo: abaixo.map(x => MESES[x.m]),
+    // Captação adicional para o saldo disponível nunca ficar abaixo do caixa mínimo.
+    necessidadeCaptacao: Math.max(0, caixaMinimo - minimo.disponivel),
+  };
+}
+
+
+// Menor % do FCO (com o %CapEx do cenário) que mantém o saldo disponível ≥
+// caixa mínimo em todos os meses do período. disponivel(m) é linear em %FCO:
+// base(m) + %FCO × FCO acumulado(m) ≥ caixa mínimo. Mês com FCO acumulado
+// positivo impõe um piso ao %FCO; mês com FCO acumulado negativo impõe um
+// teto (mais FCO piora o caixa). null = nenhum % atende só pelo FCO.
+function fcoMinimoParaCaixa(serie, ini, fim, pctCapex, caixaMinimo) {
+  const base = simularCaixa(serie, ini, fim, 0, pctCapex, caixaMinimo).meses;
+  let acumFco = 0;
+  let piso = 0;
+  let teto = Infinity;
+  for (let i = 0; i < base.length; i++) {
+    acumFco += serie.fco[base[i].m];
+    const falta = caixaMinimo - base[i].disponivel; // com FCO = 0
+    if (acumFco > 0) piso = Math.max(piso, (falta / acumFco) * 100);
+    else if (acumFco < 0) teto = Math.min(teto, (falta / acumFco) * 100);
+    else if (falta > 0.01) return null;
+  }
+  return piso <= teto + 1e-9 ? piso : null;
+}
+
+function GraficoSaldoCenarios({ simulacoes, ini, fim, caixaMinimo }) {
+  const W = 760, H = 230, pe = 74, pd = 12, pt = 12, pb = 26;
+  const valores = simulacoes.flatMap(s => s.sim.meses.map(x => x.disponivel)).concat([caixaMinimo, 0]);
+  let max = Math.max(...valores), min = Math.min(...valores);
+  if (max === min) { max += 1; min -= 1; }
+  const n = fim - ini + 1;
+  const x = i => pe + (n === 1 ? (W - pe - pd) / 2 : (i * (W - pe - pd)) / (n - 1));
+  const y = v => pt + ((max - v) * (H - pt - pb)) / (max - min);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(t => min + t * (max - min));
+  const compacto = v => `${(v / 1e6).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mi`;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, height: 'auto', display: 'block' }} role="img" aria-label="Saldo disponível por cenário">
+      {ticks.map((t, i) => (
+        <g key={i}>
+          <line x1={pe} x2={W - pd} y1={y(t)} y2={y(t)} stroke={COR.borda} strokeWidth="1" />
+          <text x={pe - 6} y={y(t) + 3} fontSize="9" textAnchor="end" fill="#7A8088">{compacto(t)}</text>
+        </g>
+      ))}
+      {min < 0 && max > 0 && <line x1={pe} x2={W - pd} y1={y(0)} y2={y(0)} stroke="#494949" strokeWidth="1" />}
+      {caixaMinimo !== 0 && (
+        <g>
+          <line x1={pe} x2={W - pd} y1={y(caixaMinimo)} y2={y(caixaMinimo)} stroke={COR.vermelho} strokeWidth="1.2" strokeDasharray="5 4" />
+          <text x={W - pd} y={y(caixaMinimo) - 4} fontSize="9" textAnchor="end" fill={COR.vermelho}>Caixa mínimo</text>
+        </g>
+      )}
+      {Array.from({ length: n }, (_, i) => (
+        <text key={i} x={x(i)} y={H - 8} fontSize="9.5" textAnchor="middle" fill="#7A8088">{MESES[ini + i]}</text>
+      ))}
+      {simulacoes.map((s, si) => (
+        <g key={si}>
+          <polyline fill="none" stroke={s.cor} strokeWidth="2" points={s.sim.meses.map((p, i) => `${x(i)},${y(p.disponivel)}`).join(' ')} />
+          {s.sim.meses.map((p, i) => <circle key={i} cx={x(i)} cy={y(p.disponivel)} r="2.6" fill={s.cor} />)}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function PainelSensibilidadeCaixa({ serie, ini, fim }) {
+  const [estado, setEstado] = useState(lerCenariosCaixa);
+  const [detalhe, setDetalhe] = useState(0);
+  useEffect(() => {
+    try { localStorage.setItem(CHAVE_SENSIBILIDADE_CAIXA, JSON.stringify(estado)); } catch { /* sem storage */ }
+  }, [estado]);
+  const caixaMinimo = parseNum(estado.caixaMinimo);
+  const setCenario = (i, campo, v) => setEstado(p => ({ ...p, cenarios: p.cenarios.map((c, j) => (j === i ? { ...c, [campo]: v } : c)) }));
+
+  const simulacoes = estado.cenarios.map((c, i) => {
+    const pctFco = parseNum(c.fco), pctCapex = parseNum(c.capex);
+    return {
+      i, pctFco, pctCapex, cor: CORES_CENARIOS[i % CORES_CENARIOS.length],
+      nome: `Cenário ${i + 1} — FCO ${formatPct(pctFco)} · CapEx ${formatPct(pctCapex)}`,
+      sim: simularCaixa(serie, ini, fim, pctFco, pctCapex, caixaMinimo),
+      fcoMinimo: fcoMinimoParaCaixa(serie, ini, fim, pctCapex, caixaMinimo),
+    };
+  });
+  const sel = simulacoes[Math.min(detalhe, simulacoes.length - 1)];
+  const th = { background: COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: 'right', whiteSpace: 'nowrap' };
+  const td = { padding: '6px 10px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', whiteSpace: 'nowrap' };
+  const tdTot = { ...td, fontWeight: 700, color: COR_TOTALIZADOR, background: COR.total };
+  const neg = v => (v < 0 ? COR.vermelho : COR.texto);
+
+  const linhasMensais = [
+    { label: '(+/−) FC Operacional (sensibilizado)', k: 'fco' },
+    { label: '(+/−) FC de Investimentos (sensibilizado)', k: 'fci' },
+    { label: '(+/−) FC de Financiamentos', k: 'fin' },
+    { label: '(=) Variação de caixa', k: 'variacao', total: true },
+    { label: '(=) Saldo final de caixa', k: 'saldoFinal', total: true, saldo: true },
+    { label: '(−) Saldos bloqueados', k: 'bloqueados', saldo: true, negar: true },
+    { label: '(=) Saldo disponível', k: 'disponivel', total: true, saldo: true },
+  ];
+
+  return (
+    <div style={{ marginTop: 22 }}>
+      <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Sensibilidades de caixa — FCO e execução do CapEx</h4>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10, lineHeight: 1.5 }}>
+        Premissas por cenário: % do FCO realizado e % de execução do CapEx (grupos de CapEx; aportes e dividendos seguem o orçamento).
+        FCO sensibilizado = FCO × %FCO; FCI sensibilizado = FCI − CapEx + CapEx × %CapEx; saldo final = saldo inicial + FCO + FCI + Financiamentos, mês a mês.
+        Com 100,0% / 100,0% o resultado reproduz o orçamento.
+      </p>
+
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+        {estado.cenarios.map((c, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'flex-end', gap: 6, padding: '6px 8px', border: `1px solid ${COR.borda}`, borderLeft: `4px solid ${CORES_CENARIOS[i % CORES_CENARIOS.length]}`, borderRadius: 6 }}>
+            <div style={{ width: 96 }}>
+              <Rotulo>Cenário {i + 1} — FCO</Rotulo>
+              <CampoNumero value={c.fco} onChange={v => setCenario(i, 'fco', v)} sufixo="%" placeholder="100,0" />
+            </div>
+            <div style={{ width: 96 }}>
+              <Rotulo>CapEx</Rotulo>
+              <CampoNumero value={c.capex} onChange={v => setCenario(i, 'capex', v)} sufixo="%" placeholder="100,0" />
+            </div>
+            {estado.cenarios.length > 1 && (
+              <button onClick={() => setEstado(p => ({ ...p, cenarios: p.cenarios.filter((_, j) => j !== i) }))} title="Remover cenário"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho, padding: '0 2px 9px' }}><Trash2 size={14} /></button>
+            )}
+          </div>
+        ))}
+        <Botao variante="fantasma" icone={Plus} onClick={() => setEstado(p => ({ ...p, cenarios: [...p.cenarios, { fco: '', capex: '100' }] }))}>Adicionar cenário</Botao>
+        <div style={{ width: 170 }}>
+          <Rotulo>Caixa mínimo (premissa)</Rotulo>
+          <CampoNumero value={estado.caixaMinimo} onChange={v => setEstado(p => ({ ...p, caixaMinimo: v }))} prefixo="R$" placeholder="0,0" />
+        </div>
+      </div>
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, margin: '8px 0 6px' }}>Resumo por cenário — {MESES[ini]} a {MESES[fim]}</div>
+      <div style={{ overflowX: 'auto', border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 16 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {['Cenário', 'FCO (R$)', 'FCI (R$)', 'FCF (R$)', 'Financiamentos (R$)', 'Saldo final (R$)', 'Saldo disponível (R$)', 'Menor saldo disp. (R$)', 'Mês do menor saldo', 'Meses abaixo do caixa mínimo', 'Captação adicional (R$)', '% mínimo do FCO'].map((h, i) => (
+                <th key={h} style={{ ...th, textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {simulacoes.map(s => (
+              <tr key={s.i}>
+                <td style={{ ...td, textAlign: 'left', fontWeight: 700, color: s.cor }}>{`FCO ${formatPct(s.pctFco)} · CapEx ${formatPct(s.pctCapex)}`}</td>
+                {[s.sim.fco, s.sim.fci, s.sim.fcf, s.sim.fin, s.sim.saldoFinal, s.sim.disponivel, s.sim.minimo.disponivel].map((v, j) => (
+                  <td key={j} style={{ ...td, color: neg(v), fontWeight: j >= 4 ? 700 : 400 }}>{formatValor(v)}</td>
+                ))}
+                <td style={td}>{MESES[s.sim.minimo.m]}</td>
+                <td style={{ ...td, color: s.sim.mesesAbaixo.length ? COR.vermelho : COR.verde }}>{s.sim.mesesAbaixo.length ? s.sim.mesesAbaixo.join(', ') : 'Nenhum'}</td>
+                <td style={{ ...td, fontWeight: 700, color: s.sim.necessidadeCaptacao > 0 ? COR.vermelho : COR.verde }}>{formatValor(s.sim.necessidadeCaptacao)}</td>
+                <td style={td}>{s.fcoMinimo === null ? 'Não resolve só com FCO' : formatPct(s.fcoMinimo)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 6 }}>Saldo disponível ao longo do ano, por cenário</div>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 6 }}>
+        {simulacoes.map(s => (
+          <span key={s.i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: COR.texto }}>
+            <span style={{ width: 14, height: 3, background: s.cor, display: 'inline-block' }} />{`FCO ${formatPct(s.pctFco)} · CapEx ${formatPct(s.pctCapex)}`}
+          </span>
+        ))}
+      </div>
+      <div style={{ border: `1px solid ${COR.borda}`, borderRadius: 8, padding: 8, marginBottom: 16 }}>
+        <GraficoSaldoCenarios simulacoes={simulacoes} ini={ini} fim={fim} caixaMinimo={caixaMinimo} />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul }}>Movimentação mensal do cenário</div>
+        <select value={sel.i} onChange={e => setDetalhe(Number(e.target.value))}
+          style={{ fontFamily: FONT, fontSize: 12, padding: '4px 8px', border: `1.5px solid ${COR.azul}`, borderRadius: 6, color: COR.azul, fontWeight: 700 }}>
+          {simulacoes.map(s => <option key={s.i} value={s.i}>{s.nome}</option>)}
+        </select>
+      </div>
+      <div style={{ overflowX: 'auto', border: `1px solid ${COR.borda}`, borderRadius: 8, marginBottom: 16 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: 'left', minWidth: 230 }}>Linha (R$)</th>
+              {sel.sim.meses.map(x => <th key={x.m} style={th}>{MESES[x.m]}</th>)}
+              <th style={{ ...th, background: COR.laranja }}>Período</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhasMensais.map(l => {
+              const valor = x => (l.negar ? -x[l.k] : x[l.k]);
+              const ult = sel.sim.meses[sel.sim.meses.length - 1];
+              const periodo = l.saldo ? valor(ult) : sel.sim.meses.reduce((a, x) => a + valor(x), 0);
+              const estilo = l.total ? tdTot : td;
+              return (
+                <tr key={l.k}>
+                  <td style={{ ...estilo, textAlign: 'left' }}>{l.label}</td>
+                  {sel.sim.meses.map(x => (
+                    <td key={x.m} style={{ ...estilo, color: l.total ? COR_TOTALIZADOR : neg(valor(x)),
+                      background: l.k === 'disponivel' && x.disponivel < caixaMinimo ? '#FBE9E9' : estilo.background }}>{formatValor(valor(x))}</td>
+                  ))}
+                  <td style={{ ...tdTot }}>{formatValor(periodo)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: COR.azul, marginBottom: 4 }}>Matriz de estresse — menor saldo disponível no período (R$)</div>
+      <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 6 }}>
+        Linhas: % do FCO realizado; colunas: % de execução do CapEx. Em vermelho, combinações em que o saldo disponível fica abaixo do caixa mínimo em algum mês.
+      </p>
+      <div style={{ overflowX: 'auto', border: `1px solid ${COR.borda}`, borderRadius: 8 }}>
+        <table style={{ borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: 'left' }}>FCO \ CapEx</th>
+              {GRADE_CAPEX_PCT.map(c => <th key={c} style={th}>{formatPct(c)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {GRADE_FCO_PCT.map(f => (
+              <tr key={f}>
+                <td style={{ ...td, textAlign: 'left', fontWeight: 700, color: COR.azul }}>{formatPct(f)}</td>
+                {GRADE_CAPEX_PCT.map(c => {
+                  const v = simularCaixa(serie, ini, fim, f, c, caixaMinimo).minimo.disponivel;
+                  const ruim = v < caixaMinimo;
+                  return <td key={c} style={{ ...td, fontWeight: f === 100 && c === 100 ? 700 : 400, color: ruim ? COR.vermelho : COR.texto, background: ruim ? '#FBE9E9' : COR.branco }}>{formatValor(v)}</td>;
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct, cambios }) {
@@ -17103,10 +17399,14 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct,
   const [filtroUnidade, setFiltroUnidade] = useState('grupo');
   const [ini, setIni] = useState(0);
   const [fim, setFim] = useState(11);
-  const [percentuais, setPercentuais] = useState(lerPercentuaisSensibilidade);
+  // Referência DRE 2026 (2026-10-02, migração 0024) — base dos waterfalls 2026 → 2027.
+  const [refs2026, setRefs2026] = useState({});
   useEffect(() => {
-    try { localStorage.setItem(CHAVE_SENSIBILIDADE_FCO, JSON.stringify(percentuais)); } catch { /* sem storage */ }
-  }, [percentuais]);
+    let vivo = true;
+    Promise.all(UNIDADES_REFERENCIA_2026_RESULTADOS.map(id => getReferenciaDre2026(id).then(r => [id, calcularDre2026(r)]).catch(() => [id, null])))
+      .then(pares => { if (vivo) setRefs2026(Object.fromEntries(pares)); });
+    return () => { vivo = false; };
+  }, []);
 
   const porUnidade = useMemo(() => {
     const out = {};
@@ -17125,18 +17425,27 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct,
   const periodo = ini === 0 && fim === 11 ? 'Jan–Dez' : `${MESES[ini]}–${MESES[fim]}`;
   const somaPeriodo = (k) => { let t = 0; for (let m = ini; m <= fim; m++) t += serie[k][m]; return t; };
 
-  // Sensibilidade: FCO considerado = FCO × %; saldo final = saldo inicial + FCO × % + FCI + Financiamentos.
+  // Sensibilidades de caixa: ver PainelSensibilidadeCaixa.
   const saldoInicialPeriodo = serie.saldoInicial[ini];
-  const bloqueadosFim = serie.bloqueados[fim];
-  const cenarios = percentuais.map(p => {
-    const pct = parseNum(p);
-    const fco = somaPeriodo('fco') * pct / 100;
-    const fci = somaPeriodo('fci');
-    const fin = somaPeriodo('fin');
-    const variacao = fco + fci + fin;
-    const saldoFinal = saldoInicialPeriodo + variacao;
-    return { pct, fco, fcf: fco + fci, variacao, saldoFinal, disponivel: saldoFinal - bloqueadosFim };
-  });
+
+  // Waterfall 2026 → 2027: a referência 2026 existe para Têxtil, Agrícola,
+  // Resorts e ARA EI. No Grupo, compara a mesma base (soma dessas unidades em
+  // 2026 e em 2027), para não misturar unidades sem 2026.
+  const anuais2026 = Object.fromEntries(Object.entries(refs2026).filter(([, d]) => d).map(([id, d]) => [id, anual2026DaReferencia(d)]));
+  const idsComparaveis = Object.keys(anuais2026);
+  let anterior2026 = null;
+  let atualWaterfall = serie;
+  let nomeWaterfall = nomeFiltro;
+  let motivo2026 = `Referência ${ANOS_WATERFALL.de} ainda não carregada.`;
+  if (ehGrupo && idsComparaveis.length) {
+    anterior2026 = somarAnuais(idsComparaveis.map(id => anuais2026[id]));
+    atualWaterfall = somarSeriesResultados(idsComparaveis.map(id => porUnidade[id].serie));
+    nomeWaterfall = `Grupo ARA — base comparável (${idsComparaveis.map(id => NOMES_CURTOS_REFERENCIA_2026[id]).join(', ')})`;
+  } else if (!ehGrupo && anuais2026[filtroUnidade]) {
+    anterior2026 = anuais2026[filtroUnidade];
+  } else if (!ehGrupo) {
+    motivo2026 = `Sem referência ${ANOS_WATERFALL.de} para esta unidade (a carga de ${ANOS_WATERFALL.de} cobre Têxtil, Agrícola, Resorts e ARA EI — ver Pendências).`;
+  }
 
   // Checagens de integridade.
   const tol = 0.01;
@@ -17171,7 +17480,7 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct,
   ];
 
   const pendencias = [
-    `Dados de ${ANOS_WATERFALL.de}: ainda não carregados na plataforma — os gráficos waterfall ${ANOS_WATERFALL.de} → ${ANOS_WATERFALL.para} ficam pendentes até esses dados serem compartilhados (o lado ${ANOS_WATERFALL.para} já vem do orçamento).`,
+    `Referência ${ANOS_WATERFALL.de}: anual (realizado jan–ago + previsto set–dez), só Têxtil, Agrícola, Resorts e ARA EI, até o Fluxo de Caixa Livre. Sem ${ANOS_WATERFALL.de} de Corporativo, Energia, FC de Financiamentos e Saldo de Caixa; no Grupo, o waterfall compara a base dessas quatro unidades.`,
     'Saldos bloqueados: não há campo na base — considerados R$ 0,00; o saldo disponível é igual ao saldo final.',
     ...atual.pendencias,
   ];
@@ -17229,57 +17538,13 @@ function VisaoResultadosConsolidados({ statusUnidades, totalGrupo, ipcaAnualPct,
       </p>
       <TabelaResultados linhas={linhas} serie={serie} porUnidade={ehGrupo ? porUnidade : null} ini={ini} fim={fim} />
 
-      {visao === 'caixa' && (
-        <div style={{ marginTop: 22 }}>
-          <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 4 }}>Sensibilidades — percentual do FCO considerado no período</h4>
-          <p style={{ fontSize: 11, color: '#7A8088', marginBottom: 10 }}>
-            Saldo final sensibilizado = saldo inicial + (FCO × percentual) + FCI + Financiamentos. Saldo disponível = saldo final − saldos bloqueados.
-            Com 100,0% o resultado reproduz o orçamento.
-          </p>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
-            {percentuais.map((p, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'flex-end', gap: 4 }}>
-                <div style={{ width: 120 }}>
-                  <Rotulo>Cenário {i + 1}</Rotulo>
-                  <CampoNumero value={p} onChange={v => setPercentuais(prev => prev.map((x, j) => (j === i ? v : x)))} sufixo="%" placeholder="100,0" />
-                </div>
-                {percentuais.length > 1 && (
-                  <button onClick={() => setPercentuais(prev => prev.filter((_, j) => j !== i))} title="Remover cenário"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: COR.vermelho, padding: '0 2px 9px' }}><Trash2 size={14} /></button>
-                )}
-              </div>
-            ))}
-            <Botao variante="fantasma" icone={Plus} onClick={() => setPercentuais(prev => [...prev, ''])}>Adicionar cenário</Botao>
-          </div>
-          <div style={{ overflowX: 'auto', border: `1px solid ${COR.borda}`, borderRadius: 8 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['% do FCO', 'FCO considerado', 'FCF', 'Variação de caixa', 'Saldo final', 'Saldo disponível'].map((h, i) => (
-                    <th key={h} style={{ background: i === 0 ? COR.azul : COR.azul, color: COR.branco, fontSize: 10.5, padding: '7px 10px', textAlign: i === 0 ? 'left' : 'right' }}>{h}{i > 0 ? ' (R$)' : ''}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {cenarios.map((c, i) => (
-                  <tr key={i} style={{ background: COR.branco }}>
-                    <td style={{ padding: '6px 10px', border: `1px solid ${COR.borda}`, fontSize: 11.5, fontWeight: 700, color: COR.azul }}>{formatPct(c.pct, 1)}</td>
-                    {[c.fco, c.fcf, c.variacao, c.saldoFinal, c.disponivel].map((v, j) => (
-                      <td key={j} style={{ padding: '6px 10px', border: `1px solid ${COR.borda}`, fontSize: 11, textAlign: 'right', fontWeight: j >= 3 ? 700 : 400 }}>{formatValor(v)}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {visao === 'caixa' && <PainelSensibilidadeCaixa serie={serie} ini={ini} fim={fim} />}
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginTop: 22, marginBottom: 8 }}>Waterfall {ANOS_WATERFALL.de} → {ANOS_WATERFALL.para}</h4>
       <div style={{ display: 'grid', gridTemplateColumns: waterfalls.length > 1 ? 'repeat(auto-fit, minmax(420px, 1fr))' : '1fr', gap: 16, marginBottom: 22 }}>
         {waterfalls.map(w => (
-          <WaterfallAnual key={w.titulo} config={w} nomeFiltro={`${nomeFiltro} · ${periodo}`} ini={ini} fim={fim}
-            anterior={SERIE_2026?.[filtroUnidade] || null} atual={serie} />
+          <WaterfallAnual key={w.titulo} config={w} nomeFiltro={`${nomeWaterfall} · ${periodo}`} ini={ini} fim={fim}
+            anterior={anterior2026} motivo={motivo2026} atual={atualWaterfall} />
         ))}
       </div>
 
