@@ -225,6 +225,11 @@ const mesesVazios = () => Array(12).fill('');
 
 // ---- Produtos (aba "1.1 DRE" / "Orçamento Receita") — referência 2026, não pré-preenchida ----
 // Grupos de receita da Produção BG (sem referência de 2026): pedido de 2026-09-29.
+// Produção Core (2026-10-02): o produto 'BAIXO GIRO' saiu da receita da Produção
+// Core — o dado foi para a Produção BG. O produto continua guardado no documento
+// (nada é apagado), mas é ignorado em cálculo, quadros, exportações e checks.
+const NOME_PRODUTO_CORE_EXCLUIDO = 'BAIXO GIRO';
+const produtosReceitaAtivos = (lista) => (Array.isArray(lista) ? lista : []).filter(p => (p?.nome || '').trim().toUpperCase() !== NOME_PRODUTO_CORE_EXCLUIDO);
 const PRODUTOS_BG = [{ nome: 'BAIXO GIRO ANTIGO' }, { nome: 'BAIXO GIRO NOVO' }];
 // Produção BG (2026-09-29): o volume do BAIXO GIRO NOVO = % (pctCore, por mês)
 // × volume total da Produção Core. O servidor aplica o mesmo cálculo na leitura
@@ -2273,16 +2278,17 @@ function uid() { return Math.random().toString(36).slice(2, 9); }
 function formatBRL(v) {
   const n = Number(v) || 0;
   const abs = Math.abs(n);
-  const s = abs.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const s = abs.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   return n < 0 ? `(R$ ${s})` : `R$ ${s}`;
 }
 // Valor em R$ sem o símbolo — células de tabela; o "R$" fica no título da tabela.
 function formatValor(v) {
   const n = Number(v) || 0;
-  const s = Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const s = Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   return n < 0 ? `(${s})` : s;
 }
-function formatPct(v, casas = 1) {
+function formatPct(v) {
+  const casas = 1; // padrão da plataforma (2026-10-02): uma casa decimal
   const n = Number(v) || 0;
   return `${n.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
 }
@@ -2321,7 +2327,7 @@ function formatarNumeroExibicao(v) {
   if (v === '' || v === null || v === undefined) return v;
   if (typeof v === 'string' && v.trim() === '') return v;
   const n = parseNum(v);
-  return n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 4 });
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
 // Input numérico genérico — mostra o valor bruto (como o usuário está
@@ -2357,7 +2363,7 @@ function receitaVazia(unidadeId) {
     return {
       // Produção BG (2026-09-29): só dois grupos de receita — Baixo Giro Antigo e
       // Baixo Giro Novo. Produção Core segue com os 9 produtos de sempre.
-      produtos: (unidadeId === 'textil_bg' ? PRODUTOS_BG : PRODUTOS_REF).map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(), ...(p.nome === NOME_BG_NOVO ? { pctCore: mesesVazios() } : {}) })),
+      produtos: (unidadeId === 'textil_bg' ? PRODUTOS_BG : produtosReceitaAtivos(PRODUTOS_REF)).map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(), ...(p.nome === NOME_BG_NOVO ? { pctCore: mesesVazios() } : {}) })),
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
       // Movimentação de estoque em volume (2026-09-13) — só Têxtil.
       // producaoMes: volume produzido em cada mês, adiciona ao estoque (2026-09-14).
@@ -3126,7 +3132,7 @@ function receitaBrutaPorMes(data, cambios) {
     return { receitaBrutaMes: totalMes, linhasReceitaMes: linhasMes };
   }
   const totalMes = MESES.map((_, m) =>
-    (data.receita.produtos || []).reduce((acc, p) => {
+    produtosReceitaAtivos(data.receita.produtos).reduce((acc, p) => {
       if (p.mercado === 'externo') {
         const taxa = parseNum(cambios?.[p.moeda || 'usd']);
         return acc + parseNum(p.volumes?.[m]) * parseNum(p.precoMoeda?.[m]) * taxa;
@@ -3159,7 +3165,7 @@ function computeDRE(data, ref, ipcaAnualPct, cambios) {
   const poc = pocDoDocumento(data);
   const volumeTotalKgMes = receitaAgricolaCalc
     ? receitaAgricolaCalc.producaoTotalKgMes
-    : MESES.map((_, m) => (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000);
+    : MESES.map((_, m) => produtosReceitaAtivos(data.receita.produtos).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000);
 
   // Base do percentual de dedução: normalmente a receita bruta total
   // (Têxtil/Agrícola), mas uma linha pode apontar `baseLinhaIds` — soma só
@@ -3356,7 +3362,7 @@ function computeGruposReceitaTipo(lados, unidadeKind, cambios) {
       // Mercado Externo (2026-08-23): mesmo racional de receitaBrutaPorMes —
       // preço na moeda × câmbio, não `p.precos` direto (que fica vazio pra
       // produto externo).
-      : (lado.dados.receita.produtos || []).map(p => ({
+      : produtosReceitaAtivos(lado.dados.receita.produtos).map(p => ({
           chave: (p.nome || '').trim().toLowerCase() || p.id,
           nome: p.nome || '(sem nome)',
           valoresMensal: MESES.map((_, m) => p.mercado === 'externo'
@@ -4264,13 +4270,13 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     } else {
       // Mercado Externo (2026-08-23): preço mora em precoMoeda, não em
       // precos (que fica derivado/vazio — ver receitaBrutaPorMes).
-      const produtosValidos = (data.receita.produtos || []).filter(p =>
+      const produtosValidos = produtosReceitaAtivos(data.receita.produtos).filter(p =>
         somaMes(p.volumes) > 0 && somaMes(p.mercado === 'externo' ? p.precoMoeda : p.precos) > 0
       );
       checks.push({
         label: 'Receita: ao menos um produto com volume e preço em algum mês',
         ok: produtosValidos.length > 0,
-        detalhe: `${produtosValidos.length} de ${(data.receita.produtos || []).length} produto(s) preenchido(s)`,
+        detalhe: `${produtosValidos.length} de ${produtosReceitaAtivos(data.receita.produtos).length} produto(s) preenchido(s)`,
       });
     }
   }
@@ -4360,7 +4366,7 @@ function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
       || ['gbp', 'eur', 'usd'].some(m => algumNegativo(ve[m]?.pct) || algumNegativo(ve[m]?.precoMoeda) || algumNegativo(ve[m]?.volumeKg));
   })();
   const valoresNegativos = agricolaTemNegativo
-    || (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
+    || produtosReceitaAtivos(data.receita.produtos).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
     || Object.values(data.custos.linhas || {}).some(linha => contaTemNegativo(linha));
   checks.push({
     label: 'Nenhum valor negativo em receita ou custos/despesas',
@@ -5738,7 +5744,7 @@ export default function OrcamentoARA({ usuario }) {
         });
         return;
       }
-      (d.receita.produtos || []).forEach(p => {
+      produtosReceitaAtivos(d.receita.produtos).forEach(p => {
         // Mercado Externo (2026-08-23, ver receitaBrutaPorMes): preço em R$
         // é derivado (Preço na moeda × câmbio), não digitado direto — exporta
         // já convertido, pra manter a coluna "Preço (R$/t)" comparável entre
@@ -5966,8 +5972,8 @@ export default function OrcamentoARA({ usuario }) {
     putS(wsRec, 0, 15, 'Total');
 
     const linhasReceitaRows = [];
-    if ((d.receita.produtos || []).length > 0) {
-      (d.receita.produtos || []).forEach(p => {
+    if (produtosReceitaAtivos(d.receita.produtos).length > 0) {
+      produtosReceitaAtivos(d.receita.produtos).forEach(p => {
         const externo = p.mercado === 'externo';
         linhasReceitaRows.push({
           nome: p.nome, mercado: externo ? 'externo' : 'interno', moeda: externo ? (p.moeda || 'usd') : '', computa: 1,
@@ -7217,7 +7223,7 @@ function VisaoGerente(props) {
           ) : (
             <AbaReceita
               unidadeId={unidadeAtual}
-              produtos={dados.receita.produtos} deducoes={dados.receita.deducoes}
+              produtos={produtosReceitaAtivos(dados.receita.produtos)} deducoes={dados.receita.deducoes}
               deducoesJustificativa={dados.receita.deducoesJustificativa} justificativaGeral={dados.receita.justificativaGeral}
               estoqueProducao={dados.receita.estoqueProducao}
               updateProduto={updateProduto} updateDeducao={updateDeducao} atualizar={atualizar} dre={dre} cambios={cambios}
@@ -7374,8 +7380,8 @@ function CabecalhoMensalLeitura({ rotuloPrimeiraColuna = 'Linha' }) {
     </thead>
   );
 }
-const formatarPctLeitura = (v) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
-const formatarQtdLeitura = (v) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+const formatarPctLeitura = (v) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+const formatarQtdLeitura = (v) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 
 // Folha de pessoal, versão leitura — lista de funcionários (nome, salário,
 // admissão) + a folha calculada mês a mês (mesma fórmula do editor).
@@ -7698,11 +7704,11 @@ function ReceitaLeituraVersao({ dados, cambios }) {
       </div>
     );
   }
-  if (Array.isArray(receita.produtos) && receita.produtos.length > 0) {
+  if (produtosReceitaAtivos(receita.produtos).length > 0) {
     return (
       <div>
         <h4 style={{ fontSize: 12.5, color: COR.azul, marginBottom: 8 }}>Produtos — volume, preço e receita</h4>
-        {receita.produtos.map(p => {
+        {produtosReceitaAtivos(receita.produtos).map(p => {
           const externo = p.mercado === 'externo';
           const moedaNome = { usd: 'USD', eur: 'EUR', gbp: 'GBP' }[p.moeda || 'usd'];
           const taxa = parseNum(cambios?.[p.moeda || 'usd']);
@@ -7719,7 +7725,7 @@ function ReceitaLeituraVersao({ dados, cambios }) {
                     {externo ? (
                       <>
                         <LinhaCalculadaMensal label={`Preço (${moedaNome}/t)`} valoresMensal={(p.precoMoeda || mesesVazios()).map(parseNum)} formatarCelula={v => `${moedaNome} ${formatarQtdLeitura(v)}`} />
-                        <LinhaCalculadaMensal label={`Câmbio (R$/${moedaNome})`} valoresMensal={MESES.map(() => taxa)} formatarCelula={v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} />
+                        <LinhaCalculadaMensal label={`Câmbio (R$/${moedaNome})`} valoresMensal={MESES.map(() => taxa)} formatarCelula={v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} />
                       </>
                     ) : (
                       <LinhaCalculadaMensal label="Preço (R$)" valoresMensal={(p.precos || mesesVazios()).map(parseNum)} />
@@ -9262,7 +9268,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
               linhas={[]}
               onChangeCelula={() => {}}
               linhasCalculadas={[
-                ...referenciaCore.produtos.filter(pc => (pc.volumes || []).some(v => parseNum(v) !== 0)).map(pc => {
+                ...produtosReceitaAtivos(referenciaCore.produtos).filter(pc => (pc.volumes || []).some(v => parseNum(v) !== 0)).map(pc => {
                   const vals = MESES.map((_, m) => parseNum(pc.volumes?.[m]));
                   return { key: `core_${pc.nome}`, label: `${pc.nome} (t)`, valoresMensal: vals, totalValor: vals.reduce((a, v) => a + v, 0), cor: '#8A8F96', formatarCelula: formatarQtdLeitura, formatarTotal: formatarQtdLeitura };
                 }),
@@ -9314,7 +9320,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
               <span style={{ fontSize: 12.5, fontWeight: 700, color: COR.azul }}>{p.nome}</span>
               <span style={{ fontSize: 10.5, color: '#8A8F96' }}>
-                {ref ? `Referência 2026: ${ref.volumeRef} t · R$ ${ref.precoRef.toFixed(2)}/t` : '—'}
+                {ref ? `Referência 2026: ${ref.volumeRef} t · R$ ${formatValor(ref.precoRef)}/t` : '—'}
               </span>
             </div>
             {temMercado && (
@@ -9351,12 +9357,12 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
             )}
             <TabelaMensal
               linhas={ehBgNovo ? [
-                { key: 'pctCore', label: '% do volume da Produção Core', valores: pctCoreArr, totalValor: pctMedioPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` },
+                { key: 'pctCore', label: '% do volume da Produção Core', valores: pctCoreArr, totalValor: pctMedioPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` },
                 { key: 'volume', calculada: true, label: 'Volume (t) — calculado', valoresMensal: MESES.map((_, m) => parseNum(p.volumes?.[m])), totalValor: volumeAnualProduto, cor: COR.azul, formatarCelula: formatarQtdLeitura, formatarTotal: formatarQtdLeitura },
                 { key: 'preco', label: 'Preço (R$/t)', valores: p.precos, totalValor: precoPonderadoProduto(p.precos), formatarTotal: v => formatValor(v) },
               ] : externo ? [
                 { key: 'volume', label: 'Volume (t)', valores: p.volumes },
-                { key: 'precoMoeda', label: `Preço (${moedaNome}/t)`, valores: p.precoMoeda, totalValor: precoPonderadoProduto(p.precoMoeda), formatarTotal: v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
+                { key: 'precoMoeda', label: `Preço (${moedaNome}/t)`, valores: p.precoMoeda, totalValor: precoPonderadoProduto(p.precoMoeda), formatarTotal: v => v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) },
               ] : [
                 { key: 'volume', label: 'Volume (t)', valores: p.volumes },
                 { key: 'preco', label: 'Preço (R$/t)', valores: p.precos, totalValor: precoPonderadoProduto(p.precos), formatarTotal: v => formatValor(v) },
@@ -9377,7 +9383,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
               corTotal={COR.azul}
               linhasCalculadas={[
                 ...(externo ? [
-                  { key: 'cambio', label: `Câmbio (R$/${moedaNome})`, valoresMensal: MESES.map(() => taxaCambio), totalValor: taxaCambio, cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) },
+                  { key: 'cambio', label: `Câmbio (R$/${moedaNome})`, valoresMensal: MESES.map(() => taxaCambio), totalValor: taxaCambio, cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) },
                 ] : []),
                 { key: 'receita', label: 'Receita (R$)', valoresMensal: receitaMensal, totalValor: totalProduto, cor: COR.verde },
                 ...(REFERENCIA_2026_TEXTIL.volume[p.nome] ? [
@@ -9422,7 +9428,7 @@ function AbaReceita({ unidadeId, produtos, deducoes, deducoesJustificativa, just
           const valoresMensal = MESES.map((_, m) => (dre.receitaBrutaMes?.[m] || 0) * (parseNum(d.pcts?.[m]) / 100));
           const totalAbs = valoresMensal.reduce((a, v) => a + v, 0);
           const pctPonderado = dre.receitaBruta > 0 ? (totalAbs / dre.receitaBruta) * 100 : 0;
-          return { key: d.id, label: d.nome, valores: d.pcts, totalValor: pctPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` };
+          return { key: d.id, label: d.nome, valores: d.pcts, totalValor: pctPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` };
         })}
         onChangeCelula={(dedId, mesIdx, valor) => {
           const d = deducoes.find(x => x.id === dedId);
@@ -9533,7 +9539,7 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
     return [
       { key: `${chave}_volumeKg`, label: `Volume ${label} (Kg)`, valores: obj.volumeKg || mesesVazios(), ...FMT_KG },
       { key: `${chave}_preco`, label: `Preço (${moedaSufixo}/Kg)`, valores: obj.precoMoeda, totalValor: precoPonderado },
-      { key: `${chave}_cambio`, calculada: true, label: `Câmbio (R$/${moedaSufixo})`, valoresMensal: MESES.map(() => taxa), totalValor: taxa, cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) },
+      { key: `${chave}_cambio`, calculada: true, label: `Câmbio (R$/${moedaSufixo})`, valoresMensal: MESES.map(() => taxa), totalValor: taxa, cor: '#8A8F96', formatarCelula: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }), formatarTotal: v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) },
       { key: `${chave}_receita`, calculada: true, label: `Receita ${label} (R$)`, valoresMensal: dadosCalc.receitaMes, totalValor: somaMes(dadosCalc.receitaMes), cor: COR.verde },
     ];
   }
@@ -9666,7 +9672,7 @@ function AbaReceitaAgricola({ agricola, deducoes, deducoesJustificativa, justifi
           const totalAbs = valoresMensal.reduce((a, v) => a + v, 0);
           const baseTotal = baseMes.reduce((a, v) => a + v, 0);
           const pctPonderado = baseTotal > 0 ? (totalAbs / baseTotal) * 100 : 0;
-          return { key: d.id, label: d.nome, valores: d.pcts, totalValor: pctPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` };
+          return { key: d.id, label: d.nome, valores: d.pcts, totalValor: pctPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` };
         })}
         onChangeCelula={(dedId, mesIdx, valor) => {
           const d = deducoes.find(x => x.id === dedId);
@@ -9910,7 +9916,7 @@ function AbaReceitaResorts({ linhas, deducoes, deducoesJustificativa, justificat
           const baseAnual = baseMes.reduce((a, v) => a + v, 0);
           const valorAbsAnual = MESES.reduce((acc, _, m) => acc + baseMes[m] * (parseNum(d.pcts?.[m]) / 100), 0);
           const pctPonderado = baseAnual > 0 ? (valorAbsAnual / baseAnual) * 100 : 0;
-          return { key: d.id, label: d.nome, valores: d.pcts, totalValor: pctPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` };
+          return { key: d.id, label: d.nome, valores: d.pcts, totalValor: pctPonderado, formatarTotal: v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` };
         })}
         onChangeCelula={(dedId, mesIdx, valor) => {
           const d = deducoes.find(x => x.id === dedId);
@@ -10017,7 +10023,7 @@ function GradeMensalLinha({ label, valores, onChange, formatarTotal }) {
         </td>
       ))}
       <td style={{ padding: '4px 8px', border: `1px solid ${COR.borda}`, background: COR.claro, fontSize: 10.5, fontWeight: 700, textAlign: 'right', color: COR.azul }}>
-        {formatarTotal ? formatarTotal(total) : total.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+        {formatarTotal ? formatarTotal(total) : total.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
       </td>
     </tr>
   );
@@ -10192,10 +10198,10 @@ function LinhaSublinha({ sublinha, onUpdate, unidadeId, ipcaAnualPct, volumeTota
             {sublinha.premissaTipo === 'reajuste_inflacao' && (
               <>
                 <LinhaCalculadaMensal
-                  label={`IPCA ${sublinha.reajusteInflacaoTipo === 'unico' ? `único (${sublinha.reajusteInflacaoMes || 'sem mês'})` : 'acumulado'} (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
+                  label={`IPCA ${sublinha.reajusteInflacaoTipo === 'unico' ? `único (${sublinha.reajusteInflacaoMes || 'sem mês'})` : 'acumulado'} (${ipcaAnualPct ? parseNum(ipcaAnualPct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0'}% a.a.)`}
                   valoresMensal={ipcaAcumuladoMensal}
-                  formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
-                  formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}%`}
+                  formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}
+                  formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0'}%`}
                 />
                 <GradeMensalLinha label="Valor-base (R$)" valores={sublinha.valores} onChange={(mi, v) => onUpdate('valores', atualizarArray(sublinha.valores, mi, v))} />
                 <LinhaCalculadaMensal label="Valor projetado (R$)" valoresMensal={valoresMensaisCalc} />
@@ -10553,7 +10559,7 @@ function LinhaContaViagens({ conta, viagens, aberta, onToggle, onUpdateViagens, 
 // Revisão/Versão/Consolidado sem duplicar a lógica de exibição.
 function LinhaSublinhaLeitura({ sublinha, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes }) {
   const valoresMensaisCalc = MESES.map((_, m) => valorSublinhaMes(sublinha, m, receitaBrutaMes, receitaLiquidaMes, ipcaAnualPct, volumeTotalKgMes));
-  const formatarPct = (v) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+  const formatarPct = (v) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
   const ipcaAcumuladoMensal = sublinha.reajusteInflacaoTipo === 'unico'
     ? MESES.map((_, m) => {
         const idxReajuste = sublinha.reajusteInflacaoMes ? MESES.indexOf(sublinha.reajusteInflacaoMes) : -1;
@@ -10583,7 +10589,7 @@ function LinhaSublinhaLeitura({ sublinha, receitaBrutaMes, receitaLiquidaMes, ip
             )}
             {sublinha.premissaTipo === 'qtd_valor' && (
               <>
-                <LinhaCalculadaMensal label={`Quantidade${sublinha.unidadeMedida ? ` (${sublinha.unidadeMedida})` : ''}`} valoresMensal={(sublinha.quantidades || mesesVazios()).map(parseNum)} formatarCelula={v => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
+                <LinhaCalculadaMensal label={`Quantidade${sublinha.unidadeMedida ? ` (${sublinha.unidadeMedida})` : ''}`} valoresMensal={(sublinha.quantidades || mesesVazios()).map(parseNum)} formatarCelula={v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} />
                 <LinhaCalculadaMensal label="Valor unit. (R$)" valoresMensal={(sublinha.valoresUnit || mesesVazios()).map(parseNum)} />
                 <LinhaCalculadaMensal label="Valor calculado" valoresMensal={valoresMensaisCalc} />
               </>
@@ -10600,10 +10606,10 @@ function LinhaSublinhaLeitura({ sublinha, receitaBrutaMes, receitaLiquidaMes, ip
             {sublinha.premissaTipo === 'reajuste_inflacao' && (
               <>
                 <LinhaCalculadaMensal
-                  label={`IPCA ${sublinha.reajusteInflacaoTipo === 'unico' ? `único (${sublinha.reajusteInflacaoMes || '—'})` : 'acumulado'} (${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}% a.a.)`}
+                  label={`IPCA ${sublinha.reajusteInflacaoTipo === 'unico' ? `único (${sublinha.reajusteInflacaoMes || '—'})` : 'acumulado'} (${ipcaAnualPct ? parseNum(ipcaAnualPct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0'}% a.a.)`}
                   valoresMensal={ipcaAcumuladoMensal}
-                  formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
-                  formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toFixed(2) : '0,00'}%`}
+                  formatarCelula={v => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}
+                  formatarTotal={() => `${ipcaAnualPct ? parseNum(ipcaAnualPct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0'}%`}
                 />
                 <LinhaCalculadaMensal label="Valor-base (R$)" valoresMensal={(sublinha.valores || mesesVazios()).map(parseNum)} />
                 <LinhaCalculadaMensal label="Valor projetado (R$)" valoresMensal={valoresMensaisCalc} />
@@ -10707,7 +10713,7 @@ function QuadroPessoal({ ccCodigo, unidadeId, funcionarios, addFuncionario, upda
           <CampoTexto value={f.cargo || ''} onChange={v => updateFuncionario(f.id, 'cargo', v)} placeholder="Cargo" />
         </td>
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-          <CampoNumero value={f.salario} onChange={v => updateFuncionario(f.id, 'salario', v)} placeholder="0,00" />
+          <CampoNumero value={f.salario} onChange={v => updateFuncionario(f.id, 'salario', v)} placeholder="0,0" />
         </td>
         <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
           <Selecao value={f.mesAdmissao} onChange={v => updateFuncionario(f.id, 'mesAdmissao', v)} opcoes={MESES.map(m => ({ id: m, nome: m }))} />
@@ -12377,7 +12383,7 @@ function AbaCustos({ refUnidade, unidadeId, usuario, linhas, updateConta, update
                                       <CampoNumero
                                         value={_ppC.baseBonusElegiveisPorCC?.[ccSel] ?? ''}
                                         onChange={v => atualizar(['custos', 'premissasPessoal', 'baseBonusElegiveisPorCC', ccSel], v)}
-                                        placeholder="0,00"
+                                        placeholder="0,0"
                                       />
                                     </div>
                                   </div>
@@ -13027,7 +13033,7 @@ function AbaCapex({ projetos, addProjeto, updateProjeto, removeProjeto, updateDe
 // tudo que é fórmula é linha calculada ao vivo, nunca valor gravado.
 // ---------------------------------------------------------------------------
 const formatPctPOC = (v) => formatPct(v * 100, 2);
-const formatM2 = (v) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatM2 = (v) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 // ARA EI Holding (2026-10-02): receita simples por linha, com projeção mensal em
 // R$. O gestor inclui as linhas que precisar (nome + valor por mês); a soma é a
@@ -13120,21 +13126,21 @@ function AbaReceitaPOC({ poc, justificativaGeral, deducoesJustificativa, atualiz
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.1 Saldos em 31/12/2026 (mês anterior de Jan/27)</h4>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 18 }}>
-        <div><Rotulo>Receita a apropriar — VGV (R$)</Rotulo><CampoNumero value={si.vgvAApropriar} onChange={v => setSaldo('vgvAApropriar', v)} placeholder="0,00" /></div>
-        <div><Rotulo>Avanço de obra acumulado</Rotulo><CampoNumero value={si.avancoAcumuladoPct} onChange={v => setSaldo('avancoAcumuladoPct', v)} sufixo="%" placeholder="0,00" /></div>
-        <div><Rotulo>Custo total da obra (R$)</Rotulo><CampoNumero value={si.custoTotalObra} onChange={v => setSaldo('custoTotalObra', v)} placeholder="0,00" /></div>
-        <div><Rotulo>m² vendidos</Rotulo><CampoNumero value={si.m2Vendidos} onChange={v => setSaldo('m2Vendidos', v)} sufixo="m²" placeholder="0,00" /></div>
-        <div><Rotulo>Comissões pagas acumuladas (R$)</Rotulo><CampoNumero value={si.comissoesPagas} onChange={v => setSaldo('comissoesPagas', v)} placeholder="0,00" /></div>
+        <div><Rotulo>Receita a apropriar — VGV (R$)</Rotulo><CampoNumero value={si.vgvAApropriar} onChange={v => setSaldo('vgvAApropriar', v)} placeholder="0,0" /></div>
+        <div><Rotulo>Avanço de obra acumulado</Rotulo><CampoNumero value={si.avancoAcumuladoPct} onChange={v => setSaldo('avancoAcumuladoPct', v)} sufixo="%" placeholder="0,0" /></div>
+        <div><Rotulo>Custo total da obra (R$)</Rotulo><CampoNumero value={si.custoTotalObra} onChange={v => setSaldo('custoTotalObra', v)} placeholder="0,0" /></div>
+        <div><Rotulo>m² vendidos</Rotulo><CampoNumero value={si.m2Vendidos} onChange={v => setSaldo('m2Vendidos', v)} sufixo="m²" placeholder="0,0" /></div>
+        <div><Rotulo>Comissões pagas acumuladas (R$)</Rotulo><CampoNumero value={si.comissoesPagas} onChange={v => setSaldo('comissoesPagas', v)} placeholder="0,0" /></div>
       </div>
 
       <h4 style={{ fontSize: 13, color: COR.azul, marginBottom: 8 }}>2.2 Premissas fixas</h4>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 18 }}>
-        <div><Rotulo>Custo do terreno — Flats (R$)</Rotulo><CampoNumero value={pr.custoTerreno} onChange={v => setPremissa('custoTerreno', v)} placeholder="0,00" /></div>
-        <div><Rotulo>RET — % sobre a receita reconhecida</Rotulo><CampoNumero value={pr.retPct} onChange={v => setPremissa('retPct', v)} sufixo="%" placeholder="0,00" /></div>
-        <div><Rotulo>m² por unidade vendida/distratada</Rotulo><CampoNumero value={pr.m2PorUnidade} onChange={v => setPremissa('m2PorUnidade', v)} sufixo="m²" placeholder="0,00" /></div>
-        <div><Rotulo>m² a vender ARA (total)</Rotulo><CampoNumero value={pr.m2AVender} onChange={v => setPremissa('m2AVender', v)} sufixo="m²" placeholder="0,00" /></div>
-        <div><Rotulo>Comissão — % sobre novas vendas</Rotulo><CampoNumero value={pr.comissaoPct} onChange={v => setPremissa('comissaoPct', v)} sufixo="%" placeholder="0,00" /></div>
-        <div><Rotulo>Valor por unidade distratada (R$)</Rotulo><CampoNumero value={pr.valorPorUnidadeDistratada} onChange={v => setPremissa('valorPorUnidadeDistratada', v)} placeholder="0,00" /></div>
+        <div><Rotulo>Custo do terreno — Flats (R$)</Rotulo><CampoNumero value={pr.custoTerreno} onChange={v => setPremissa('custoTerreno', v)} placeholder="0,0" /></div>
+        <div><Rotulo>RET — % sobre a receita reconhecida</Rotulo><CampoNumero value={pr.retPct} onChange={v => setPremissa('retPct', v)} sufixo="%" placeholder="0,0" /></div>
+        <div><Rotulo>m² por unidade vendida/distratada</Rotulo><CampoNumero value={pr.m2PorUnidade} onChange={v => setPremissa('m2PorUnidade', v)} sufixo="m²" placeholder="0,0" /></div>
+        <div><Rotulo>m² a vender ARA (total)</Rotulo><CampoNumero value={pr.m2AVender} onChange={v => setPremissa('m2AVender', v)} sufixo="m²" placeholder="0,0" /></div>
+        <div><Rotulo>Comissão — % sobre novas vendas</Rotulo><CampoNumero value={pr.comissaoPct} onChange={v => setPremissa('comissaoPct', v)} sufixo="%" placeholder="0,0" /></div>
+        <div><Rotulo>Valor por unidade distratada (R$)</Rotulo><CampoNumero value={pr.valorPorUnidadeDistratada} onChange={v => setPremissa('valorPorUnidadeDistratada', v)} placeholder="0,0" /></div>
         <div>
           <Rotulo>CC da comissão (conta {CONTA_COMISSAO_POC})</Rotulo>
           <Selecao
@@ -14362,7 +14368,7 @@ function LinhaFinanciamento({ linha, aberta, onToggle, onUpdate, onRemove }) {
             </div>
             <div>
               <Rotulo>Saldo inicial</Rotulo>
-              <CampoNumero value={linha.saldoInicial} onChange={v => onUpdate('saldoInicial', v)} prefixo="R$" placeholder="0,00" />
+              <CampoNumero value={linha.saldoInicial} onChange={v => onUpdate('saldoInicial', v)} prefixo="R$" placeholder="0,0" />
             </div>
           </div>
           <div style={{ overflowX: 'auto', marginBottom: 8 }}>
@@ -14421,7 +14427,7 @@ function AbaFcFinanciamentos({ fcFinanciamentos, addLinhaFinanciamento, updateLi
         <div style={{ background: COR.total, border: `1px solid ${COR.laranja}`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info size={16} color={COR.laranja} style={{ flexShrink: 0 }} />
           <span style={{ fontSize: 12, color: COR.texto }}>
-            Taxa Selic média de referência do ciclo: <strong>{parseNum(selicPremissa.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% a.a.</strong>
+            Taxa Selic média de referência do ciclo: <strong>{parseNum(selicPremissa.valor).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% a.a.</strong>
             {' '}— use como referência ao estimar Juros Pagos de linhas indexadas ao CDI/Selic (o lançamento continua manual, por linha, mês a mês).
           </span>
         </div>
@@ -14499,15 +14505,15 @@ function AbaBalanco({ balanco, atualizar }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 10 }}>
         <div>
           <Rotulo>Caixa inicial</Rotulo>
-          <CampoNumero value={balanco.caixaInicial} onChange={v => atualizar(['balanco', 'caixaInicial'], v)} prefixo="R$" placeholder="0,00" />
+          <CampoNumero value={balanco.caixaInicial} onChange={v => atualizar(['balanco', 'caixaInicial'], v)} prefixo="R$" placeholder="0,0" />
         </div>
         <div>
           <Rotulo>Ativo imobilizado inicial (bruto)</Rotulo>
-          <CampoNumero value={balanco.imobilizadoInicial} onChange={v => atualizar(['balanco', 'imobilizadoInicial'], v)} prefixo="R$" placeholder="0,00" />
+          <CampoNumero value={balanco.imobilizadoInicial} onChange={v => atualizar(['balanco', 'imobilizadoInicial'], v)} prefixo="R$" placeholder="0,0" />
         </div>
         <div>
           <Rotulo>Depreciação acumulada inicial</Rotulo>
-          <CampoNumero value={balanco.depreciacaoAcumuladaInicial} onChange={v => atualizar(['balanco', 'depreciacaoAcumuladaInicial'], v)} prefixo="R$" placeholder="0,00" />
+          <CampoNumero value={balanco.depreciacaoAcumuladaInicial} onChange={v => atualizar(['balanco', 'depreciacaoAcumuladaInicial'], v)} prefixo="R$" placeholder="0,0" />
         </div>
       </div>
 
@@ -14516,15 +14522,15 @@ function AbaBalanco({ balanco, atualizar }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 10 }}>
         <div>
           <Rotulo>Contas a receber inicial</Rotulo>
-          <CampoNumero value={balanco.contasAReceberInicial} onChange={v => atualizar(['balanco', 'contasAReceberInicial'], v)} prefixo="R$" placeholder="0,00" />
+          <CampoNumero value={balanco.contasAReceberInicial} onChange={v => atualizar(['balanco', 'contasAReceberInicial'], v)} prefixo="R$" placeholder="0,0" />
         </div>
         <div>
           <Rotulo>Estoque inicial</Rotulo>
-          <CampoNumero value={balanco.estoqueInicial} onChange={v => atualizar(['balanco', 'estoqueInicial'], v)} prefixo="R$" placeholder="0,00" />
+          <CampoNumero value={balanco.estoqueInicial} onChange={v => atualizar(['balanco', 'estoqueInicial'], v)} prefixo="R$" placeholder="0,0" />
         </div>
         <div>
           <Rotulo>Contas a pagar inicial</Rotulo>
-          <CampoNumero value={balanco.contasAPagarInicial} onChange={v => atualizar(['balanco', 'contasAPagarInicial'], v)} prefixo="R$" placeholder="0,00" />
+          <CampoNumero value={balanco.contasAPagarInicial} onChange={v => atualizar(['balanco', 'contasAPagarInicial'], v)} prefixo="R$" placeholder="0,0" />
         </div>
       </div>
 
@@ -14532,7 +14538,7 @@ function AbaBalanco({ balanco, atualizar }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 8 }}>
         <div>
           <Rotulo>Saldo inicial de dívida (todas as linhas)</Rotulo>
-          <CampoNumero value={balanco.emprestimos.saldoInicial} onChange={v => atualizar(['balanco', 'emprestimos', 'saldoInicial'], v)} prefixo="R$" placeholder="0,00" />
+          <CampoNumero value={balanco.emprestimos.saldoInicial} onChange={v => atualizar(['balanco', 'emprestimos', 'saldoInicial'], v)} prefixo="R$" placeholder="0,0" />
         </div>
         <div>
           <Rotulo>Taxa de juros anual média de referência</Rotulo>
@@ -15995,7 +16001,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   <tr key={p.id} style={{ background: COR.branco }}>
                     <td style={{ fontSize: 12, color: COR.texto, padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.nome}</td>
                     <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
-                      <CampoNumero value={p.valor} onChange={v => updatePremissaMacroGlobal(p.id, v)} placeholder="0,00" />
+                      <CampoNumero value={p.valor} onChange={v => updatePremissaMacroGlobal(p.id, v)} placeholder="0,0" />
                     </td>
                     <td style={{ fontSize: 11, color: '#8A8F96', padding: '6px 10px', border: `1px solid ${COR.borda}` }}>{p.unidade}</td>
                     <td style={{ padding: 3, border: `1px solid ${COR.borda}` }}>
@@ -16022,7 +16028,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio — %</label>
-                    <CampoNumero value={_pp.dissidioPct} onChange={v => updatePremissasPessoalCorporativo('dissidioPct', v)} sufixo="%" placeholder="0,00" />
+                    <CampoNumero value={_pp.dissidioPct} onChange={v => updatePremissasPessoalCorporativo('dissidioPct', v)} sufixo="%" placeholder="0,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — mês</label>
@@ -16030,7 +16036,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — %</label>
-                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => updatePremissasPessoalCorporativo('meritocraciaPct', v)} sufixo="%" placeholder="0,00" />
+                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => updatePremissasPessoalCorporativo('meritocraciaPct', v)} sufixo="%" placeholder="0,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus — mês</label>
@@ -16038,7 +16044,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus — % do mês</label>
-                    <CampoNumero value={_pp.bonusPct} onChange={v => updatePremissasPessoalCorporativo('bonusPct', v)} sufixo="%" placeholder="0,00" />
+                    <CampoNumero value={_pp.bonusPct} onChange={v => updatePremissasPessoalCorporativo('bonusPct', v)} sufixo="%" placeholder="0,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }} title="Bônus = HC Existente do mês × multiplicador × % — vale para o Corporativo e todas as unidades">Bônus — multiplicador (×)</label>
@@ -16046,7 +16052,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
-                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => updatePremissasPessoalCorporativo('encargosNovoHcPct', v)} sufixo="%" placeholder="0,00" />
+                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => updatePremissasPessoalCorporativo('encargosNovoHcPct', v)} sufixo="%" placeholder="0,0" />
                   </div>
                   <div style={{ width: '100%', borderTop: `1px solid ${COR.borda}`, margin: '8px 0' }} />
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
@@ -16055,7 +16061,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus PJs — atingimento (%)</label>
-                    <CampoNumero value={_pp.bonusPjAtendimentoPct} onChange={v => updatePremissasPessoalCorporativo('bonusPjAtendimentoPct', v)} sufixo="%" placeholder="0,00" />
+                    <CampoNumero value={_pp.bonusPjAtendimentoPct} onChange={v => updatePremissasPessoalCorporativo('bonusPjAtendimentoPct', v)} sufixo="%" placeholder="0,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 140 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }} title="Bônus PJs = Valor projetado do mês × multiplicador × % de atingimento">Bônus PJs — multiplicador (×)</label>
@@ -16090,7 +16096,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 1 — %</label>
-                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="4,50" />
+                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="4,5" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — mês</label>
@@ -16098,7 +16104,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — %</label>
-                    <CampoNumero value={_pp.dissidioPct2} onChange={v => upd('dissidioPct2', v)} sufixo="%" placeholder="7,00" />
+                    <CampoNumero value={_pp.dissidioPct2} onChange={v => upd('dissidioPct2', v)} sufixo="%" placeholder="7,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — mês</label>
@@ -16106,7 +16112,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — %</label>
-                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,00" />
+                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — mês</label>
@@ -16114,7 +16120,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
-                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
+                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }} title="Bônus = HC Existente do mês × multiplicador × %">Bônus CLT — multiplicador (×)</label>
@@ -16122,7 +16128,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
-                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
+                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,0" />
                   </div>
                 </div>
               </div>
@@ -16144,7 +16150,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 1 — %</label>
-                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="1,00" />
+                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="1,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — mês</label>
@@ -16152,7 +16158,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — %</label>
-                    <CampoNumero value={_pp.dissidioPct2} onChange={v => upd('dissidioPct2', v)} sufixo="%" placeholder="5,00" />
+                    <CampoNumero value={_pp.dissidioPct2} onChange={v => upd('dissidioPct2', v)} sufixo="%" placeholder="5,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — mês</label>
@@ -16160,7 +16166,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — %</label>
-                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,00" />
+                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — mês</label>
@@ -16168,7 +16174,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
-                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
+                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }} title="Bônus = HC Existente do mês × multiplicador × %">Bônus CLT — multiplicador (×)</label>
@@ -16176,7 +16182,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
-                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
+                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,0" />
                   </div>
                 </div>
               </div>
@@ -16198,7 +16204,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 1 — %</label>
-                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="1,00" />
+                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="1,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — mês</label>
@@ -16206,7 +16212,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio 2 — %</label>
-                    <CampoNumero value={_pp.dissidioPct2} onChange={v => upd('dissidioPct2', v)} sufixo="%" placeholder="5,00" />
+                    <CampoNumero value={_pp.dissidioPct2} onChange={v => upd('dissidioPct2', v)} sufixo="%" placeholder="5,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — mês</label>
@@ -16214,7 +16220,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — %</label>
-                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,00" />
+                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — mês</label>
@@ -16222,7 +16228,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
-                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
+                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }} title="Bônus = HC Existente do mês × multiplicador × %">Bônus CLT — multiplicador (×)</label>
@@ -16230,7 +16236,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
-                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
+                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,0" />
                   </div>
                 </div>
               </div>
@@ -16252,7 +16258,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Dissídio — %</label>
-                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="7,00" />
+                    <CampoNumero value={_pp.dissidioPct} onChange={v => upd('dissidioPct', v)} sufixo="%" placeholder="7,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — mês</label>
@@ -16260,7 +16266,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Meritocracia — %</label>
-                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,00" />
+                    <CampoNumero value={_pp.meritocraciaPct} onChange={v => upd('meritocraciaPct', v)} sufixo="%" placeholder="5,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — mês</label>
@@ -16268,7 +16274,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 100 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Bônus CLT — %</label>
-                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,00" />
+                    <CampoNumero value={_pp.bonusPct} onChange={v => upd('bonusPct', v)} sufixo="%" placeholder="80,0" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }} title="Bônus = HC Existente do mês × multiplicador × %">Bônus CLT — multiplicador (×)</label>
@@ -16276,7 +16282,7 @@ function VisaoFPA({ statusUnidades, aguardandoLiberacaoPorUnidade, liberarReenvi
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
                     <label style={{ fontSize: 10.5, color: '#7A8088', fontFamily: FONT }}>Encargos e Benefícios (% sobre o salário; custo = salário × 1,8)</label>
-                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,00" />
+                    <CampoNumero value={_pp.encargosNovoHcPct} onChange={v => upd('encargosNovoHcPct', v)} sufixo="%" placeholder="83,0" />
                   </div>
                 </div>
 

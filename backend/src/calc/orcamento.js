@@ -247,6 +247,11 @@ export function contaTemNegativo(contaRaw) {
 // (Têxtil), produtos genéricos vazios com deduções próprias (Agrícola), ou
 // linhas de hotelaria (Resorts). unidades sem modelo definido (Corporativo,
 // EI, Energia) caem no genérico vazio — não têm lançamento habilitado mesmo.
+// Produção Core (2026-10-02): o produto 'BAIXO GIRO' saiu da receita da Produção
+// Core — o dado foi para a Produção BG. O produto continua guardado no documento
+// (nada é apagado), mas é ignorado em cálculo, quadros, exportações e checks.
+const NOME_PRODUTO_CORE_EXCLUIDO = 'BAIXO GIRO';
+const produtosReceitaAtivos = (lista) => (Array.isArray(lista) ? lista : []).filter(p => (p?.nome || '').trim().toUpperCase() !== NOME_PRODUTO_CORE_EXCLUIDO);
 const PRODUTOS_BG = [{ nome: 'BAIXO GIRO ANTIGO' }, { nome: 'BAIXO GIRO NOVO' }];
 
 // Produção BG (2026-09-29): o volume do BAIXO GIRO NOVO não é digitado — é um
@@ -256,7 +261,7 @@ const PRODUTOS_BG = [{ nome: 'BAIXO GIRO ANTIGO' }, { nome: 'BAIXO GIRO NOVO' }]
 // mantém o volume que já estiver salvo (nenhum dado preenchido é sobrescrito).
 export const NOME_BG_NOVO = 'BAIXO GIRO NOVO';
 export function volumeTotalCoreMes(dadosCore) {
-  const produtos = Array.isArray(dadosCore?.receita?.produtos) ? dadosCore.receita.produtos : [];
+  const produtos = produtosReceitaAtivos(dadosCore?.receita?.produtos);
   return MESES.map((_, m) => produtos.reduce((acc, p) => acc + parseNum(p?.volumes?.[m]), 0));
 }
 export function aplicarVolumeBgNovo(dadosBg, volumeCoreMes) {
@@ -279,7 +284,7 @@ function receitaVazia(unidadeId) {
   if (unidadeId === 'textil' || unidadeId === 'textil_bg') {
     return {
       // Produção BG (2026-09-29): só Baixo Giro Antigo e Baixo Giro Novo — espelho do frontend.
-      produtos: (unidadeId === 'textil_bg' ? PRODUTOS_BG : PRODUTOS_REF).map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(), ...(p.nome === NOME_BG_NOVO ? { pctCore: mesesVazios() } : {}) })),
+      produtos: (unidadeId === 'textil_bg' ? PRODUTOS_BG : produtosReceitaAtivos(PRODUTOS_REF)).map(p => ({ id: uid(), nome: p.nome, volumes: mesesVazios(), precos: mesesVazios(), ...(p.nome === NOME_BG_NOVO ? { pctCore: mesesVazios() } : {}) })),
       deducoes: DEDUCOES_REF.map(d => ({ id: d.id, nome: d.nome, pcts: mesesVazios() })),
     };
   }
@@ -782,7 +787,7 @@ function receitaBrutaPorMes(data, cambios) {
     return { receitaBrutaMes: totalMes, linhasReceitaMes: linhasMes };
   }
   const totalMes = MESES.map((_, m) =>
-    (data.receita.produtos || []).reduce((acc, p) => {
+    produtosReceitaAtivos(data.receita.produtos).reduce((acc, p) => {
       if (p.mercado === 'externo') {
         const taxa = parseNum(cambios?.[p.moeda || 'usd']);
         return acc + parseNum(p.volumes?.[m]) * parseNum(p.precoMoeda?.[m]) * taxa;
@@ -812,7 +817,7 @@ export function computeDRE(data, ref, ipcaAnualPct, cambios) {
   const poc = pocDoDocumento(data);
   const volumeTotalKgMes = receitaAgricolaCalc
     ? receitaAgricolaCalc.producaoTotalKgMes
-    : MESES.map((_, m) => (data.receita.produtos || []).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000);
+    : MESES.map((_, m) => produtosReceitaAtivos(data.receita.produtos).reduce((acc, p) => acc + parseNum(p.volumes?.[m]), 0) * 1000);
 
   // Base do percentual de dedução: normalmente a receita bruta total
   // (Têxtil/Agrícola), mas uma linha pode apontar `baseLinhaIds` — soma só
@@ -1566,13 +1571,13 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
     } else {
       // Mercado Externo (2026-08-23): preço mora em precoMoeda, não em
       // precos (que fica derivado/vazio — ver receitaBrutaPorMes).
-      const produtosValidos = (data.receita.produtos || []).filter(p =>
+      const produtosValidos = produtosReceitaAtivos(data.receita.produtos).filter(p =>
         somaMes(p.volumes) > 0 && somaMes(p.mercado === 'externo' ? p.precoMoeda : p.precos) > 0
       );
       checks.push({
         label: 'Receita: ao menos um produto com volume e preço em algum mês',
         ok: produtosValidos.length > 0,
-        detalhe: `${produtosValidos.length} de ${(data.receita.produtos || []).length} produto(s) preenchido(s)`,
+        detalhe: `${produtosValidos.length} de ${produtosReceitaAtivos(data.receita.produtos).length} produto(s) preenchido(s)`,
       });
     }
   }
@@ -1661,7 +1666,7 @@ export function runAuditoria(data, dre, ref, unidadeId, ipcaAnualPct) {
       || ['gbp', 'eur', 'usd'].some(m => algumNegativo(ve[m]?.pct) || algumNegativo(ve[m]?.precoMoeda) || algumNegativo(ve[m]?.volumeKg));
   })();
   const valoresNegativos = agricolaTemNegativo
-    || (data.receita.produtos || []).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
+    || produtosReceitaAtivos(data.receita.produtos).some(p => (p.volumes || []).some(v => parseNum(v) < 0) || ((p.mercado === 'externo' ? p.precoMoeda : p.precos) || []).some(v => parseNum(v) < 0))
     || Object.values(data.custos.linhas || {}).some(linha => contaTemNegativo(linha));
   checks.push({
     label: 'Nenhum valor negativo em receita ou custos/despesas',

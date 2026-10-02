@@ -48,7 +48,7 @@ async function enviarEmail({ to, subject, html, text }) {
 export async function notificarEnvioParaFpa({ unidadeNome, autorNome, comentario, totais }) {
   const destinatarios = await listarEmailsAdminFpa();
   const linhaTotais = totais
-    ? `Receita Líquida: R$ ${Number(totais.receitaLiquida || 0).toLocaleString('pt-BR')} · EBITDA: R$ ${Number(totais.ebitda || 0).toLocaleString('pt-BR')} · Lucro Líquido: R$ ${Number(totais.lucroLiquido || 0).toLocaleString('pt-BR')}`
+    ? `Receita Líquida: R$ ${Number(totais.receitaLiquida || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} · EBITDA: R$ ${Number(totais.ebitda || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} · Lucro Líquido: R$ ${Number(totais.lucroLiquido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`
     : '';
   // Pedido de 2026-08-17: o e-mail precisa trazer o link da plataforma —
   // config.frontendOrigin (FRONTEND_ORIGIN) é a mesma origem que o backend
